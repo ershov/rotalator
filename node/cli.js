@@ -1,47 +1,15 @@
 'use strict';
 const { load } = require('./load.js');
-const { CsvDirStorage, isBlankRow } = require('./storage.js');
+const { CsvDirStorage } = require('./storage.js');
 
 function ledgerCsv(rows) {
   const U = load();
   return U.formatCsv([U.LEDGER_HEADER, ...rows]);
 }
 
-function describeError(U, e) {
-  const where = e.rowIndex !== null && e.rowIndex !== undefined ? `row ${e.rowIndex}` : e.start !== null && e.start !== undefined ? U.formatDateTime(e.start) : 'ledger';
-  return `${e.rotation} ${where}: ${e.message}`;
-}
-
-// Read, advance, regenerate and optionally write back. Returns { ledgers, errors, status }.
-// Bad now or holiday cells stop the run with the ledgers unchanged.
+// Runs the src runner; the result is cloned out of the vm context.
 function runStorage(storage, nowText, options = {}) {
-  const U = load();
-  const errors = [];
-  const ledgers = storage.readLedgers();
-  const now = U.parseDateTime(nowText ?? '');
-  if (now === null) errors.push(`bad now "${nowText ?? ''}"`);
-  const holidays = [];
-  storage.readHolidays().forEach((text, i) => {
-    if (text === null) return;
-    const day = U.parseDay(text);
-    if (day === null) errors.push(`holidays row ${i + 2}: bad date "${text}"`);
-    else holidays.push(day);
-  });
-  if (errors.length) return { ledgers, errors, status: null };
-
-  const rotations = Object.keys(ledgers).map((name) => {
-    const rows = ledgers[name].map((cells, i) => (isBlankRow(cells) ? null : U.rowFromArray(cells, i + 2))).filter(Boolean);
-    return { name, rows, snapshotAt: U.advance(rows, now) };
-  });
-  const result = U.regenerate({ rotations, holidays, links: storage.readLinks() });
-  const out = {};
-  result.rotations.forEach((r) => { out[r.name] = structuredClone(r.rows.map(U.rowToArray)); });
-  result.errors.forEach((e) => errors.push(describeError(U, e)));
-  if (options.write) {
-    Object.keys(out).forEach((name) => storage.writeLedger(name, out[name]));
-    storage.writeStatus(structuredClone(result.status));
-  }
-  return { ledgers: out, errors, status: structuredClone(result.status) };
+  return structuredClone(load().runStorage(storage, nowText, options));
 }
 
 function runDir(dir, nowText, options = {}) {

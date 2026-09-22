@@ -364,7 +364,7 @@ synthetic all-rotations view tab can be added with `Status`.
 
 ```
 build.sh              bundle src/ into dist/Code.js and copy the manifest
-test.sh               node --test test/
+test.sh               node --test test/**/*.test.js
 src/
   00_util.js          naive datetime, durations, lists, FNV-1a, CSV
   10_model.js         row parsing, validation, serialization
@@ -373,6 +373,7 @@ src/
   40_scheduler.js     prune, claims, pre-credit, sweep, selection
   50_status.js        status data (stage 3)
   60_links.js         Links reader and filters (stage 4)
+  80_runner.js        storage-agnostic run: read, advance, regenerate, write
   90_gas.js           Apps Script entry points and Sheets adapter
   appsscript.json     V8 runtime, time zone
 node/
@@ -406,8 +407,11 @@ writeStatus(data)
 ```
 
 `90_gas.js` implements it on `SpreadsheetApp`, `node/storage.js` on memory and
-CSV files. The runner in each adapter obtains `now`, converts it to the
-spreadsheet time zone, calls `advance` and then `regenerate`, and writes.
+CSV files. `80_runner.js` holds the shared `runStorage(storage, nowText,
+options)`: it reads through the storage, drops blank rows, calls `advance` and
+then `regenerate`, and writes when asked. Each adapter only obtains `now` in
+the spreadsheet time zone as `YYYY-MM-DDTHH:MM` text and converts date cells
+to that form before handing them over.
 
 Apps Script menu: `Run now`, `Dry run` (writes `<rotation>.preview` tabs),
 `Install nightly trigger`, `Remove trigger`.
@@ -459,6 +463,10 @@ columns formatted as plain text, initial `set` and `team` rows, `Holidays` tab.
 - Period `Nm` (months) is not supported.
 - Member identity is the verbatim string. Renaming a member means editing
   history or adding a `score` row.
+- Only the eight ledger columns are managed. Content in further columns does
+  not follow its row when the ledger is re-sorted.
+- A hand-entered history shift without `end` or `duration` extends only to
+  the next grid boundary, so a longer shift is credited one period.
 
 ## 13. Future extensions
 

@@ -3,10 +3,6 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { load } = require('./load.js');
 
-function isBlankRow(cells) {
-  return cells.every((c) => String(c ?? '').trim() === '');
-}
-
 // Storage interface of DESIGN 8. Ledgers are cell arrays without the header row; holidays are date texts
 // (null for a blank row).
 class MemoryStorage {
@@ -68,7 +64,7 @@ class CsvDirStorage {
   readHolidays() {
     const rows = this.readCsv('holidays.csv') || [];
     const body = rows.length && String(rows[0][0]).trim().toLowerCase() === 'date' ? rows.slice(1) : rows;
-    return body.map((r) => (isBlankRow(r) ? null : String(r[0] ?? '').trim()));
+    return body.map((r) => (this.U.isBlankRow(r) ? null : String(r[0] ?? '').trim()));
   }
 
   readLinks() {
@@ -90,4 +86,4 @@ class CsvDirStorage {
   }
 }
 
-module.exports = { MemoryStorage, CsvDirStorage, isBlankRow };
+module.exports = { MemoryStorage, CsvDirStorage };
