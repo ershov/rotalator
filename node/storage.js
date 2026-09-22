@@ -29,6 +29,10 @@ class MemoryStorage {
     this.ledgers[rotation] = structuredClone(rows);
   }
 
+  writeLinks(rows) {
+    this.links = structuredClone(rows);
+  }
+
   writeStatus(data) {
     this.status = data;
   }
@@ -67,9 +71,10 @@ class CsvDirStorage {
     return body.map((r) => (this.U.isBlankRow(r) ? null : String(r[0] ?? '').trim()));
   }
 
+  // links.csv must carry the ledger header; anything else is ignored.
   readLinks() {
     const rows = this.readCsv('links.csv') || [];
-    return rows.length && this.U.isLedgerHeader(rows[0]) ? rows.slice(1) : rows;
+    return rows.length && this.U.isLedgerHeader(rows[0]) ? rows.slice(1) : [];
   }
 
   readNow() {
@@ -79,6 +84,10 @@ class CsvDirStorage {
 
   writeLedger(rotation, rows) {
     fs.writeFileSync(this.file(rotation + '.csv'), this.U.formatCsv([this.U.LEDGER_HEADER, ...rows]));
+  }
+
+  writeLinks(rows) {
+    fs.writeFileSync(this.file('links.csv'), this.U.formatCsv([this.U.LEDGER_HEADER, ...rows]));
   }
 
   writeStatus(data) {

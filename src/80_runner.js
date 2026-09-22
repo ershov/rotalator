@@ -8,8 +8,15 @@ function describeError(e) {
   return e.rotation + ' ' + where + ': ' + e.message;
 }
 
+function rowsFromCells(cells) {
+  return cells
+    .map(function (row, i) { return isBlankRow(row) ? null : rowFromArray(row, i + 2); })
+    .filter(Boolean);
+}
+
 // Read, advance, regenerate and optionally write back through a Storage (DESIGN 8).
-// Returns { ledgers, errors, status }. Bad now or holiday cells stop the run with the ledgers unchanged.
+// Returns { ledgers, links, errors, status }; links is null when there is no Links tab.
+// Bad now or holiday cells stop the run with the ledgers unchanged.
 function runStorage(storage, nowText, options) {
   options = options || {};
   var errors = [];
@@ -23,23 +30,24 @@ function runStorage(storage, nowText, options) {
     if (day === null) errors.push('holidays row ' + (i + 2) + ': bad date "' + text + '"');
     else holidays.push(day);
   });
-  if (errors.length) return { ledgers: ledgers, errors: errors, status: null };
+  var linkCells = storage.readLinks();
+  if (errors.length) return { ledgers: ledgers, links: null, errors: errors, status: null };
 
   var rotations = Object.keys(ledgers).map(function (name) {
-    var rows = ledgers[name]
-      .map(function (cells, i) { return isBlankRow(cells) ? null : rowFromArray(cells, i + 2); })
-      .filter(Boolean);
+    var rows = rowsFromCells(ledgers[name]);
     return { name: name, rows: rows, snapshotAt: advance(rows, now) };
   });
-  var result = regenerate({ rotations: rotations, holidays: holidays, links: storage.readLinks() });
+  var result = regenerate({ rotations: rotations, holidays: holidays, links: rowsFromCells(linkCells) });
   var out = {};
   result.rotations.forEach(function (r) { out[r.name] = r.rows.map(rowToArray); });
+  var links = linkCells.length ? result.links.rows.map(rowToArray) : null;
   result.errors.forEach(function (e) { errors.push(describeError(e)); });
   result.status.now = nowText;
   result.status.mode = options.mode || (options.write ? 'run' : 'dry run');
   if (options.write) {
     Object.keys(out).forEach(function (name) { storage.writeLedger(name, out[name]); });
+    if (links) storage.writeLinks(links);
     storage.writeStatus(result.status);
   }
-  return { ledgers: out, errors: errors, status: result.status };
+  return { ledgers: out, links: links, errors: errors, status: result.status };
 }

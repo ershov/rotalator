@@ -24,7 +24,7 @@ Setup and deployment are in [INSTALL.md](INSTALL.md). The design is in
 | `Status` | script | Scores, last and next shifts, exclusions, warnings. Rewritten on every run. |
 | `Shifts` | script | Every shift of every rotation in one table. Rewritten on every run. |
 | `<rotation>.preview` | script | Output of a dry run. |
-| `Links` | users | Reserved for relations between rotations (not yet implemented). |
+| `Links` | users and script | Relations between rotations, see below. The script adds `error` rows. |
 
 A tab is a ledger when its first row is exactly the header below. Tabs whose
 name starts with `.` and tabs without the header are ignored.
@@ -195,6 +195,35 @@ validation error the tab lists the errors instead of rotations.
 start, end, rotation, who, pinned, note. The end is the scored end of the
 shift. Both tabs are rewritten by every run, including dry runs.
 
+## Links between rotations
+
+The optional `Links` tab relates rotations over time. It has the same header
+row as a ledger and two row types; `who` stays empty.
+
+| type | arg | end/duration | effect |
+|---|---|---|---|
+| link | `distinct: primary, secondary` | optional | Nobody holds overlapping shifts in both rotations. |
+| link | `joined: alerts, tickets` | optional | The same person is preferred for overlapping shifts. |
+| unlink | same as the link | | Ends the link from `start`. |
+
+```
+pin,start,type,who,arg,end,duration,note
+,2026-06-01T09:00,link,,"distinct: primary, secondary",,,one person on call
+,2026-12-01T09:00,unlink,,"distinct: primary, secondary",,,
+```
+
+Rotations named earlier in a link are decided first when shifts start at the
+same instant. `distinct` is hard: when it leaves nobody, the slot gets an
+empty `shift` and an `error` row like any unassignable slot. `joined` only
+prefers someone who is already within `tolerance` of the lowest score;
+otherwise the usual selection applies. Rotations may use different periods;
+overlaps are compared on the actual intervals.
+
+A link row that names a rotation without a tab, has a malformed `arg`, or an
+`unlink` without an active link gets an `error` row above it in `Links` and is
+ignored. Unlike ledger errors, this does not stop the run. `Links` is written
+back sorted; a dry run writes `Links.preview`.
+
 ## What the script never touches
 
 - Pinned rows.
@@ -232,7 +261,6 @@ generated shift's `note`.
   history or adding a `score` row.
 - Only the eight ledger columns are managed. Extra columns do not follow rows
   when the ledger is re-sorted.
-- `Links` between rotations are planned, not implemented.
 
 ## Local dry runs
 

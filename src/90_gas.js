@@ -1,7 +1,6 @@
 // Apps Script entry points and Sheets adapter. Not loaded by Node tests.
 
 var HOLIDAYS_TAB = 'Holidays';
-var LINKS_TAB = 'Links';
 var STATUS_TAB = 'Status';
 var SHIFTS_TAB = 'Shifts';
 var PREVIEW_SUFFIX = '.preview';
@@ -36,7 +35,7 @@ class SheetsStorage {
   }
 
   isReservedName(name) {
-    return name.charAt(0) === '.' || name === HOLIDAYS_TAB || name === LINKS_TAB || name === STATUS_TAB || name === SHIFTS_TAB ||
+    return name.charAt(0) === '.' || name === HOLIDAYS_TAB || name === LINKS_NAME || name === STATUS_TAB || name === SHIFTS_TAB ||
       name.slice(-PREVIEW_SUFFIX.length) === PREVIEW_SUFFIX;
   }
 
@@ -64,11 +63,12 @@ class SheetsStorage {
     return body.map(function (r) { return isBlankRow(r) ? null : cellText(r[0]); });
   }
 
+  // The Links tab must carry the ledger header; anything else is ignored.
   readLinks() {
-    var sheet = this.ss.getSheetByName(LINKS_TAB);
+    var sheet = this.ss.getSheetByName(LINKS_NAME);
     if (!sheet) return [];
     var rows = this.readValues(sheet, CELL_DATETIME_FORMAT);
-    return rows.length && isLedgerHeader(rows[0]) ? rows.slice(1) : rows;
+    return rows.length && isLedgerHeader(rows[0]) ? rows.slice(1).map(function (row) { return row.slice(0, LEDGER_HEADER.length); }) : [];
   }
 
   sheetNamed(name) {
@@ -83,19 +83,28 @@ class SheetsStorage {
     range.setValues(rows);
   }
 
-  writeLedger(rotation, rows) {
+  // Rows below the header of a ledger-shaped tab; previews go to <name>.preview with a fresh header.
+  writeLedgerRows(name, rows) {
     var sheet;
     if (this.preview) {
-      sheet = this.sheetNamed(rotation + PREVIEW_SUFFIX);
+      sheet = this.sheetNamed(name + PREVIEW_SUFFIX);
       sheet.clearContents();
       this.writeTextRows(sheet, 1, [LEDGER_HEADER]);
     } else {
-      sheet = this.ss.getSheetByName(rotation);
+      sheet = this.ss.getSheetByName(name);
       if (!sheet) return;
       var last = sheet.getLastRow();
       if (last > 1) sheet.getRange(2, 1, last - 1, LEDGER_HEADER.length).clearContent();
     }
     this.writeTextRows(sheet, 2, rows);
+  }
+
+  writeLedger(rotation, rows) {
+    this.writeLedgerRows(rotation, rows);
+  }
+
+  writeLinks(rows) {
+    this.writeLedgerRows(LINKS_NAME, rows);
   }
 
   writeTable(name, rows) {

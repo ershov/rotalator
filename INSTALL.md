@@ -25,7 +25,11 @@ with `clasp` or by pasting the bundle into the Apps Script editor.
 6. Add a `Holidays` tab with the header `date | note` in row 1. Column A holds
    one date per row as `YYYY-MM-DD` text or a real date cell; column B is a
    note. Holidays only matter when a rotation sets `skip_holidays=true`.
-7. Optional: freeze row 1 (**View > Freeze > 1 row**) and add a checkbox to
+7. Optional, with more than one rotation: add a `Links` tab with the same
+   eight-cell header as a ledger, and `link` rows such as
+   `distinct: primary, secondary` in `arg` (see the README). Format column B
+   as plain text like a ledger; the script writes `error` rows there.
+8. Optional: freeze row 1 (**View > Freeze > 1 row**) and add a checkbox to
    the `pin` column (**Insert > Checkbox**). An unticked checkbox counts as
    empty.
 

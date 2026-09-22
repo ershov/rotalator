@@ -179,7 +179,7 @@ function rotationItems(rot) {
 function mergeItems(rots) {
   var items = [];
   rots.forEach(function (rot) { items = items.concat(rotationItems(rot)); });
-  return items.sort(function (a, b) { return (a.start - b.start) || (a.rot - b.rot) || (a.order - b.order); });
+  return items.sort(function (a, b) { return (a.start - b.start) || (rots[a.rot].rank - rots[b.rot].rank) || (a.order - b.order); });
 }
 
 function applyStateRow(rot, item) {
@@ -221,7 +221,7 @@ function previousAssignee(rot, entry) {
   return previous ? previous.who : null;
 }
 
-// DESIGN 5.7 steps 3 and 4.
+// DESIGN 5.7 steps 3 and 4. joined links prefer holders of an overlapping shift in a linked rotation.
 function tiebreak(rot, entry, candidates) {
   var names = rot.roster.names();
   var chosen = new Set(candidates.map(function (m) { return m.name; }));
@@ -243,17 +243,20 @@ function tiebreak(rot, entry, candidates) {
   return null;
 }
 
-function assignSlot(rot, entry, holidays) {
+// DESIGN 5.7 and 7. distinct holders are removed before relaxation; joined holders are preferred inside the band.
+function assignSlot(rot, entry, holidays, ctx) {
   var settings = rot.settings;
   var roster = rot.roster;
   var a = entry.start, b = entry.slotEnd;
   var minDistance = settings.get('min_distance');
+  var distinct = linkedHolders(ctx, rot, 'distinct', a, b);
+  var members = roster.members.filter(function (m) { return !distinct.has(m.name); });
   var eligible = [];
   var used = 0;
   for (var d = minDistance; d >= 0 && !eligible.length; d--) {
     var D = d * settings.get('period');
     used = d;
-    eligible = roster.members.filter(function (m) {
+    eligible = members.filter(function (m) {
       return !roster.isExcluded(m.name, a, b) && !hasShiftOverlapping(rot, m.name, a - D, b + D);
     });
   }
@@ -262,7 +265,9 @@ function assignSlot(rot, entry, holidays) {
     var lowest = Math.min.apply(null, eligible.map(function (m) { return m.score; }));
     var tolerance = settings.get('tolerance');
     var candidates = eligible.filter(function (m) { return m.score <= lowest + tolerance; });
-    entry.who = tiebreak(rot, entry, candidates);
+    var joined = linkedHolders(ctx, rot, 'joined', a, b);
+    var preferred = candidates.filter(function (m) { return joined.has(m.name); });
+    entry.who = tiebreak(rot, entry, preferred.length ? preferred : candidates);
     roster.credit(entry.who, units(a, entry.end, settings.unitsOptions(holidays)));
     if (used < minDistance) {
       note = 'min_distance relaxed to ' + used;
@@ -275,7 +280,7 @@ function assignSlot(rot, entry, holidays) {
   entry.generated = makeRow({ type: 'shift', start: a, who: entry.who === null ? '' : entry.who, note: note });
 }
 
-function sweep(items, rots, holidays) {
+function sweep(items, rots, holidays, ctx) {
   items.forEach(function (item) {
     var rot = rots[item.rot];
     if (rot.errors.length) return;
@@ -299,7 +304,7 @@ function sweep(items, rots, holidays) {
         }
         break;
       case 'slot':
-        assignSlot(rot, item.entry, holidays);
+        assignSlot(rot, item.entry, holidays, ctx);
         break;
     }
   });
@@ -316,15 +321,30 @@ function collectErrors(rots, list) {
 }
 
 // DESIGN 6: rows unchanged plus an error row above each offending row.
-function errorOutput(rots) {
-  var errors = collectErrors(rots, 'errors');
+function errorOutput(rots, links) {
+  var errors = collectErrors(rots, 'errors').concat(links.errors);
   return {
     rotations: rots.map(function (rot) {
       return { name: rot.name, rows: sortRows(rot.rows.concat(rot.errors.map(errorRow))) };
     }),
+    links: { rows: links.rows, errors: links.errors },
     errors: errors,
     status: buildStatus([], [], errors),
   };
+}
+
+// Links rows and errors in the regenerate output shape; link errors never block regeneration.
+function prepareLinks(rows, rots) {
+  var names = rots.map(function (r) { return r.name; });
+  var parsed = parseLinks(rows || [], names);
+  var order = linkedRotationOrder(parsed.links, names);
+  rots.forEach(function (rot) { rot.rank = order.indexOf(rot.name); });
+  var errors = parsed.errors.map(function (e) {
+    return { rotation: LINKS_NAME, rowIndex: e.rowIndex, start: e.start, message: e.message };
+  });
+  var byName = {};
+  rots.forEach(function (rot) { byName[rot.name] = rot; });
+  return { rows: parsed.rows, errors: errors, links: parsed.links, byName: byName };
 }
 
 function rotationOutput(rot) {
@@ -333,18 +353,22 @@ function rotationOutput(rot) {
   return { name: rot.name, rows: sortRows(rows.concat(rot.problems.map(errorRow))) };
 }
 
-// Pure regeneration of DESIGN 5.3 to 5.8. input: { rotations: [{ name, rows, snapshotAt }], holidays: [dayIndex], links }.
+// Pure regeneration of DESIGN 5.3 to 5.8 and 7.
+// input: { rotations: [{ name, rows, snapshotAt }], holidays: [dayIndex], links: Links row objects }.
+// Output: { rotations: [{ name, rows }], links: { rows, errors }, errors, status }.
 function regenerate(input) {
   var holidays = new Set(input.holidays || []);
   var rots = input.rotations.map(prepareRotation);
+  var links = prepareLinks(input.links, rots);
   var hasErrors = function () { return rots.some(function (rot) { return rot.errors.length > 0; }); };
-  if (hasErrors()) return errorOutput(rots);
-  sweep(mergeItems(rots), rots, holidays);
-  if (hasErrors()) return errorOutput(rots);
+  if (hasErrors()) return errorOutput(rots, links);
+  sweep(mergeItems(rots), rots, holidays, links);
+  if (hasErrors()) return errorOutput(rots, links);
   var warnings = collectErrors(rots, 'warnings').concat(collectErrors(rots, 'problems'));
   return {
     rotations: rots.map(rotationOutput),
-    errors: collectErrors(rots, 'problems'),
-    status: buildStatus(rots, warnings, []),
+    links: { rows: links.rows, errors: links.errors },
+    errors: collectErrors(rots, 'problems').concat(links.errors),
+    status: buildStatus(rots, warnings, links.errors),
   };
 }

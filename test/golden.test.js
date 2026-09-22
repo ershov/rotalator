@@ -8,7 +8,7 @@ const { CsvDirStorage, MemoryStorage } = require('../node/storage.js');
 
 const FIXTURES = path.join(__dirname, 'fixtures');
 
-// Each fixture: inputs, expected/<rotation>.csv per ledger, optional expected/errors.txt and expected/status.txt.
+// Each fixture: inputs, expected/<rotation>.csv per ledger, optional expected/links.csv, errors.txt and status.txt.
 // A second run on the output with the same now must reproduce it exactly.
 for (const name of fs.readdirSync(FIXTURES).sort()) {
   const dir = path.join(FIXTURES, name);
@@ -17,18 +17,22 @@ for (const name of fs.readdirSync(FIXTURES).sort()) {
     const storage = new CsvDirStorage(dir);
     const nowText = storage.readNow();
     const result = runDir(dir, nowText);
-    const expected = fs.readdirSync(path.join(dir, 'expected')).filter((f) => f.endsWith('.csv')).map((f) => f.slice(0, -4)).sort();
+    const expected = fs.readdirSync(path.join(dir, 'expected')).filter((f) => f.endsWith('.csv') && f !== 'links.csv').map((f) => f.slice(0, -4)).sort();
     assert.deepEqual(Object.keys(result.ledgers).sort(), expected);
     for (const rotation of expected) {
       assert.equal(ledgerCsv(result.ledgers[rotation]), fs.readFileSync(path.join(dir, 'expected', `${rotation}.csv`), 'utf8'), rotation);
     }
+    const linksFile = path.join(dir, 'expected', 'links.csv');
+    assert.equal(result.links !== null, fs.existsSync(linksFile), 'links present');
+    if (result.links) assert.equal(ledgerCsv(result.links), fs.readFileSync(linksFile, 'utf8'), 'links');
     const errorsFile = path.join(dir, 'expected', 'errors.txt');
     const expectedErrors = fs.existsSync(errorsFile) ? fs.readFileSync(errorsFile, 'utf8').trim().split('\n').filter(Boolean) : [];
     assert.deepEqual(result.errors, expectedErrors);
     const statusFile = path.join(dir, 'expected', 'status.txt');
     if (fs.existsSync(statusFile)) assert.equal(statusText(result.status), fs.readFileSync(statusFile, 'utf8'));
 
-    const again = runStorage(new MemoryStorage({ ledgers: result.ledgers, holidays: storage.readHolidays(), links: storage.readLinks() }), nowText);
+    const again = runStorage(new MemoryStorage({ ledgers: result.ledgers, holidays: storage.readHolidays(), links: result.links ?? [] }), nowText);
+    if (result.links) assert.equal(ledgerCsv(again.links), ledgerCsv(result.links), 'links second run');
     for (const rotation of expected) {
       assert.equal(ledgerCsv(again.ledgers[rotation]), ledgerCsv(result.ledgers[rotation]), `${rotation} second run`);
     }

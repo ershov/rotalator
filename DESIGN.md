@@ -47,7 +47,7 @@ fair. There is no UI beyond the spreadsheet itself.
 |---|---|---|
 | `<rotation>` | users and script | One per rotation. Tab name is the rotation name. |
 | `Holidays` | users | Column A: date `YYYY-MM-DD`, column B: note. Applies to all rotations. |
-| `Links` | users | Stage 4. Relations between rotations over time. |
+| `Links` | users and script | Relations between rotations over time; the script adds `error` rows. |
 | `Status` | script | Scores, last and next shifts, exclusions, warnings. Fully rewritten each run. |
 | `Shifts` | script | Every shift of every rotation in one table. Fully rewritten each run. |
 | `<rotation>.preview` | script | Dry run output. |
@@ -351,7 +351,7 @@ on the next read, so fixing the cause and rerunning clears them.
   warnings table.
 - Dangling link to a missing rotation tab: `error` row in `Links`, link ignored.
 
-## 7. Multiple rotations and Links (stage 4)
+## 7. Multiple rotations and Links
 
 Rotations are tabs and can appear or disappear at any time. Relations between
 them live in the `Links` tab, a timeline with the same column layout as a
@@ -361,17 +361,36 @@ ledger:
 pin | start | type | who | arg | end | duration | note
 ```
 
-- `link`: `arg` is `distinct: primary, secondary` or `joined: alerts, tickets`.
-  Active from `start` until `end`, `duration`, or a matching `unlink` row.
-- `unlink`: same `arg`, ends the relation.
+The tab carries the ledger header row. `who` is empty for both types.
 
-`distinct` removes from a slot's candidates any member holding an overlapping
-shift in a linked rotation that was decided earlier in the sweep. Rotations
-listed earlier in the link are decided first at equal starts. `joined` prefers
-the member holding an overlapping shift in a linked rotation if they are inside
-the tolerance band, otherwise normal selection applies. `distinct` is hard and
-is never relaxed. Stage 1 already sweeps all rotations in one merged time
-order, so stage 4 adds only the `Links` reader and two candidate filters. A
+- `link`: `arg` is `distinct: primary, secondary` or `joined: alerts, tickets`,
+  two or more distinct rotation names. Active from `start` until `end`,
+  `duration`, or a matching `unlink` row.
+- `unlink`: same `arg`; closes every open link of the same kind and the same
+  set of rotations, in any order, that is active at its `start`.
+
+A link applies to a slot when it is active at the slot's start. Overlap is
+tested on intervals, so rotations with different periods combine. `distinct`
+removes from a slot's candidates any member holding a shift, kept or already
+generated, that overlaps the slot in a linked rotation; it is applied before
+`min_distance` relaxation and is never relaxed, so an empty candidate list
+yields a `shift` with nobody and an `error` row as in 5.7. `joined` prefers,
+among the candidates inside the tolerance band, the members holding an
+overlapping shift in a linked rotation; when none is in the band, normal
+selection applies.
+
+Rotations are decided at equal starts in the order they first appear in the
+`link` rows, top to bottom, then the remaining rotations in tab order. This
+order is static for the run; it does not change when links start or end.
+
+Link rows that fail validation (unknown type, bad `start`, `who` given,
+malformed `arg`, a rotation name without a ledger tab, `unlink` without an
+active link, bad `end` or `duration`) get an `error` row above them in `Links`
+and are ignored; the run still reports them. They do not stop regeneration,
+because the ledgers do not depend on the `Links` tab being valid. `Links` is
+written back in full like a ledger when the tab exists; a dry run writes
+`Links.preview`. The sweep already walks all rotations in one merged time
+order, so links add only the `Links` reader and two candidate filters. The
 `Shifts` tab is the all-rotations view.
 
 ## 8. Code layout
@@ -386,7 +405,7 @@ src/
   30_state.js         roster, scores, exclusions, settings replay
   40_scheduler.js     prune, claims, pre-credit, sweep, selection
   50_status.js        status data, Status and Shifts rows
-  60_links.js         Links reader and filters (stage 4)
+  60_links.js         Links reader, rotation order, distinct and joined filters
   80_runner.js        storage-agnostic run: read, advance, regenerate, write
   90_gas.js           Apps Script entry points and Sheets adapter
   appsscript.json     V8 runtime, time zone
@@ -417,6 +436,7 @@ readLedgers()   -> { [rotation]: rows[] }
 readHolidays()  -> dates[]
 readLinks()     -> rows[]
 writeLedger(rotation, rows)
+writeLinks(rows)
 writeStatus(status)
 ```
 
@@ -447,7 +467,7 @@ Apps Script menu: `Run now`, `Dry run` (writes `<rotation>.preview` tabs),
   the current grid boundary; tolerance and min_distance interplay; shuffle
   determinism across runs; period change via `set`; validation errors produce
   error rows and no other change; unassignable slot; snapshot deletion
-  triggers full replay.
+  triggers full replay; `distinct` and `joined` links between two rotations.
 
 ## 10. Deployment
 
