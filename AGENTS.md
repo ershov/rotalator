@@ -1,3 +1,18 @@
+## Project rules
+
+- Spec is `DESIGN.md`. Read it before changing behaviour; keep it current.
+- `src/` is plain JavaScript for the Apps Script V8 runtime: classes, arrow
+  functions, destructuring, optional chaining and `??` are fine. No
+  `import`/`export`, no `#private` fields, no static class fields, no
+  top-level code that references another file. Files share one global scope.
+- Zero dependencies, runtime or dev. No `package.json`, no `npm install`.
+  Tests use `node --test` (Node 24). Any new dependency needs the owner's
+  explicit approval.
+- `./test.sh` must pass before every commit. `./build.sh` bundles `src/` into
+  `dist/Code.js`; `dist/` is not committed.
+- Comments: brief, only where code is not self-explanatory. No narrative.
+- Temporary files go in `./.tmp/`, never committed. Never push.
+
 
 ## Task tracking
 
