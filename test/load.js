@@ -14,7 +14,11 @@ function load() {
     .filter((f) => f.endsWith('.js') && f !== '90_gas.js')
     .sort();
   for (const f of files) {
-    vm.runInContext(fs.readFileSync(path.join(SRC, f), 'utf8'), ctx, { filename: f });
+    const code = fs.readFileSync(path.join(SRC, f), 'utf8');
+    vm.runInContext(code, ctx, { filename: f });
+    // Top-level class/const/let bindings are lexical, not global properties; publish them so tests can reach them.
+    const names = [...code.matchAll(/^(?:class|const|let)\s+(\w+)/gm)].map((m) => m[1]);
+    if (names.length) vm.runInContext(names.map((n) => `globalThis.${n} = ${n};`).join('\n'), ctx);
   }
   cached = ctx;
   return ctx;
