@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const U = require('./load.js').load();
+const U = require('../node/load.js').load();
 
 const plain = (v) => structuredClone(v);
 const dt = (s) => U.parseDateTime(s);

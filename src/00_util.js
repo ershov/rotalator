@@ -162,21 +162,21 @@ function fnv1a32(str) {
   return h >>> 0;
 }
 
-// RFC 4180 style. Lines with no characters at all are skipped.
+// RFC 4180 style. A blank line yields [''] so row numbers match line numbers.
 function parseCsv(text) {
   var rows = [];
   var row = [];
   var field = '';
   var quoted = false;
-  var lineHasContent = false;
+  var lineStarted = false;
   var i = 0;
   var n = text.length;
   var endRow = function () {
     row.push(field);
-    if (lineHasContent) rows.push(row);
+    rows.push(row);
     row = [];
     field = '';
-    lineHasContent = false;
+    lineStarted = false;
   };
   while (i < n) {
     var c = text[i];
@@ -193,13 +193,13 @@ function parseCsv(text) {
     }
     if (c === '\r') { if (text[i + 1] === '\n') i++; endRow(); i++; continue; }
     if (c === '\n') { endRow(); i++; continue; }
-    lineHasContent = true;
+    lineStarted = true;
     if (c === '"' && field === '') { quoted = true; i++; continue; }
     if (c === ',') { row.push(field); field = ''; i++; continue; }
     field += c;
     i++;
   }
-  if (lineHasContent) endRow();
+  if (lineStarted) endRow();
   return rows;
 }
 
@@ -208,7 +208,7 @@ function formatCsvField(value) {
   return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 
-// A row with a single empty field is written as "" so it is not read back as a blank line.
+// A row with a single empty field is written as "" so the line is visibly a row.
 function formatCsvRow(row) {
   var line = row.map(formatCsvField).join(',');
   return line === '' ? '""' : line;

@@ -104,13 +104,14 @@ are kept sorted by `start`; the script re-sorts on every write.
 | error | | message | | script |
 
 **shift.** Assigns `who` from `start`. Its scored interval ends at the explicit
-`end`, else at the start of the next `shift` row, else at the next grid
-boundary strictly after `start`. The last rule gives the final row of the
-ledger a definite extent without a terminator row or an explicit `end`. Its
-claim (see 5.4) ends at the explicit `end`, else at the next grid boundary
-strictly after `start`. Unpinned shifts starting after the snapshot belong to
-the script and are regenerated every run. Any user edit to a future shift must
-be pinned or it is lost.
+`end`, else at the earlier of the next `shift` row's start and the next grid
+boundary strictly after `start`. The grid rule gives the final row of the
+ledger a definite extent without a terminator row or an explicit `end`, and
+keeps a stale ledger's last shift from being credited for the gap before the
+next run. Its claim (see 5.4) ends at the explicit `end`, else at the next grid
+boundary strictly after `start`. Unpinned shifts starting after the snapshot
+belong to the script and are regenerated every run. Any user edit to a future
+shift must be pinned or it is lost.
 
 **team.** Sets the full roster. `alice, bob, carol=median, dave=12, erin+=2`.
 The list is diffed against the current roster: absent members leave, new
@@ -375,10 +376,10 @@ src/
   90_gas.js           Apps Script entry points and Sheets adapter
   appsscript.json     V8 runtime, time zone
 node/
-  storage.js          in-memory and CSV directory adapters
-  cli.js              node node/cli.js --dir DIR --now 2026-10-01T09:00 [--write]
-test/
   load.js             evaluates src/*.js except 90_gas.js into one vm context
+  storage.js          in-memory and CSV directory adapters
+  cli.js              node node/cli.js --dir DIR --now ISO [--write]
+test/
   *.test.js           unit tests
   fixtures/<case>/    golden scenarios
 dist/                 build output, not committed
@@ -417,14 +418,15 @@ Apps Script menu: `Run now`, `Dry run` (writes `<rotation>.preview` tabs),
   with skipped days, grid and claims, selection with each tiebreak, relaxation.
 - Golden scenarios: a fixture directory holds `now.txt`, `holidays.csv`,
   optional `links.csv`, one `<rotation>.csv` per ledger, and
-  `expected.<rotation>.csv`. The test runs the core and compares. A second run
+  `expected/<rotation>.csv`. The test runs the core and compares. A second run
   on the output must reproduce it exactly.
 - Scenarios: fresh sheet bootstrap; steady state; pin a future shift; swap two
   assignees; vacation exclusion; join with each baseline; leave and rejoin;
-  team row diff; partial substitution with fill shift; stale run resumes at the current grid boundary;
-  tolerance and min_distance interplay; shuffle determinism across runs;
-  period change via `set`; validation errors produce error rows and no other
-  change; unassignable slot; snapshot deletion triggers full replay.
+  team row diff; partial substitution with fill shift; stale run resumes at
+  the current grid boundary; tolerance and min_distance interplay; shuffle
+  determinism across runs; period change via `set`; validation errors produce
+  error rows and no other change; unassignable slot; snapshot deletion
+  triggers full replay.
 
 ## 10. Deployment
 

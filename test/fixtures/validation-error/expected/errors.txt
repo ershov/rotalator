@@ -1,0 +1,2 @@
+primary row 24: unknown type "vacation"
+primary row 25: end and duration are mutually exclusive

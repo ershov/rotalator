@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const U = require('./load.js').load();
+const U = require('../node/load.js').load();
 
 const plain = (v) => structuredClone(v);
 const dt = (s) => U.parseDateTime(s);
@@ -58,12 +58,12 @@ test('claimEnd: explicit end or next boundary, truncated by next shift and grid 
   assert.equal(U.claimEnd(long, undefined, g, undefined), MON + 2 * W);
 });
 
-test('scoredEnd: explicit end, else next shift start, else next boundary', () => {
+test('scoredEnd: explicit end, else the earlier of next shift start and next boundary', () => {
   const g = new U.Grid({ period: W, anchor: MON });
   const open = U.makeRow({ type: 'shift', start: MON + 1440, who: 'a' });
   assert.equal(U.scoredEnd(open, null, g), MON + W);
   assert.equal(U.scoredEnd(open, MON + 3 * 1440, g), MON + 3 * 1440);
-  assert.equal(U.scoredEnd(open, MON + 3 * W, g), MON + 3 * W);
+  assert.equal(U.scoredEnd(open, MON + 3 * W, g), MON + W);
   const fixed = U.makeRow({ type: 'shift', start: MON, end: MON + 720 });
   assert.equal(U.scoredEnd(fixed, MON + 60, g), MON + 720);
 });

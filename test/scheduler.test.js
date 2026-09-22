@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const U = require('./load.js').load();
+const U = require('../node/load.js').load();
 
 const plain = (v) => structuredClone(v);
 const dt = (s) => U.parseDateTime(s);
@@ -41,6 +41,8 @@ test('advance: grid floor when no shift covers now', () => {
   assert.equal(U.advance(ledger, dt('2026-11-04T12:00')), dt('2026-11-02T09:00'));
   assert.equal(U.advance(ledger, dt('2026-11-02T08:59')), dt('2026-10-26T09:00'));
   assert.equal(U.advance(rows([SET, TEAM]), dt('2026-10-21T12:00')), dt('2026-10-19T09:00'));
+  const gap = rows([SET, TEAM, R('', '2026-10-05T09:00', 'shift', 'alice', ''), R('x', '2026-11-02T09:00', 'shift', 'bob', '')]);
+  assert.equal(U.advance(gap, dt('2026-10-14T12:00')), dt('2026-10-12T09:00'));
 });
 
 test('advance: raised to anchor', () => {
@@ -90,6 +92,15 @@ test('bootstrap fills the horizon round robin and is idempotent', () => {
   ]);
   assert.equal(out.status.rotations[0].snapshotAt, MON);
   assert.equal(out.status.rotations[0].horizonEnd, MON + 5 * W);
+});
+
+test('a stale run leaves the gap uncredited and resumes at the grid boundary', () => {
+  const first = run([SET, TEAM], '2026-10-05T10:00');
+  const stale = cellsOf(first).filter((c) => c[2] !== 'shift' || c[1] < '2026-10-19');
+  const out = run(stale, '2026-11-04T10:00');
+  assert.equal(U.formatDateTime(ofType(out, 'snapshot')[0].start), '2026-11-02T09:00');
+  assert.equal(ofType(out, 'snapshot')[0].arg, 'alice=7.00, bob=7.00, carol=0.00');
+  assert.deepEqual(shifts(out).map((s) => s[0]).slice(0, 3), ['2026-10-05T09:00', '2026-10-12T09:00', '2026-11-02T09:00']);
 });
 
 test('snapshot advances, records scores at S, keeps history and the current shift, prunes the rest', () => {

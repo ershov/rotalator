@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { load } = require('./load.js');
+const { load } = require('../node/load.js');
 
 test('loader exposes globals from src/00_util.js', () => {
   const ctx = load();

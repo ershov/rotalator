@@ -56,9 +56,9 @@ function claimEnd(shift, nextShiftStart, grid, gridChanges) {
   return end;
 }
 
-// DESIGN 3.4: explicit end, else next shift start, else next grid boundary.
+// DESIGN 3.4: explicit end, else the earlier of the next shift start and the next grid boundary.
 function scoredEnd(shift, nextShiftStart, grid) {
   if (shift.end !== null) return shift.end;
-  if (nextShiftStart !== null && nextShiftStart !== undefined) return nextShiftStart;
-  return grid.next(shift.start);
+  var end = grid.next(shift.start);
+  return nextShiftStart !== null && nextShiftStart !== undefined && nextShiftStart < end ? nextShiftStart : end;
 }

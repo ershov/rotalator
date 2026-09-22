@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const U = require('./load.js').load();
+const U = require('../node/load.js').load();
 
 // Values built inside the vm context have foreign prototypes; clone before deep comparison.
 const plain = (v) => structuredClone(v);
@@ -133,10 +133,10 @@ test('parseCsv handles quotes, embedded separators, newlines and CRLF', () => {
   assert.deepEqual(plain(U.parseCsv('a,b\r\n1,2\r\n')), [['a', 'b'], ['1', '2']]);
   assert.deepEqual(plain(U.parseCsv('"x, y","say ""hi""","line1\nline2",\n')), [['x, y', 'say "hi"', 'line1\nline2', '']]);
   assert.deepEqual(plain(U.parseCsv('a,,c\n,,\n')), [['a', '', 'c'], ['', '', '']]);
-  assert.deepEqual(plain(U.parseCsv('a\n\n\nb')), [['a'], ['b']]);
+  assert.deepEqual(plain(U.parseCsv('a\n\n\nb')), [['a'], [''], [''], ['b']]);
   assert.deepEqual(plain(U.parseCsv('')), []);
   assert.deepEqual(plain(U.parseCsv('"a"\r\n"b\r\nc"')), [['a'], ['b\r\nc']]);
-  assert.deepEqual(plain(U.parseCsv('""\n\n""\n')), [[''], ['']]);
+  assert.deepEqual(plain(U.parseCsv('""\n\n""\n')), [[''], [''], ['']]);
   assert.deepEqual(plain(U.parseCsv(U.formatCsv([['']]))), [['']]);
 });
 

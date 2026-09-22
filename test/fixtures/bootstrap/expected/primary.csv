@@ -1,0 +1,10 @@
+pin,start,type,who,arg,end,duration,note
+,2026-06-01T09:00,set,,"period=1w, horizon=6w",,,
+,2026-06-01T09:00,snapshot,,,,,
+,2026-06-01T09:00,team,,"alice, bob, carol, dave",,,
+,2026-06-01T09:00,shift,alice,,,,
+,2026-06-08T09:00,shift,bob,,,,
+,2026-06-15T09:00,shift,carol,,,,
+,2026-06-22T09:00,shift,dave,,,,
+,2026-06-29T09:00,shift,alice,,,,
+,2026-07-06T09:00,shift,bob,,,,
