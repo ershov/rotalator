@@ -12,6 +12,7 @@ const MON = dt('2026-10-05T09:00');
 const R = (pin, start, type, who, arg, end, duration, note) => [pin, start, type, who, arg, end ?? '', duration ?? '', note ?? ''];
 const rows = (cells) => cells.map((c, i) => U.rowFromArray(c, i + 2));
 const cellsOf = (out, i = 0) => plain(out.rotations[i].rows.map(U.rowToArray));
+const scores = (roster) => plain(roster.map((m) => ({ name: m.name, score: m.score, projected: m.projected })));
 const shifts = (out, i = 0) => plain(out.rotations[i].rows.filter((r) => r.type === 'shift').map((r) => [U.formatDateTime(r.start), r.who, r.note]));
 const ofType = (out, type, i = 0) => out.rotations[i].rows.filter((r) => r.type === type);
 
@@ -85,7 +86,7 @@ test('bootstrap fills the horizon round robin and is idempotent', () => {
   assert.deepEqual(cellsOf(again), cellsOf(out));
   const later = run(cellsOf(out), '2026-10-11T23:00');
   assert.deepEqual(cellsOf(later), cellsOf(out));
-  assert.deepEqual(plain(out.status.rotations[0].roster), [
+  assert.deepEqual(scores(out.status.rotations[0].roster), [
     { name: 'alice', score: null, projected: 14 },
     { name: 'bob', score: null, projected: 14 },
     { name: 'carol', score: null, projected: 7 },
@@ -283,7 +284,7 @@ test('team diff with baselines: leavers, joiners, adjustments and order', () => 
     ['2026-11-09T09:00', 'erin', ''],
     ['2026-11-16T09:00', 'carol', ''],
   ]);
-  assert.deepEqual(plain(out.status.rotations[0].roster), [
+  assert.deepEqual(scores(out.status.rotations[0].roster), [
     { name: 'carol', score: 0, projected: 14 },
     { name: 'dave', score: null, projected: 14 },
     { name: 'alice', score: 7, projected: 14 },
@@ -299,7 +300,7 @@ test('join with each baseline and leave', () => {
   const scoresAfter = (extra, now) => {
     const out = run(cellsOf(first).concat(extra), now);
     assert.deepEqual(plain(out.errors), []);
-    return plain(out.status.rotations[0].roster);
+    return scores(out.status.rotations[0].roster);
   };
   const at = '2026-10-19T09:00';
   const snap = R('', '2026-10-19T09:00', 'snapshot', '', 'alice=7.00, bob=7.00, carol=0.00');
@@ -370,7 +371,9 @@ test('validation errors return rows unchanged plus error rows and skip regenerat
     R('', 'nope', 'error', '', 'bad start "nope"'),
     R('', 'nope', 'leave', 'alice', ''),
   ]);
-  assert.deepEqual(plain(out.status), { rotations: [], warnings: [] });
+  assert.deepEqual(plain(out.status.rotations), []);
+  assert.deepEqual(plain(out.status.shifts), []);
+  assert.deepEqual(plain(out.status.errors.map((e) => e.message)), ['who must be exactly one member id', 'bad start "nope"']);
 });
 
 test('stateful errors: join of a member, leave of a stranger, no regeneration in any rotation', () => {
@@ -395,7 +398,7 @@ test('score rows and skip settings affect credit', () => {
     R('', '2026-10-05T09:00', 'score', '', 'alice+=100'),
   ], '2026-10-05T10:00', [U.parseDay('2026-10-14')]);
   assert.deepEqual(shifts(out).map((s) => s[1]), ['bob', 'bob', 'bob']);
-  assert.deepEqual(plain(out.status.rotations[0].roster), [
+  assert.deepEqual(scores(out.status.rotations[0].roster), [
     { name: 'alice', score: null, projected: 100 },
     { name: 'bob', score: null, projected: 14 },
   ]);

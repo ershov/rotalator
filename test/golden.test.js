@@ -3,12 +3,12 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { runDir, runStorage, ledgerCsv } = require('../node/cli.js');
+const { runDir, runStorage, ledgerCsv, statusText } = require('../node/cli.js');
 const { CsvDirStorage, MemoryStorage } = require('../node/storage.js');
 
 const FIXTURES = path.join(__dirname, 'fixtures');
 
-// Each fixture: inputs, expected/<rotation>.csv per ledger, optional expected/errors.txt.
+// Each fixture: inputs, expected/<rotation>.csv per ledger, optional expected/errors.txt and expected/status.txt.
 // A second run on the output with the same now must reproduce it exactly.
 for (const name of fs.readdirSync(FIXTURES).sort()) {
   const dir = path.join(FIXTURES, name);
@@ -25,6 +25,8 @@ for (const name of fs.readdirSync(FIXTURES).sort()) {
     const errorsFile = path.join(dir, 'expected', 'errors.txt');
     const expectedErrors = fs.existsSync(errorsFile) ? fs.readFileSync(errorsFile, 'utf8').trim().split('\n').filter(Boolean) : [];
     assert.deepEqual(result.errors, expectedErrors);
+    const statusFile = path.join(dir, 'expected', 'status.txt');
+    if (fs.existsSync(statusFile)) assert.equal(statusText(result.status), fs.readFileSync(statusFile, 'utf8'));
 
     const again = runStorage(new MemoryStorage({ ledgers: result.ledgers, holidays: storage.readHolidays(), links: storage.readLinks() }), nowText);
     for (const rotation of expected) {

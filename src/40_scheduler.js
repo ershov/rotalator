@@ -317,12 +317,13 @@ function collectErrors(rots, list) {
 
 // DESIGN 6: rows unchanged plus an error row above each offending row.
 function errorOutput(rots) {
+  var errors = collectErrors(rots, 'errors');
   return {
     rotations: rots.map(function (rot) {
       return { name: rot.name, rows: sortRows(rot.rows.concat(rot.errors.map(errorRow))) };
     }),
-    errors: collectErrors(rots, 'errors'),
-    status: { rotations: [], warnings: [] },
+    errors: errors,
+    status: buildStatus([], [], errors),
   };
 }
 
@@ -330,18 +331,6 @@ function rotationOutput(rot) {
   var rows = rot.kept.concat([makeRow({ type: 'snapshot', start: rot.S, arg: rot.snapshotArg })]);
   rot.entries.forEach(function (e) { if (e.generated) rows.push(e.generated); });
   return { name: rot.name, rows: sortRows(rows.concat(rot.problems.map(errorRow))) };
-}
-
-function rotationStatus(rot) {
-  var projected = rot.roster.scores();
-  return {
-    name: rot.name,
-    snapshotAt: rot.S,
-    horizonEnd: rot.horizonEnd,
-    roster: rot.roster.names().map(function (name) {
-      return { name: name, score: rot.scoresAtS[name] === undefined ? null : rot.scoresAtS[name], projected: projected[name] };
-    }),
-  };
 }
 
 // Pure regeneration of DESIGN 5.3 to 5.8. input: { rotations: [{ name, rows, snapshotAt }], holidays: [dayIndex], links }.
@@ -356,6 +345,6 @@ function regenerate(input) {
   return {
     rotations: rots.map(rotationOutput),
     errors: collectErrors(rots, 'problems'),
-    status: { rotations: rots.map(rotationStatus), warnings: warnings },
+    status: buildStatus(rots, warnings, []),
   };
 }

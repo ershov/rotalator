@@ -35,6 +35,8 @@ function runStorage(storage, nowText, options) {
   var out = {};
   result.rotations.forEach(function (r) { out[r.name] = r.rows.map(rowToArray); });
   result.errors.forEach(function (e) { errors.push(describeError(e)); });
+  result.status.now = nowText;
+  result.status.mode = options.mode || (options.write ? 'run' : 'dry run');
   if (options.write) {
     Object.keys(out).forEach(function (name) { storage.writeLedger(name, out[name]); });
     storage.writeStatus(result.status);

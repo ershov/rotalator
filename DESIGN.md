@@ -48,7 +48,8 @@ fair. There is no UI beyond the spreadsheet itself.
 | `<rotation>` | users and script | One per rotation. Tab name is the rotation name. |
 | `Holidays` | users | Column A: date `YYYY-MM-DD`, column B: note. Applies to all rotations. |
 | `Links` | users | Stage 4. Relations between rotations over time. |
-| `Status` | script | Stage 3. Scores and warnings. Fully rewritten each run. |
+| `Status` | script | Scores, last and next shifts, exclusions, warnings. Fully rewritten each run. |
+| `Shifts` | script | Every shift of every rotation in one table. Fully rewritten each run. |
 | `<rotation>.preview` | script | Dry run output. |
 
 Any tab whose name starts with `.` or that is not a ledger by header is
@@ -309,6 +310,19 @@ sorting. No terminator row and no explicit `end` on the last row: the last
 shift's extent is the next grid boundary after its start, by the rule in 3.4,
 and `horizonEnd` is always a grid boundary so the two agree.
 
+Status data is built from the swept state: the run instant and mode, and per
+rotation the snapshot instant, `horizonEnd`, and for each roster member the
+score at `S`, the projected score at `horizonEnd`, the last shift (latest
+start at or before `S`), the next shift (first start after `S`) and the
+exclusions active at `S`; plus the warnings of the sweep (relaxations and
+unassignable slots). On a validation error the data carries the errors and no
+rotations. The `Status` tab is this data as text: a title line, per rotation a
+header line and a member table, then a warnings table and, if any, an errors
+table. The `Shifts` tab lists every shift of every rotation with `start`,
+`end` (scored end), rotation, `who`, pinned and note, sorted by `start` then
+rotation order. Both tabs are rewritten in full on every run, including dry
+runs.
+
 ### 5.9 Properties
 
 - Deterministic: no clock in regeneration, no randomness, hash-based shuffle.
@@ -333,8 +347,8 @@ on the next read, so fixing the cause and rerunning clears them.
   tab.
 - Unassignable slot: a `shift` with nobody plus an `error` row at the slot
   start. The empty shift keeps the interval rules intact.
-- Relaxation used: text in the generated shift's `note`, and in `Status` from
-  stage 3.
+- Relaxation used: text in the generated shift's `note` and in the `Status`
+  warnings table.
 - Dangling link to a missing rotation tab: `error` row in `Links`, link ignored.
 
 ## 7. Multiple rotations and Links (stage 4)
@@ -358,7 +372,7 @@ the member holding an overlapping shift in a linked rotation if they are inside
 the tolerance band, otherwise normal selection applies. `distinct` is hard and
 is never relaxed. Stage 1 already sweeps all rotations in one merged time
 order, so stage 4 adds only the `Links` reader and two candidate filters. A
-synthetic all-rotations view tab can be added with `Status`.
+`Shifts` tab is the all-rotations view.
 
 ## 8. Code layout
 
@@ -371,7 +385,7 @@ src/
   20_calendar.js      grid, claims, units
   30_state.js         roster, scores, exclusions, settings replay
   40_scheduler.js     prune, claims, pre-credit, sweep, selection
-  50_status.js        status data (stage 3)
+  50_status.js        status data, Status and Shifts rows
   60_links.js         Links reader and filters (stage 4)
   80_runner.js        storage-agnostic run: read, advance, regenerate, write
   90_gas.js           Apps Script entry points and Sheets adapter
@@ -403,13 +417,16 @@ readLedgers()   -> { [rotation]: rows[] }
 readHolidays()  -> dates[]
 readLinks()     -> rows[]
 writeLedger(rotation, rows)
-writeStatus(data)
+writeStatus(status)
 ```
 
 `90_gas.js` implements it on `SpreadsheetApp`, `node/storage.js` on memory and
-CSV files. `80_runner.js` holds the shared `runStorage(storage, nowText,
-options)`: it reads through the storage, drops blank rows, calls `advance` and
-then `regenerate`, and writes when asked. Each adapter only obtains `now` in
+CSV files. `writeStatus` receives the status data and writes both the `Status`
+and the `Shifts` tab; `50_status.js` turns the data into the 2D text arrays
+so the adapters and the CLI `--status` share one layout. `80_runner.js` holds
+the shared `runStorage(storage, nowText, options)`: it reads through the
+storage, drops blank rows, calls `advance` and then `regenerate`, and writes
+when asked. Each adapter only obtains `now` in
 the spreadsheet time zone as `YYYY-MM-DDTHH:MM` text and converts date cells
 to that form before handing them over.
 

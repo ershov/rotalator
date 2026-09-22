@@ -3,6 +3,7 @@
 var HOLIDAYS_TAB = 'Holidays';
 var LINKS_TAB = 'Links';
 var STATUS_TAB = 'Status';
+var SHIFTS_TAB = 'Shifts';
 var PREVIEW_SUFFIX = '.preview';
 var CELL_DATETIME_FORMAT = "yyyy-MM-dd'T'HH:mm";
 var CELL_DATE_FORMAT = 'yyyy-MM-dd';
@@ -35,7 +36,7 @@ class SheetsStorage {
   }
 
   isReservedName(name) {
-    return name.charAt(0) === '.' || name === HOLIDAYS_TAB || name === LINKS_TAB || name === STATUS_TAB ||
+    return name.charAt(0) === '.' || name === HOLIDAYS_TAB || name === LINKS_TAB || name === STATUS_TAB || name === SHIFTS_TAB ||
       name.slice(-PREVIEW_SUFFIX.length) === PREVIEW_SUFFIX;
   }
 
@@ -97,24 +98,16 @@ class SheetsStorage {
     this.writeTextRows(sheet, 2, rows);
   }
 
-  // Simple table for now; stage 3 refines the Status tab.
-  writeStatus(data) {
-    var sheet = this.sheetNamed(STATUS_TAB);
+  writeTable(name, rows) {
+    var sheet = this.sheetNamed(name);
     sheet.clearContents();
-    var rows = [['Rotalator', this.preview ? 'dry run' : 'run', this.nowText, '']];
-    rows.push(['', '', '', '']);
-    rows.push(['rotation', 'member', 'score', 'projected']);
-    (data && data.rotations || []).forEach(function (rot) {
-      rot.roster.forEach(function (m) {
-        rows.push([rot.name, m.name, m.score === null ? '' : formatScore(m.score), formatScore(m.projected)]);
-      });
-    });
-    rows.push(['', '', '', '']);
-    rows.push(['warnings', 'start', 'message', '']);
-    (data && data.warnings || []).forEach(function (w) {
-      rows.push([w.rotation, w.start === null ? '' : formatDateTime(w.start), w.message, '']);
-    });
     this.writeTextRows(sheet, 1, rows);
+  }
+
+  // Status and Shifts tabs, rewritten in full from the status data (DESIGN 5.8).
+  writeStatus(data) {
+    this.writeTable(STATUS_TAB, statusRows(data));
+    this.writeTable(SHIFTS_TAB, shiftsRows(data.shifts));
   }
 }
 
@@ -132,7 +125,7 @@ function onOpen() {
 function runWith(preview) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var storage = new SheetsStorage(ss, { preview: preview });
-  var result = runStorage(storage, storage.nowText, { write: true });
+  var result = runStorage(storage, storage.nowText, { write: true, mode: preview ? 'dry run' : 'run' });
   var title = preview ? 'Rotalator dry run' : 'Rotalator';
   var count = Object.keys(result.ledgers).length;
   var message = result.errors.length

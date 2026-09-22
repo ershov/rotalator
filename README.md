@@ -21,7 +21,8 @@ Setup and deployment are in [INSTALL.md](INSTALL.md). The design is in
 |---|---|---|
 | `<rotation>` | users and script | One per rotation. The tab name is the rotation name. |
 | `Holidays` | users | Column A date `YYYY-MM-DD`, column B note. Shared by all rotations. |
-| `Status` | script | Scores and warnings, rewritten on every run. |
+| `Status` | script | Scores, last and next shifts, exclusions, warnings. Rewritten on every run. |
+| `Shifts` | script | Every shift of every rotation in one table. Rewritten on every run. |
 | `<rotation>.preview` | script | Output of a dry run. |
 | `Links` | users | Reserved for relations between rotations (not yet implemented). |
 
@@ -145,7 +146,7 @@ start makes it the anchor.
    uncovered span up to the horizon with the member who has the lowest
    projected score among the eligible ones.
 5. Write each ledger back sorted, with the new snapshot and generated shifts.
-   Write `Status`.
+   Rewrite `Status` and `Shifts`.
 
 Scores are days on call, honouring `skip_weekends` and `skip_holidays`.
 A week is 7 days, or 5 with `skip_weekends`. Partial shifts credit fractions.
@@ -177,8 +178,22 @@ old `set` row rescores history from that point.
 **Correct history.** Add a `score` row, or edit rows before the snapshot and
 delete the `snapshot` row to replay everything from the top.
 
-**Preview.** Use `Rotalator > Dry run`. It writes `<rotation>.preview` tabs
-and `Status` and leaves the ledgers untouched.
+**Preview.** Use `Rotalator > Dry run`. It writes `<rotation>.preview` tabs,
+`Status` and `Shifts` and leaves the ledgers untouched.
+
+## Status and Shifts tabs
+
+`Status` starts with the run instant and mode (`run` or `dry run`). For each
+rotation it shows the snapshot instant and the horizon end, then one line per
+member: score at the snapshot, projected score at the horizon end, last shift
+(latest start at or before the snapshot), next shift (first start after it),
+and exclusions active at the snapshot with their end or `open`. A warnings
+table follows with relaxed `min_distance` and unassignable slots. After a
+validation error the tab lists the errors instead of rotations.
+
+`Shifts` is one table of every shift of every rotation, sorted by start:
+start, end, rotation, who, pinned, note. The end is the scored end of the
+shift. Both tabs are rewritten by every run, including dry runs.
 
 ## What the script never touches
 
@@ -217,8 +232,7 @@ generated shift's `note`.
   history or adding a `score` row.
 - Only the eight ledger columns are managed. Extra columns do not follow rows
   when the ledger is re-sorted.
-- `Links` between rotations and a detailed `Status` tab are planned, not
-  implemented.
+- `Links` between rotations are planned, not implemented.
 
 ## Local dry runs
 
@@ -227,9 +241,10 @@ files: one `<rotation>.csv` per ledger with the header row, `holidays.csv`
 (`date,note`), optional `links.csv`, and `now.txt` with the run instant.
 
 ```
-node node/cli.js --dir DIR [--now YYYY-MM-DDTHH:MM] [--write]
+node node/cli.js --dir DIR [--now YYYY-MM-DDTHH:MM] [--write] [--status]
 ```
 
 Without `--write` the regenerated ledgers are printed as CSV and nothing is
-changed. Errors go to stderr and set exit code 1. See `test/fixtures/` for
-worked scenarios, each with a README explaining the expected result.
+changed. `--status` appends the Status and Shifts tables as plain text. Errors
+go to stderr and set exit code 1. See `test/fixtures/` for worked scenarios,
+each with a README explaining the expected result.

@@ -131,8 +131,8 @@ with step 5.
 
 ## 5. First run and nightly trigger
 
-1. **Rotalator > Dry run** writes `<rotation>.preview` tabs and `Status` and
-   leaves the ledgers untouched. Check the preview.
+1. **Rotalator > Dry run** writes `<rotation>.preview` tabs, `Status` and
+   `Shifts` and leaves the ledgers untouched. Check the preview.
 2. **Rotalator > Run now** writes the ledgers: the `snapshot` row and the
    generated shifts appear.
 3. **Rotalator > Install nightly trigger** schedules `run` every day between
