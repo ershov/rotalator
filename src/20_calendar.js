@@ -16,16 +16,6 @@ class Grid {
     return this.floor(t) + this.period;
   }
 
-  isBoundary(t) {
-    return this.floor(t) === t;
-  }
-
-  // Boundaries strictly inside (a, b).
-  boundariesBetween(a, b) {
-    var out = [];
-    for (var g = this.next(a); g < b; g += this.period) out.push(g);
-    return out;
-  }
 }
 
 function isSkippedDay(day, options) {

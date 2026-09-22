@@ -256,11 +256,13 @@ pinned shift with an odd end. Boundaries never move because of irregular rows.
 
 ### 5.5 Pre-credit
 
-Pinned shifts with `start` in `(S, S + precredit * period)` are credited to
-their assignee before the sweep, and skipped when the sweep reaches them. This
-lets someone who volunteered for a shift inside the next cycle skip a turn
-before it. Pins further out are credited when reached, and the greedy
-compensates afterwards.
+Pinned shifts with `start` in `(S, S + precredit * period)` whose assignee is
+on the roster are credited when the sweep reaches `S`, after the state rows at
+`S` and after the snapshot is recorded, and skipped when the sweep reaches
+them. Doing it at `S` lets a fresh ledger's `team` row dated `S` and
+`precredit = auto` work. This lets someone who volunteered for a shift inside
+the next cycle skip a turn before it. Pins further out are credited when
+reached, and the greedy compensates afterwards.
 
 ### 5.6 Sweep
 

@@ -41,17 +41,13 @@ test('parseDay accepts only YYYY-MM-DD and returns a day index', () => {
 });
 
 test('day helpers', () => {
-  assert.equal(U.startOfDay(T0), T0 - 9 * 60);
-  assert.equal(U.dayStart(U.dayIndex(T0)), U.startOfDay(T0));
-  assert.equal(U.startOfDay(-1), -1440);
+  assert.equal(U.dayStart(U.dayIndex(T0)), T0 - 9 * 60);
   assert.equal(U.dayIndex(-1), -1);
   assert.equal(U.weekday(0), 4);
   assert.equal(U.weekday(U.parseDateTime('2026-09-22T12:00')), 2);
   assert.equal(U.weekday(U.parseDateTime('2026-09-20')), 0);
   assert.equal(U.weekday(U.parseDateTime('2026-09-26T23:59')), 6);
   assert.equal(U.weekday(U.parseDateTime('1969-12-31')), 3);
-  assert.equal(U.isWeekend(U.parseDateTime('2026-09-26')), true);
-  assert.equal(U.isWeekend(U.parseDateTime('2026-09-25')), false);
 });
 
 test('parseDuration', () => {

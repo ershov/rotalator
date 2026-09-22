@@ -59,10 +59,6 @@ function dayIndex(min) {
   return Math.floor(min / MINUTES_PER_DAY);
 }
 
-function startOfDay(min) {
-  return dayIndex(min) * MINUTES_PER_DAY;
-}
-
 function dayStart(day) {
   return day * MINUTES_PER_DAY;
 }
@@ -74,11 +70,6 @@ function weekdayOfDay(day) {
 
 function weekday(min) {
   return weekdayOfDay(dayIndex(min));
-}
-
-function isWeekend(min) {
-  var w = weekday(min);
-  return w === 0 || w === 6;
 }
 
 var UNIT_MINUTES = { w: MINUTES_PER_WEEK, d: MINUTES_PER_DAY, h: MINUTES_PER_HOUR, m: 1 };

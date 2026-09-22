@@ -8,7 +8,7 @@ const dt = (s) => U.parseDateTime(s);
 const W = 7 * 1440;
 const MON = dt('2026-10-05T09:00');
 
-test('Grid floor, ceil, next, isBoundary with anchor before and after t', () => {
+test('Grid floor, ceil, next with anchor before and after t', () => {
   const g = new U.Grid({ period: W, anchor: MON });
   const wed = dt('2026-10-07T12:00');
   assert.equal(g.floor(wed), MON);
@@ -18,22 +18,12 @@ test('Grid floor, ceil, next, isBoundary with anchor before and after t', () => 
   assert.equal(g.ceil(MON), MON);
   assert.equal(g.next(MON), MON + W);
   assert.equal(g.next(MON - 1), MON);
-  assert.equal(g.isBoundary(MON), true);
-  assert.equal(g.isBoundary(MON + 1), false);
   const early = dt('2026-09-01T00:00');
   assert.equal(U.formatDateTime(g.floor(early)), '2026-08-31T09:00');
   assert.equal(U.formatDateTime(g.ceil(early)), '2026-09-07T09:00');
   const daily = new U.Grid({ period: 1440, anchor: 0 });
   assert.equal(daily.floor(-1), -1440);
   assert.equal(daily.next(-1), 0);
-});
-
-test('Grid boundariesBetween is exclusive on both ends', () => {
-  const g = new U.Grid({ period: W, anchor: MON });
-  assert.deepEqual(plain(g.boundariesBetween(MON, MON + 3 * W)), [MON + W, MON + 2 * W]);
-  assert.deepEqual(plain(g.boundariesBetween(MON - 60, MON + W + 60)), [MON, MON + W]);
-  assert.deepEqual(plain(g.boundariesBetween(MON, MON + W)), []);
-  assert.deepEqual(plain(g.boundariesBetween(MON + 60, MON + 120)), []);
 });
 
 test('units counts fractional days and skips weekends and holidays', () => {
