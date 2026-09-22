@@ -1,1 +1,4 @@
 .PLAN.md.reject
+dist/
+.tmp/
+node_modules/
