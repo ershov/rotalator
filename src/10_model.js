@@ -1,17 +1,40 @@
-var LEDGER_HEADER = ['pin', 'start', 'type', 'who', 'arg', 'end', 'duration', 'note'];
+var LEDGER_HEADER = ['pin', 'start', 'type', 'what', 'end', 'duration', 'note'];
 
-// order: same-instant sort (DESIGN 3.6). who/arg: 'required', 'optional' or 'none'. extent: end/duration allowed.
+// Tabs (DESIGN 3.1). A name starting with '#' is never a rotation.
+var SYSTEM_TAB_PREFIX = '#';
+var HOLIDAYS_TAB = '#Holidays';
+var LINKS_TAB = '#Links';
+var STATUS_TAB = '#Status';
+var ALL_SHIFTS_TAB = '#All shifts';
+var PREVIEW_TAB_PREFIX = '#Preview ';
+
+function isSystemTab(name) {
+  return name.charAt(0) === SYSTEM_TAB_PREFIX;
+}
+
+// Preview of a rotation tab, or '#Preview Links' for the Links tab.
+function previewTabName(name) {
+  return PREVIEW_TAB_PREFIX + (isSystemTab(name) ? name.slice(1) : name);
+}
+
+function isKnownSystemTab(name) {
+  return name === HOLIDAYS_TAB || name === LINKS_TAB || name === STATUS_TAB || name === ALL_SHIFTS_TAB ||
+    name.indexOf(PREVIEW_TAB_PREFIX) === 0;
+}
+
+// order: same-instant sort (DESIGN 3.6). what: item grammar of the column (see validateWhat).
+// required: what must not be empty. extent: end/duration allowed.
 var ROW_TYPES = {
-  error:    { order: 0, who: 'none',     arg: 'required', extent: false },
-  set:      { order: 1, who: 'none',     arg: 'required', extent: false },
-  snapshot: { order: 2, who: 'none',     arg: 'optional', extent: false },
-  team:     { order: 3, who: 'none',     arg: 'required', extent: false },
-  join:     { order: 4, who: 'required', arg: 'optional', extent: false },
-  leave:    { order: 5, who: 'required', arg: 'none',     extent: false },
-  score:    { order: 6, who: 'none',     arg: 'required', extent: false },
-  exclude:  { order: 7, who: 'required', arg: 'none',     extent: true },
-  include:  { order: 8, who: 'required', arg: 'none',     extent: false },
-  shift:    { order: 9, who: 'optional', arg: 'none',     extent: true },
+  error:    { order: 0, what: 'text',   required: true,  extent: false },
+  set:      { order: 1, what: 'set',    required: true,  extent: false },
+  snapshot: { order: 2, what: 'scores', required: false, extent: false },
+  team:     { order: 3, what: 'team',   required: true,  extent: false },
+  join:     { order: 4, what: 'join',   required: true,  extent: false },
+  leave:    { order: 5, what: 'names',  required: true,  extent: false },
+  score:    { order: 6, what: 'team',   required: true,  extent: false },
+  exclude:  { order: 7, what: 'names',  required: true,  extent: true },
+  include:  { order: 8, what: 'names',  required: true,  extent: false },
+  shift:    { order: 9, what: 'shift',  required: false, extent: true },
 };
 
 var BASELINE_KEYWORDS = ['median', 'mean', 'min', 'max'];
@@ -56,7 +79,7 @@ function parseKeyword(list) {
 
 var parseBaselineKeyword = parseKeyword(BASELINE_KEYWORDS);
 
-// join arg and team '=' values: baseline keyword or number.
+// '=' values of join, team and score items: baseline keyword or number.
 function parseBaseline(text) {
   var kw = parseBaselineKeyword(text);
   return kw !== null ? kw : parseNumber(text);
@@ -66,18 +89,20 @@ function parsePrecredit(text) {
   return text.toLowerCase() === 'auto' ? 'auto' : parseNonNegativeInteger(text);
 }
 
+// def: initial value. bare: what a value-less key means: 'default' restores def, 'start' takes the row's
+// start, 'none' is an error. parse null: the key takes no value.
 var SETTINGS = {
-  period:        { parse: parsePeriod,             def: null },
-  anchor:        { parse: parseDateTime,           def: null },
-  horizon:       { parse: parsePositiveDuration,   def: 90 * MINUTES_PER_DAY },
-  skip_weekends: { parse: parseBoolean,            def: false },
-  skip_holidays: { parse: parseBoolean,            def: false },
-  tolerance:     { parse: parseNonNegativeNumber,  def: 0 },
-  min_distance:  { parse: parseNonNegativeInteger, def: 0 },
-  tiebreak:      { parse: parseKeyword(TIEBREAKS), def: 'order' },
-  seed:          { parse: parseInteger,            def: 0 },
-  baseline:      { parse: parseBaselineKeyword,    def: 'median' },
-  precredit:     { parse: parsePrecredit,          def: 'auto' },
+  period:        { parse: parsePeriod,             def: null,               bare: 'none' },
+  anchor:        { parse: null,                    def: null,               bare: 'start' },
+  horizon:       { parse: parsePositiveDuration,   def: 90 * MINUTES_PER_DAY, bare: 'default' },
+  skip_weekends: { parse: parseBoolean,            def: false,              bare: 'default' },
+  skip_holidays: { parse: parseBoolean,            def: false,              bare: 'default' },
+  tolerance:     { parse: parseNonNegativeNumber,  def: 0,                  bare: 'default' },
+  min_distance:  { parse: parseNonNegativeInteger, def: 0,                  bare: 'default' },
+  tiebreak:      { parse: parseKeyword(TIEBREAKS), def: 'order',            bare: 'default' },
+  seed:          { parse: parseInteger,            def: 0,                  bare: 'default' },
+  baseline:      { parse: parseBaselineKeyword,    def: 'median',           bare: 'default' },
+  precredit:     { parse: parsePrecredit,          def: 'auto',             bare: 'default' },
 };
 
 function defaultSettings() {
@@ -86,32 +111,54 @@ function defaultSettings() {
   return out;
 }
 
-// Returns { values: { key: parsed }, error: string | null }.
-function parseSetArg(text) {
+// Returns { values: { key: parsed }, error: string | null }. start is the row's start, used by bare anchor.
+function parseSetArg(text, start) {
   var items = parseAssignments(text);
   if (typeof items === 'string') return { values: {}, error: items };
   var values = {};
   for (var i = 0; i < items.length; i++) {
     var it = items[i];
-    if (it.op !== '=') return { values: values, error: 'set expects key=value, got "' + it.name + '"' };
     var key = it.name.toLowerCase();
     var spec = SETTINGS[key];
     if (!spec) return { values: values, error: 'unknown setting "' + it.name + '"' };
     if (key in values) return { values: values, error: 'duplicate setting "' + it.name + '"' };
-    var parsed = spec.parse(it.value);
-    if (parsed === null) return { values: values, error: 'bad value for ' + it.name + ': "' + it.value + '"' };
+    if (it.op !== null && it.op !== '=') return { values: values, error: 'set expects key or key=value, got "' + it.name + it.op + '"' };
+    var parsed;
+    if (it.op === null) {
+      if (spec.bare === 'none') return { values: values, error: it.name + ' requires a value' };
+      parsed = spec.bare === 'start' ? start : spec.def;
+    } else {
+      if (!spec.parse) return { values: values, error: it.name + ' takes no value; the row start is the ' + it.name };
+      parsed = spec.parse(it.value);
+      if (parsed === null) return { values: values, error: 'bad value for ' + it.name + ': "' + it.value + '"' };
+    }
     values[key] = parsed;
   }
   return { values: values, error: null };
 }
 
-function isNobody(who) {
-  var w = (who ?? '').trim().toLowerCase();
+function isNobody(what) {
+  var w = (what ?? '').trim().toLowerCase();
   return w === '' || w === '-' || w === 'none';
 }
 
-function isValidMemberId(who) {
-  return who !== '' && !/[,;=+]/.test(who);
+function isValidMemberId(name) {
+  return name !== '' && !/[,;=+]/.test(name);
+}
+
+// Items of a validated what column; [] when it does not parse.
+function whatItems(row) {
+  var items = parseAssignments(row.what);
+  return typeof items === 'string' ? [] : items;
+}
+
+function whatNames(row) {
+  return whatItems(row).map(function (it) { return it.name; });
+}
+
+// Assignee of a shift row, null for nobody.
+function shiftAssignee(row) {
+  return isNobody(row.what) ? null : row.what;
 }
 
 // false is empty so an unchecked checkbox in pin does not pin the row.
@@ -123,8 +170,8 @@ function cellText(cell) {
 function rowFromArray(cells, rowIndex) {
   var pin = cellText(cells[0]);
   var startText = cellText(cells[1]);
-  var endText = cellText(cells[5]);
-  var durationText = cellText(cells[6]);
+  var endText = cellText(cells[4]);
+  var durationText = cellText(cells[5]);
   var start = parseDateTime(startText);
   var end = parseDateTime(endText);
   var duration = parseDuration(durationText);
@@ -136,19 +183,18 @@ function rowFromArray(cells, rowIndex) {
     start: start,
     startText: startText,
     type: cellText(cells[2]).toLowerCase(),
-    who: cellText(cells[3]),
-    arg: cellText(cells[4]),
+    what: cellText(cells[3]),
     end: end,
     endText: endText,
     duration: duration,
     durationText: durationText,
-    note: cellText(cells[7]),
+    note: cellText(cells[6]),
   };
 }
 
 function makeRow(fields) {
   var row = {
-    rowIndex: null, pin: '', pinned: false, start: null, startText: '', type: '', who: '', arg: '',
+    rowIndex: null, pin: '', pinned: false, start: null, startText: '', type: '', what: '',
     end: null, endText: '', duration: null, durationText: '', note: '',
   };
   for (var k in fields) row[k] = fields[k];
@@ -166,8 +212,7 @@ function rowToArray(row) {
     row.pin,
     row.start !== null ? formatDateTime(row.start) : row.startText,
     row.type,
-    row.who,
-    row.arg,
+    row.what,
     end,
     duration,
     row.note,
@@ -198,37 +243,38 @@ function sortRows(rows) {
   });
 }
 
-function validateArg(row) {
-  var items;
-  switch (row.type) {
-    case 'join':
-      return parseBaseline(row.arg) === null ? 'join arg must be median, mean, min, max or a number' : null;
-    case 'team':
-      items = parseAssignments(row.arg);
-      if (typeof items === 'string') return items;
-      for (var i = 0; i < items.length; i++) {
-        var t = items[i];
-        if (!isValidMemberId(t.name)) return 'bad member id "' + t.name + '"';
-        if (t.op === '=' && parseBaseline(t.value) === null) return 'bad value for ' + t.name + ': "' + t.value + '"';
-        if ((t.op === '+=' || t.op === '-=') && parseNumber(t.value) === null) return 'bad adjustment for ' + t.name + ': "' + t.value + '"';
-      }
-      return null;
-    case 'score':
-    case 'snapshot':
-      items = parseAssignments(row.arg);
-      if (typeof items === 'string') return items;
-      for (var j = 0; j < items.length; j++) {
-        var s = items[j];
-        if (!isValidMemberId(s.name)) return 'bad member id "' + s.name + '"';
-        if (s.op === null || (row.type === 'snapshot' && s.op !== '=')) return row.type + ' expects name=number, got "' + s.name + '"';
-        if (parseNumber(s.value) === null) return 'bad number for ' + s.name + ': "' + s.value + '"';
-      }
-      return null;
-    case 'set':
-      return parseSetArg(row.arg).error;
-    default:
-      return null;
+// One item grammar (DESIGN 3.3): name, name=value, name+=n, name-=n. Which forms a type accepts:
+// names: bare names. join: name or name=baseline. team: all four, '=' baseline or number. scores: name=number.
+function validateItem(grammar, type, it) {
+  if (!isValidMemberId(it.name)) return 'bad member id "' + it.name + '"';
+  if (grammar === 'names' && it.op !== null) return type + ' takes names only, got "' + it.name + it.op + '"';
+  if (grammar === 'join' && it.op !== null && it.op !== '=') return 'join takes name or name=baseline, got "' + it.name + it.op + '"';
+  if (grammar === 'scores' && it.op !== '=') return type + ' expects name=number, got "' + it.name + (it.op || '') + '"';
+  if (it.op === '=') {
+    var ok = grammar === 'scores' ? parseNumber(it.value) : parseBaseline(it.value);
+    if (ok === null) return 'bad value for ' + it.name + ': "' + it.value + '"';
+  } else if (it.op !== null && parseNumber(it.value) === null) {
+    return 'bad adjustment for ' + it.name + ': "' + it.value + '"';
   }
+  return null;
+}
+
+function validateWhat(row) {
+  var grammar = ROW_TYPES[row.type].what;
+  if (grammar === 'text') return null;
+  if (grammar === 'set') return parseSetArg(row.what, row.start).error;
+  var items = parseAssignments(row.what);
+  if (grammar === 'shift') {
+    if (isNobody(row.what)) return null;
+    var one = typeof items !== 'string' && items.length === 1 && items[0].op === null && isValidMemberId(items[0].name);
+    return one ? null : 'shift takes exactly one member id';
+  }
+  if (typeof items === 'string') return items;
+  for (var i = 0; i < items.length; i++) {
+    var message = validateItem(grammar, row.type, items[i]);
+    if (message !== null) return message;
+  }
+  return null;
 }
 
 function validateRow(row) {
@@ -240,13 +286,8 @@ function validateRow(row) {
   if (row.durationText !== '' && (row.duration === null || row.duration <= 0)) return 'bad duration "' + row.durationText + '"';
   if (!spec.extent && (row.endText !== '' || row.durationText !== '')) return row.type + ' does not take end or duration';
   if (row.end !== null && row.end <= row.start) return 'end must be after start';
-  var nobody = isNobody(row.who);
-  if (spec.who === 'none' && row.who !== '') return row.type + ' does not take who';
-  if (spec.who === 'required' && nobody) return row.type + ' requires who';
-  if (!nobody && !isValidMemberId(row.who)) return 'who must be exactly one member id';
-  if (spec.arg === 'none' && row.arg !== '') return row.type + ' does not take arg';
-  if (spec.arg === 'required' && row.arg === '') return row.type + ' requires arg';
-  return row.arg !== '' ? validateArg(row) : null;
+  if (spec.required && row.what === '') return row.type + ' requires what';
+  return validateWhat(row);
 }
 
 function rowError(row, message) {
@@ -270,7 +311,7 @@ function validateLedger(rows, rotationName) {
   var first = sorted[0];
   if (!first) {
     errors.push({ rowIndex: null, start: null, startText: '', message: rotationName + ': ledger is empty' });
-  } else if (first.start !== null && !(first.type === 'set' && parseSetArg(first.arg).values.period)) {
+  } else if (first.start !== null && !(first.type === 'set' && parseSetArg(first.what, first.start).values.period)) {
     errors.push(rowError(first, rotationName + ': first row must be a set row with period'));
   }
   return { rows: sorted, errors: errors };

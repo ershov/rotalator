@@ -15,7 +15,7 @@ function rowsFromCells(cells) {
 }
 
 // Read, advance, regenerate and optionally write back through a Storage (DESIGN 8).
-// Returns { ledgers, links, errors, status }; links is null when there is no Links tab.
+// Returns { ledgers, links, errors, status }; links is null when there is no #Links tab.
 // Bad now or holiday cells stop the run with the ledgers unchanged.
 function runStorage(storage, nowText, options) {
   options = options || {};
@@ -31,19 +31,23 @@ function runStorage(storage, nowText, options) {
     else holidays.push(day);
   });
   var linkCells = storage.readLinks();
+  var ignored = storage.ignoredTabs();
   if (errors.length) return { ledgers: ledgers, links: null, errors: errors, status: null };
 
   var rotations = Object.keys(ledgers).map(function (name) {
     var rows = rowsFromCells(ledgers[name]);
     return { name: name, rows: rows, snapshotAt: advance(rows, now) };
   });
-  var result = regenerate({ rotations: rotations, holidays: holidays, links: rowsFromCells(linkCells) });
+  var linkRows = rowsFromCells(linkCells);
+  var linkCount = linkRows.filter(function (r) { return r.type !== 'error'; }).length;
+  var result = regenerate({ rotations: rotations, holidays: holidays, links: linkRows });
   var out = {};
   result.rotations.forEach(function (r) { out[r.name] = r.rows.map(rowToArray); });
   var links = linkCells.length ? result.links.rows.map(rowToArray) : null;
   result.errors.forEach(function (e) { errors.push(describeError(e)); });
   result.status.now = nowText;
   result.status.mode = options.mode || (options.write ? 'run' : 'dry run');
+  result.status.tabs = { rotations: Object.keys(ledgers), holidays: holidays.length, links: linkCount, ignored: ignored };
   if (options.write) {
     Object.keys(out).forEach(function (name) { storage.writeLedger(name, out[name]); });
     if (links) storage.writeLinks(links);

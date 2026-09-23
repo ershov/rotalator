@@ -76,19 +76,26 @@ function splitSlots(a, b, timeline, changes, out) {
 }
 
 function errorRow(e) {
-  return makeRow({ type: 'error', start: e.start, startText: e.startText || '', arg: e.message });
+  return makeRow({ type: 'error', start: e.start, startText: e.startText || '', what: e.message });
 }
 
-// Effective end of each exclude row once include rows are applied, used to decide clipping at the snapshot.
+// Effective end per member of each exclude row once include rows are applied, to decide clipping at the snapshot.
 function resolvedExcludeEnds(rows) {
   var ends = new Map();
   rows.forEach(function (row) {
-    if (row.type === 'exclude') ends.set(row, row.end);
+    if (row.type === 'exclude') {
+      var perName = {};
+      whatNames(row).forEach(function (n) { perName[n] = row.end; });
+      ends.set(row, perName);
+    }
     if (row.type !== 'include') return;
+    var names = whatNames(row);
     rows.forEach(function (ex) {
-      if (ex.type !== 'exclude' || ex.who !== row.who || ex.start > row.start) return;
-      var end = ends.get(ex);
-      if (end === null || end > row.start) ends.set(ex, row.start);
+      var perName = ends.get(ex);
+      if (!perName || ex.start > row.start) return;
+      names.forEach(function (n) {
+        if (n in perName && (perName[n] === null || perName[n] > row.start)) perName[n] = row.start;
+      });
     });
   });
   return ends;
@@ -105,7 +112,7 @@ function prepareRotation(input, index) {
   S = raiseTo(raiseTo(S, previous ? previous.start : null), rows[0].start);
   rot.timeline = timeline;
   rot.previousAt = previous ? previous.start : null;
-  rot.previousArg = previous ? previous.arg : '';
+  rot.previousWhat = previous ? previous.what : '';
   rot.S = S;
   rot.kept = rows.filter(function (r) { return r.type !== 'snapshot' && !(r.type === 'shift' && !r.pinned && r.start > S); });
 
@@ -121,7 +128,7 @@ function prepareRotation(input, index) {
   rot.horizonEnd = timeline.gridAt(horizonAt).ceil(horizonAt);
 
   var entries = shifts.map(function (s) {
-    return { start: s.start, slotEnd: null, end: null, who: isNobody(s.who) ? null : s.who, slot: false, row: s };
+    return { start: s.start, slotEnd: null, end: null, who: shiftAssignee(s), slot: false, row: s };
   });
   uncoveredSpans(regenStart, rot.horizonEnd, claims).forEach(function (span) {
     splitSlots(span[0], span[1], timeline, changes, entries);
@@ -145,7 +152,7 @@ function rotationItems(rot) {
   var excludeEnds = resolvedExcludeEnds(rot.kept);
   rot.settings = new Settings();
   rot.roster = new Roster();
-  rot.roster.fromSnapshotArg(rot.previousArg);
+  rot.roster.fromSnapshotWhat(rot.previousWhat);
   rot.precredited = new Set();
   rot.kept.forEach(function (row) {
     if (row.type === 'shift') return;
@@ -153,8 +160,10 @@ function rotationItems(rot) {
       if (afterPrevious(row.start)) push(row.start, 'row', { row: row });
       else rot.settings.apply(row);
     } else if (row.type === 'exclude') {
-      var clip = clipToSnapshot(row.start, excludeEnds.get(row), P);
-      if (clip) push(clip[0], 'row', { row: row, from: clip[0], to: row.end, clipped: clip[0] !== row.start });
+      var ends = excludeEnds.get(row);
+      var names = whatNames(row).filter(function (n) { return clipToSnapshot(row.start, ends[n], P) !== null; });
+      var from = P === null ? row.start : Math.max(row.start, P);
+      if (names.length) push(from, 'row', { row: row, names: names, from: from, to: row.end, clipped: from !== row.start });
     } else if (afterPrevious(row.start)) {
       push(row.start, 'row', { row: row });
     }
@@ -187,14 +196,15 @@ function applyStateRow(rot, item) {
   var roster = rot.roster;
   switch (row.type) {
     case 'set': rot.settings.apply(row); return null;
-    case 'team': return roster.team(parseAssignments(row.arg), rot.settings.get('baseline'));
-    case 'join': return roster.join(row.who, row.arg === '' ? rot.settings.get('baseline') : parseBaseline(row.arg));
-    case 'leave': return roster.leave(row.who);
-    case 'score': return roster.score(parseAssignments(row.arg));
-    case 'exclude':
-      if (item.clipped && !roster.has(row.who)) return null;
-      return roster.exclude(row.who, item.from, item.to);
-    case 'include': return roster.include(row.who, row.start);
+    case 'team': return roster.team(whatItems(row), rot.settings.get('baseline'));
+    case 'join': return roster.join(whatItems(row), rot.settings.get('baseline'));
+    case 'leave': return roster.leave(whatNames(row));
+    case 'score': return roster.score(whatItems(row));
+    case 'exclude': {
+      var names = item.clipped ? item.names.filter(function (n) { return roster.has(n); }) : item.names;
+      return names.length ? roster.exclude(names, item.from, item.to) : null;
+    }
+    case 'include': return roster.include(whatNames(row), row.start);
     default: return null;
   }
 }
@@ -277,7 +287,7 @@ function assignSlot(rot, entry, holidays, ctx) {
     var message = 'no eligible member for shift ' + formatDateTime(a) + ' to ' + formatDateTime(b);
     rot.problems.push({ start: a, message: message });
   }
-  entry.generated = makeRow({ type: 'shift', start: a, who: entry.who === null ? '' : entry.who, note: note });
+  entry.generated = makeRow({ type: 'shift', start: a, what: entry.who === null ? '' : entry.who, note: note });
 }
 
 function sweep(items, rots, holidays, ctx) {
@@ -291,7 +301,7 @@ function sweep(items, rots, holidays, ctx) {
         break;
       }
       case 'snapshot':
-        rot.snapshotArg = rot.roster.snapshotArg();
+        rot.snapshotWhat = rot.roster.snapshotWhat();
         rot.scoresAtS = rot.roster.scores();
         break;
       case 'precredit':
@@ -340,7 +350,7 @@ function prepareLinks(rows, rots) {
   var order = linkedRotationOrder(parsed.links, names);
   rots.forEach(function (rot) { rot.rank = order.indexOf(rot.name); });
   var errors = parsed.errors.map(function (e) {
-    return { rotation: LINKS_NAME, rowIndex: e.rowIndex, start: e.start, message: e.message };
+    return { rotation: LINKS_TAB, rowIndex: e.rowIndex, start: e.start, message: e.message };
   });
   var byName = {};
   rots.forEach(function (rot) { byName[rot.name] = rot; });
@@ -348,7 +358,7 @@ function prepareLinks(rows, rots) {
 }
 
 function rotationOutput(rot) {
-  var rows = rot.kept.concat([makeRow({ type: 'snapshot', start: rot.S, arg: rot.snapshotArg })]);
+  var rows = rot.kept.concat([makeRow({ type: 'snapshot', start: rot.S, what: rot.snapshotWhat })]);
   rot.entries.forEach(function (e) { if (e.generated) rows.push(e.generated); });
   return { name: rot.name, rows: sortRows(rows.concat(rot.problems.map(errorRow))) };
 }

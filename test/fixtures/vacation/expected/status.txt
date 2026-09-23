@@ -1,5 +1,11 @@
 Rotalator  dry run  2026-09-08T10:00
 
+tabs
+rotations  primary
+holidays   2
+links      0
+ignored
+
 rotation  primary  snapshot   2026-09-07T09:00  horizon           2026-10-19T09:00
 member    score    projected  last shift        next shift        exclusions
 alice     28.00    35.00      2026-08-24T09:00  2026-09-21T09:00
@@ -10,7 +16,7 @@ dave      21.00    35.00      2026-08-17T09:00  2026-09-14T09:00
 warnings
 rotation  start  message
 
-start             end               rotation  who    pinned  note
+start             end               rotation  what   pinned  note
 2026-06-01T09:00  2026-06-08T09:00  primary   alice
 2026-06-08T09:00  2026-06-15T09:00  primary   bob
 2026-06-15T09:00  2026-06-22T09:00  primary   carol

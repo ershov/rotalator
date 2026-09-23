@@ -1,5 +1,11 @@
 Rotalator  dry run  2026-09-08T10:00
 
+tabs
+rotations  alerts, tickets
+holidays   2
+links      1
+ignored
+
 rotation  alerts  snapshot   2026-09-07T09:00  horizon           2026-10-19T09:00
 member    score   projected  last shift        next shift        exclusions
 alice     28.00   35.00      2026-08-24T09:00  2026-09-21T09:00
@@ -17,7 +23,7 @@ bob       28.00    35.00      2026-08-31T09:00  2026-09-28T09:00
 warnings
 rotation  start  message
 
-start             end               rotation  who    pinned  note
+start             end               rotation  what   pinned  note
 2026-06-01T09:00  2026-06-08T09:00  alerts    alice
 2026-06-01T09:00  2026-06-08T09:00  tickets   alice
 2026-06-08T09:00  2026-06-15T09:00  alerts    bob

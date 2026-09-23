@@ -9,26 +9,29 @@ with `clasp` or by pasting the bundle into the Apps Script editor.
    every datetime in the sheet is interpreted in it.
 2. Rename the first tab to the rotation name, for example `primary`. One tab
    per rotation; the tab name is the rotation name.
-3. Put the header in row 1, exactly these eight cells in columns A to H:
+3. Put the header in row 1, exactly these seven cells in columns A to G:
 
    ```
-   pin | start | type | who | arg | end | duration | note
+   pin | start | type | what | end | duration | note
    ```
 
-4. Select columns B (`start`) and F (`end`) and set **Format > Number > Plain
+4. Select columns B (`start`) and E (`end`) and set **Format > Number > Plain
    text** before entering any dates. Otherwise Sheets converts typed values
    into date cells. The script still reads date cells, but plain text is what
    it writes and what keeps the tab readable.
 5. Row 2: a `set` row with at least `period`. Date it at the intended start
    of the first shift, so it becomes the grid anchor and the first shift
    starts there. Row 3: a `team` row with the roster, same `start`.
-6. Add a `Holidays` tab with the header `date | note` in row 1. Column A holds
+6. Add a `#Holidays` tab with the header `date | note` in row 1. Column A holds
    one date per row as `YYYY-MM-DD` text or a real date cell; column B is a
    note. Holidays only matter when a rotation sets `skip_holidays=true`.
-7. Optional, with more than one rotation: add a `Links` tab with the same
-   eight-cell header as a ledger, and `link` rows such as
-   `distinct: primary, secondary` in `arg` (see the README). Format column B
+7. Optional, with more than one rotation: add a `#Links` tab with the same
+   seven-cell header as a ledger, and `link` rows such as
+   `distinct: primary, secondary` in `what` (see the README). Format column B
    as plain text like a ledger; the script writes `error` rows there.
+
+   Tab names starting with `#` are reserved for the script's tabs and for
+   disabled rotations: rename a rotation tab to `#<rotation>` to pause it.
 8. Optional: freeze row 1 (**View > Freeze > 1 row**) and add a checkbox to
    the `pin` column (**Insert > Checkbox**). An unticked checkbox counts as
    empty.
@@ -38,9 +41,9 @@ or import the file with **File > Import**, choosing "Detect automatically"
 as separator and keeping text as text):
 
 ```
-pin,start,type,who,arg,end,duration,note
-,2026-06-01T09:00,set,,"period=1w, horizon=12w",,,
-,2026-06-01T09:00,team,,"alice, bob, carol, dave",,,
+pin,start,type,what,end,duration,note
+,2026-06-01T09:00,set,"period=1w, horizon=12w",,,
+,2026-06-01T09:00,team,"alice, bob, carol, dave",,,
 ```
 
 Weekly shifts from Monday 2026-06-01 09:00, twelve weeks ahead, four members
@@ -48,9 +51,12 @@ round robin. Add `skip_weekends=true` or other keys from the README settings
 table to the `set` row as needed.
 
 Entering existing history: add one `shift` row per past shift with `start`
-and `who`. A shift longer than one period needs `duration` or `end`,
-otherwise only the first period is credited. Do not add a `snapshot` row; the
-script writes it.
+and the member in `what`. Do not add a `snapshot` row; the script writes it.
+
+A shift row without `end` or `duration` ends at the earlier of the next
+shift's start and the next grid boundary after its `start`. History rows that
+span several periods therefore need a `duration` or an `end`; otherwise only
+their first period is credited.
 
 ## 2. Build
 
@@ -117,7 +123,7 @@ clasp push -f
 `Code.js` and `appsscript.json`. `dist/` is not committed.
 
 Then in the spreadsheet: reload, run **Rotalator > Dry run**, authorise when
-asked (see Troubleshooting), check the `<rotation>.preview` tab, and continue
+asked (see Troubleshooting), check the `#Preview <rotation>` tab, and continue
 with step 5.
 
 ## 4. Manual deployment
@@ -135,8 +141,10 @@ with step 5.
 
 ## 5. First run and nightly trigger
 
-1. **Rotalator > Dry run** writes `<rotation>.preview` tabs, `Status` and
-   `Shifts` and leaves the ledgers untouched. Check the preview.
+1. **Rotalator > Dry run** writes `#Preview <rotation>` tabs (created right
+   after each rotation tab on the first dry run), `#Status` and `#All shifts`,
+   and leaves the ledgers untouched. Check the preview and the `tabs` block at
+   the top of `#Status`, which lists the rotations found and the tabs ignored.
 2. **Rotalator > Run now** writes the ledgers: the `snapshot` row and the
    generated shifts appear.
 3. **Rotalator > Install nightly trigger** schedules `run` every day between
@@ -175,13 +183,17 @@ stop it happening, set the columns to plain text before typing (step 1.4).
 **Error row `first row must be a set row with period`.** The earliest row by
 `start` must be a `set` row containing `period=`. Typical causes: a shift or
 team row dated earlier than the `set` row, a mistyped year in the `set` row,
-or `period` missing from its `arg`.
+or `period` missing from its `what`.
+
+**A rotation tab is not picked up.** Its first row must be exactly the seven
+header cells and its name must not start with `#`. The `tabs` block in
+`#Status` lists what was recognised and what was ignored.
 
 **Error rows appear above some rows.** Each describes the row directly below
 it. Fix the row and run again; error rows are removed on every read. While any
 ledger has an error, no tab is regenerated and the snapshot does not move.
 
-**Toast says `holidays row N: bad date`.** Cell A of that row in `Holidays`
+**Toast says `holidays row N: bad date`.** Cell A of that row in `#Holidays`
 is not `YYYY-MM-DD` or a date cell. Fix or clear it.
 
 **A generated shift has nobody and an error row says `no eligible member`.**

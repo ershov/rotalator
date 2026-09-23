@@ -3,18 +3,21 @@ Rotalator  dry run  2026-09-08T10:00
 tabs
 rotations  primary
 holidays   2
-links      0
-ignored
+links      1
+ignored    #secondary, Notes
 
 rotation  primary  snapshot   2026-09-07T09:00  horizon           2026-10-19T09:00
 member    score    projected  last shift        next shift        exclusions
 alice     35.00    49.00      2026-08-24T09:00  2026-09-14T09:00
-bob       35.00    42.00      2026-08-31T09:00  2026-09-28T09:00
-carol     28.00    42.00      2026-09-07T09:00  2026-10-05T09:00
+bob       35.00    49.00      2026-08-31T09:00  2026-09-21T09:00
+carol     28.00    42.00      2026-09-07T09:00  2026-09-28T09:00
 
 warnings
-rotation  start             message
-primary   2026-09-21T09:00  no eligible member for shift 2026-09-21T09:00 to 2026-09-28T09:00
+rotation  start  message
+
+errors
+rotation  where  message
+#Links    row 2  unknown rotation "secondary"
 
 start             end               rotation  what   pinned  note
 2026-06-01T09:00  2026-06-08T09:00  primary   alice
@@ -33,7 +36,7 @@ start             end               rotation  what   pinned  note
 2026-08-31T09:00  2026-09-07T09:00  primary   bob
 2026-09-07T09:00  2026-09-14T09:00  primary   carol
 2026-09-14T09:00  2026-09-21T09:00  primary   alice
-2026-09-21T09:00  2026-09-28T09:00  primary
-2026-09-28T09:00  2026-10-05T09:00  primary   bob
-2026-10-05T09:00  2026-10-12T09:00  primary   carol
-2026-10-12T09:00  2026-10-19T09:00  primary   alice
+2026-09-21T09:00  2026-09-28T09:00  primary   bob
+2026-09-28T09:00  2026-10-05T09:00  primary   carol
+2026-10-05T09:00  2026-10-12T09:00  primary   alice
+2026-10-12T09:00  2026-10-19T09:00  primary   bob

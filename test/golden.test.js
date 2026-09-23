@@ -8,6 +8,18 @@ const { CsvDirStorage, MemoryStorage } = require('../node/storage.js');
 
 const FIXTURES = path.join(__dirname, 'fixtures');
 
+test('CsvDirStorage: # files and files without the ledger header are ignored and reported', () => {
+  const storage = new CsvDirStorage(path.join(FIXTURES, 'disabled-rotation'));
+  assert.deepEqual(Object.keys(storage.readLedgers()), ['primary']);
+  assert.deepEqual(storage.ignoredTabs(), ['#secondary', 'Notes']);
+  assert.equal(storage.readLinks().length, 1);
+  const first = runDir(path.join(FIXTURES, 'disabled-rotation'), '2026-09-08T10:00');
+  assert.deepEqual(first.status.tabs, { rotations: ['primary'], holidays: 2, links: 1, ignored: ['#secondary', 'Notes'] });
+  // The written #Links carries an error row, which must not count as a link row on the next run.
+  const again = runStorage(new MemoryStorage({ ledgers: first.ledgers, holidays: storage.readHolidays(), links: first.links }), '2026-09-08T10:00');
+  assert.equal(again.status.tabs.links, 1);
+});
+
 // Each fixture: inputs, expected/<rotation>.csv per ledger, optional expected/links.csv, errors.txt and status.txt.
 // A second run on the output with the same now must reproduce it exactly.
 for (const name of fs.readdirSync(FIXTURES).sort()) {

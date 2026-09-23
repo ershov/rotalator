@@ -1,2 +1,3 @@
 pin,start,type,what,end,duration,note
+,2026-06-01T09:00,error,"unknown rotation ""secondary""",,,
 ,2026-06-01T09:00,link,"distinct: primary, secondary",,,one person on call at a time

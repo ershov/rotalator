@@ -13,7 +13,7 @@ class Settings {
 
   // Returns true when the row changes the grid (period or anchor).
   apply(setRow) {
-    var values = parseSetArg(setRow.arg).values;
+    var values = parseSetArg(setRow.what, setRow.start).values;
     var changed = false;
     if ('period' in values && values.period !== this.values.period) {
       changed = true;
@@ -120,19 +120,28 @@ class Roster {
     return scores.length % 2 ? scores[mid] : (scores[mid - 1] + scores[mid]) / 2;
   }
 
-  join(who, baselineArg) {
-    if (this.has(who)) return 'join: "' + who + '" is already a member';
-    this.members.push({ name: who, score: this.baseline(baselineArg), exclusions: [] });
+  addMember(name, baselineKind) {
+    this.members.push({ name: name, score: this.baseline(baselineKind), exclusions: [] });
+  }
+
+  // items of a join row: name or name=baseline. Joiners are added one by one, so later baselines see earlier joiners.
+  join(items, defaultBaseline) {
+    for (var i = 0; i < items.length; i++) {
+      if (this.has(items[i].name)) return 'join: "' + items[i].name + '" is already a member';
+    }
+    var self = this;
+    items.forEach(function (it) { self.addMember(it.name, it.op === '=' ? parseBaseline(it.value) : defaultBaseline); });
     return null;
   }
 
-  leave(who) {
-    if (!this.has(who)) return 'leave: unknown member "' + who + '"';
-    this.members = this.members.filter(function (m) { return m.name !== who; });
+  leave(names) {
+    var unknown = this.unknownMember(names);
+    if (unknown !== null) return 'leave: unknown member "' + unknown + '"';
+    this.members = this.members.filter(function (m) { return names.indexOf(m.name) < 0; });
     return null;
   }
 
-  // items from parseAssignments. Leavers removed, joiners added, roster reordered, adjustments applied last.
+  // items of a team row. Leavers removed, joiners added, roster reordered, adjustments applied last.
   team(items, defaultBaseline) {
     var names = new Set();
     for (var i = 0; i < items.length; i++) {
@@ -143,47 +152,57 @@ class Roster {
     var existing = new Set(this.names());
     var self = this;
     items.forEach(function (it) {
-      if (!existing.has(it.name)) self.join(it.name, it.op === '=' ? parseBaseline(it.value) : defaultBaseline);
+      if (!existing.has(it.name)) self.addMember(it.name, it.op === '=' ? parseBaseline(it.value) : defaultBaseline);
     });
     this.members = items.map(function (it) { return self.get(it.name); });
     items.forEach(function (it) {
-      var m = self.get(it.name);
-      if (it.op === '=' && existing.has(it.name)) m.score = self.baseline(parseBaseline(it.value));
-      else if (it.op === '+=') m.score += Number(it.value);
-      else if (it.op === '-=') m.score -= Number(it.value);
+      if (it.op !== '=' || existing.has(it.name)) self.adjust(self.get(it.name), it);
     });
     return null;
   }
 
+  // '=' sets to a number or to an aggregate of the current scores; '+=' and '-=' adjust; a bare name does nothing.
+  adjust(member, it) {
+    if (it.op === '=') member.score = this.baseline(parseBaseline(it.value));
+    else if (it.op === '+=') member.score += Number(it.value);
+    else if (it.op === '-=') member.score -= Number(it.value);
+  }
+
+  // items of a score row: same forms as team, only the members mentioned change.
   score(items) {
     for (var i = 0; i < items.length; i++) {
-      var it = items[i];
-      var m = this.get(it.name);
-      if (!m) return 'score: unknown member "' + it.name + '"';
-      var n = Number(it.value);
-      if (it.op === '=') m.score = n;
-      else if (it.op === '+=') m.score += n;
-      else m.score -= n;
+      var m = this.get(items[i].name);
+      if (!m) return 'score: unknown member "' + items[i].name + '"';
+      this.adjust(m, items[i]);
     }
     return null;
   }
 
-  exclude(who, from, to) {
-    var m = this.get(who);
-    if (!m) return 'exclude: unknown member "' + who + '"';
-    m.exclusions.push({ from: from, to: to === undefined ? null : to });
+  unknownMember(names) {
+    for (var i = 0; i < names.length; i++) if (!this.has(names[i])) return names[i];
     return null;
   }
 
-  // Closes every exclusion of `who` active at `at`.
-  include(who, at) {
-    var m = this.get(who);
-    if (!m) return 'include: unknown member "' + who + '"';
-    var closed = false;
-    m.exclusions.forEach(function (ex) {
-      if (ex.from <= at && (ex.to === null || ex.to > at)) { ex.to = at; closed = true; }
-    });
-    return closed ? null : 'include: no active exclusion for "' + who + '"';
+  exclude(names, from, to) {
+    var unknown = this.unknownMember(names);
+    if (unknown !== null) return 'exclude: unknown member "' + unknown + '"';
+    var self = this;
+    names.forEach(function (n) { self.get(n).exclusions.push({ from: from, to: to === undefined ? null : to }); });
+    return null;
+  }
+
+  // Closes every exclusion of each name active at `at`.
+  include(names, at) {
+    var unknown = this.unknownMember(names);
+    if (unknown !== null) return 'include: unknown member "' + unknown + '"';
+    for (var i = 0; i < names.length; i++) {
+      var closed = false;
+      this.get(names[i]).exclusions.forEach(function (ex) {
+        if (ex.from <= at && (ex.to === null || ex.to > at)) { ex.to = at; closed = true; }
+      });
+      if (!closed) return 'include: no active exclusion for "' + names[i] + '"';
+    }
+    return null;
   }
 
   isExcluded(who, a, b) {
@@ -197,11 +216,11 @@ class Roster {
     if (m) m.score += units;
   }
 
-  snapshotArg() {
+  snapshotWhat() {
     return this.members.map(function (m) { return m.name + '=' + formatScore(m.score); }).join(', ');
   }
 
-  fromSnapshotArg(text) {
+  fromSnapshotWhat(text) {
     var items = parseAssignments(text);
     this.members = typeof items === 'string' ? [] : items.map(function (it) {
       return { name: it.name, score: Number(it.value), exclusions: [] };

@@ -21,6 +21,12 @@ fair. There is no UI beyond the spreadsheet itself.
   Script V8 runtime and in Node for tests.
 - Concurrency is not handled in v1. The scheduled run happens at night.
 
+Design principles: Rotalator stays a periodic, idempotent script that edits a
+spreadsheet. There is no app and no UI beyond the sheet and its menu.
+Pragmatic spreadsheet conventions (a column, a row type, a tab name prefix) are
+preferred over new components, and the code has zero dependencies unless the
+owner explicitly approves one.
+
 ## 2. Concepts
 
 | Term | Meaning |
@@ -46,27 +52,34 @@ fair. There is no UI beyond the spreadsheet itself.
 | Tab | Owner | Purpose |
 |---|---|---|
 | `<rotation>` | users and script | One per rotation. Tab name is the rotation name. |
-| `Holidays` | users | Column A: date `YYYY-MM-DD`, column B: note. Applies to all rotations. |
-| `Links` | users and script | Relations between rotations over time; the script adds `error` rows. |
-| `Status` | script | Scores, last and next shifts, exclusions, warnings. Fully rewritten each run. |
-| `Shifts` | script | Every shift of every rotation in one table. Fully rewritten each run. |
-| `<rotation>.preview` | script | Dry run output. |
+| `#Holidays` | users | Column A: date `YYYY-MM-DD`, column B: note. Applies to all rotations. |
+| `#Links` | users and script | Relations between rotations over time; the script adds `error` rows. |
+| `#Status` | script | Recognised tabs, scores, last and next shifts, exclusions, warnings. Fully rewritten each run. |
+| `#All shifts` | script | Every shift of every rotation in one table. Fully rewritten each run. |
+| `#Preview <rotation>`, `#Preview Links` | script | Dry run output. |
 
-Any tab whose name starts with `.` or that is not a ledger by header is
-ignored. A ledger is recognised by its header row.
+Every tab whose name starts with `#` is a system tab and is never a rotation.
+Any other tab whose first row is the ledger header is a rotation; anything else
+is ignored. Renaming `primary` to `#primary` disables the rotation: it is
+neither read nor written, links naming it are dangling and get an `error` row
+in `#Links`, and renaming it back later behaves like a stale run (5.2). The
+`#Status` tab starts with a block listing the rotations found, the number of
+holidays and link rows read, and the tabs ignored (including `#`-prefixed tabs
+that are not system tabs, so a disabled rotation is visible there). A missing
+preview tab is created right after the tab it previews and never moved
+afterwards.
 
 ### 3.2 Ledger columns
 
 ```
-pin | start | type | who | arg | end | duration | note
+pin | start | type | what | end | duration | note
 ```
 
 - `pin`: any non-empty value. Pinned rows are never modified or deleted.
 - `start`: `YYYY-MM-DDTHH:MM`, spreadsheet time zone, plain text. Mandatory.
 - `type`: row type, see 3.4.
-- `who`: exactly one member id, or empty. Used only by `shift`, `join`,
-  `leave`, `exclude`, `include`.
-- `arg`: free-form argument for types that take a list or expression.
+- `what`: the row's payload: a member, a list of items, a settings list or a
+  message, depending on `type`. One item grammar for every list, see 3.3.
 - `end`: `YYYY-MM-DDTHH:MM`. Optional. Mutually exclusive with `duration`.
 - `duration`: e.g. `2d`, `12h`, `1d12h`, `1w`. Optional.
 - `note`: free text, preserved on user rows, script-written on generated rows.
@@ -82,68 +95,79 @@ are kept sorted by `start`; the script re-sorts on every write.
   form. Text sorts correctly as a string and survives CSV round trips.
 - Duration and period: an integer followed by `w`, `d`, `h` or `m`, optionally
   chained: `1w`, `3d`, `12h`, `1d12h`. Period accepts only `w` and `d`.
-- Lists: items separated by `,` or `;`, whitespace trimmed. `:` is not a
-  separator because times contain it.
-- Assignments inside lists: `name=value`, `name+=number`, `name-=number`.
+- Items: every list-taking `what` uses one grammar. Items are separated by
+  `,` or `;`, whitespace trimmed; `:` is not a separator because times contain
+  it. Each item is `name`, `name=value`, `name+=number` or `name-=number`.
+  Which forms a row type accepts is given in 3.4.
 - Member ids: any text without `,` `;` `=` `+`. Matched verbatim.
-- Nobody: empty `who`, `-` or `none`.
+- Nobody: empty `what` on a `shift`, `-` or `none`.
 - Scores are written with two decimals.
 
 ### 3.4 Row types
 
-| type | who | arg | end/duration | owner |
-|---|---|---|---|---|
-| shift | member or nobody | | optional | users or script |
-| team | | roster list | | users |
-| join | member | optional baseline | | users |
-| leave | member | | | users |
-| exclude | member | | optional, open-ended if absent | users |
-| include | member | | | users |
-| score | | adjustments list | | users |
-| set | | `key=value` list | | users |
-| snapshot | | roster with scores | | script |
-| error | | message | | script |
+| type | what | end/duration | owner |
+|---|---|---|---|
+| shift | one member, or nobody | optional | users or script |
+| team | `name`, `name=baseline`, `name=number`, `name+=n`, `name-=n` | | users |
+| join | `name`, `name=baseline`, `name=number`, one or more | | users |
+| leave | `name`, one or more | | users |
+| exclude | `name`, one or more | optional, open-ended if absent | users |
+| include | `name`, one or more | | users |
+| score | same forms as team | | users |
+| set | `key`, `key=value` | | users |
+| snapshot | `name=score` | | script |
+| error | message | | script |
 
-**shift.** Assigns `who` from `start`. Its scored interval ends at the explicit
-`end`, else at the earlier of the next `shift` row's start and the next grid
-boundary strictly after `start`. The grid rule gives the final row of the
-ledger a definite extent without a terminator row or an explicit `end`, and
-keeps a stale ledger's last shift from being credited for the gap before the
-next run. Its claim (see 5.4) ends at the explicit `end`, else at the next grid
-boundary strictly after `start`. Unpinned shifts starting after the snapshot
-belong to the script and are regenerated every run. Any user edit to a future
-shift must be pinned or it is lost.
+**shift.** Assigns the member in `what` from `start`. Its scored interval ends
+at the explicit `end`, else at the earlier of the next `shift` row's start and
+the next grid boundary strictly after `start`. The grid rule gives the final
+row of the ledger a definite extent without a terminator row or an explicit
+`end`, and keeps a stale ledger's last shift from being credited for the gap
+before the next run; a hand-entered history shift spanning several periods
+therefore needs `duration` or `end`. Its claim (see 5.4) ends at the explicit
+`end`, else at the next grid boundary strictly after `start`. Unpinned shifts
+starting after the snapshot belong to the script and are regenerated every
+run. Any user edit to a future shift must be pinned or it is lost.
 
 **team.** Sets the full roster. `alice, bob, carol=median, dave=12, erin+=2`.
 The list is diffed against the current roster: absent members leave, new
 members join with the given baseline or the `baseline` setting, `+=`/`-=`
-adjust existing scores, `=number` sets a score. The list order becomes the
-roster order used by the `order` tiebreak.
+adjust scores (a joiner's after its baseline), `=number` sets a score and
+`=median|mean|min|max` sets an existing member to that aggregate of the
+current scores. The list order becomes the roster order used by the `order`
+tiebreak.
 
-**join.** One member joins. `arg` is `median`, `mean`, `min`, `max` or a number;
-default is the `baseline` setting. Baselines are computed from the projected
-scores of the roster at that instant, including excluded members. Joining an
-existing member is an error.
+**join.** One or more members join: `erin, frank=min, gina=12`. The value is
+`median`, `mean`, `min`, `max` or a number; default is the `baseline`
+setting. Baselines are computed from the projected scores of the roster at
+that instant, including excluded members; joiners are added one by one, so a
+later item's aggregate includes the earlier joiners. Joining an existing member
+is an error.
 
-**leave.** Member removed, score discarded. A later join starts fresh with a
-baseline.
+**leave.** One or more members removed, scores discarded. A later join starts
+fresh with a baseline.
 
-**exclude / include.** The member is ineligible from `start` until `end`,
-`duration`, or a later `include` row. Score is kept and the member still counts
-for baselines.
+**exclude / include.** The listed members are ineligible from `start` until
+`end`, `duration`, or a later `include` row naming them. `end` or `duration`
+apply to every member listed. Score is kept and the members still count for
+baselines.
 
-**score.** `alice=10, bob+=2, carol-=1`. Manual corrections, e.g. for history
-older than the snapshot.
+**score.** `alice=10, bob+=2, carol-=1, dave=mean`. Manual corrections, e.g.
+for history older than the snapshot. Same item forms as `team`, but only the
+members mentioned change and they must be on the roster; a bare `name` is
+accepted and does nothing.
 
-**set.** Changes settings from `start` onward. Keys in 3.5. `set` rows are
-always replayed from the top of the ledger even when older than the snapshot,
-so the settings history stays in one visible place. When `period` changes and
-`anchor` is not given, `anchor` defaults to the row's own `start`. A `set` row
-that changes `period` or `anchor` cuts claims and slots at its `start`; the
-grid realigns from there.
+**set.** Changes settings from `start` onward. Keys in 3.5, as `key=value` or a
+bare `key`. A bare key applies the key's default behaviour: the fixed default
+for most keys, and for `anchor` the row's own `start`. `anchor` never takes a
+value; `period` always needs one. `set` rows are always replayed from the top
+of the ledger even when older than the snapshot, so the settings history stays
+in one visible place. When `period` changes and `anchor` is not given,
+`anchor` defaults to the row's own `start`. A `set` row that changes `period`
+or `anchor` cuts claims and slots at its `start`; the grid realigns from there.
 
 **snapshot.** One per rotation, written by the script. Its instant is the
-start of the current shift, see 5.2. `arg` is the roster in order with scores
+start of the current shift, see 5.2. `what` is the roster in order with scores
 as of that instant: `alice=12.50, bob=11.00`. The snapshot is the single
 boundary in the ledger: rows before it are ignored on replay, except `set`
 rows and `shift` or `exclude` intervals that extend past it, which are clipped
@@ -154,24 +178,28 @@ replay from the top, which is the intended reset mechanism. Rows older than the
 snapshot other than `set` rows may be cut to an archive tab by hand at any
 time.
 
-**error.** Written by the script, `arg` is the message. Every `error` row is
+**error.** Written by the script, `what` is the message. Every `error` row is
 removed on read, so they are purely diagnostic and never accumulate. See 6.
 
 ### 3.5 Settings (`set` keys)
 
 | key | default | meaning |
 |---|---|---|
-| period | required | `Nd` or `Nw`. |
-| anchor | start of the `set` row | A grid instant. Also the earliest instant the schedule can begin. |
+| period | required | `Nd` or `Nw`. Always `period=value`. |
+| anchor | start of the `set` row | A grid instant. Also the earliest instant the schedule can begin. Written as a bare `anchor`; it takes no value and the row's `start` is the anchor. |
 | horizon | 90d | Generate slots up to the first grid boundary at or after `snapshot + horizon`. |
 | skip_weekends | false | Saturdays and Sundays credit zero units. |
-| skip_holidays | false | Dates in `Holidays` credit zero units. |
+| skip_holidays | false | Dates in `#Holidays` credit zero units. |
 | tolerance | 0 | Days. Candidates are members within `tolerance` of the lowest projected score. |
 | min_distance | 0 | Regular shifts of rest required on both sides of a slot. |
 | tiebreak | order | `order` or `shuffle`. |
 | seed | 0 | Integer mixed into the shuffle hash. |
 | baseline | median | Default for joiners: `median`, `mean`, `min`, `max`. |
 | precredit | auto | Regular shifts after the snapshot within which pinned shifts are pre-credited. `auto` means the roster size. `0` disables. |
+
+A bare key restores the default in this table (`tolerance`, `tiebreak`,
+`precredit`, ...); a bare `anchor` re-anchors the grid at the row's `start`
+without changing the period.
 
 The first row of a new rotation must be a `set` row with at least `period`,
 followed by a `team` row. Dating the `set` row at the intended first shift
@@ -199,8 +227,8 @@ starts at 09:00 local in every week.
 
 ## 5. Algorithm
 
-One run processes all rotations together. Input: the ledgers, `Holidays`,
-`Links`, and `now`. Output: new ledgers, status data, and a list of errors.
+One run processes all rotations together. Input: the ledgers, `#Holidays`,
+`#Links`, and `now`. Output: new ledgers, status data, and a list of errors.
 `now` is consumed by step 5.2 only. Everything from 5.3 on depends on the
 ledger alone, so `regenerate(ledgers, holidays, links)` is a pure function of
 the sheet content and can be tested without a clock.
@@ -209,8 +237,9 @@ the sheet content and can be tested without a clock.
 
 Parse every ledger row. Drop `error` rows. Collect validation errors with row
 references: unknown type, bad datetime, bad duration, both `end` and
-`duration` set, `who` missing or multi-valued where required, `arg` missing
-where required, unknown setting key, `join` of a current member, `leave` or
+`duration` set, `what` missing where required, an item form the type does not
+accept (a `shift` with two names, `leave` with `name=1`, `anchor=value`, a
+bare `period`), unknown setting key, `join` of a current member, `leave` or
 `exclude` of an unknown member, first row not a `set` with `period`. If any
 error exists in any tab, no regeneration happens in this run; see 6.
 
@@ -310,18 +339,19 @@ sorting. No terminator row and no explicit `end` on the last row: the last
 shift's extent is the next grid boundary after its start, by the rule in 3.4,
 and `horizonEnd` is always a grid boundary so the two agree.
 
-Status data is built from the swept state: the run instant and mode, and per
-rotation the snapshot instant, `horizonEnd`, and for each roster member the
-score at `S`, the projected score at `horizonEnd`, the last shift (latest
-start at or before `S`), the next shift (first start after `S`) and the
-exclusions active at `S`; plus the warnings of the sweep (relaxations and
+Status data is built from the swept state: the run instant and mode, the
+recognised tabs (rotations found, holidays and link rows read, tabs ignored),
+and per rotation the snapshot instant, `horizonEnd`, and for each roster
+member the score at `S`, the projected score at `horizonEnd`, the last shift
+(latest start at or before `S`), the next shift (first start after `S`) and
+the exclusions active at `S`; plus the warnings of the sweep (relaxations and
 unassignable slots). On a validation error the data carries the errors and no
-rotations. The `Status` tab is this data as text: a title line, per rotation a
-header line and a member table, then a warnings table and, if any, an errors
-table. The `Shifts` tab lists every shift of every rotation with `start`,
-`end` (scored end), rotation, `who`, pinned and note, sorted by `start` then
-rotation order. Both tabs are rewritten in full on every run, including dry
-runs.
+rotations. The `#Status` tab is this data as text: a title line, the tabs
+block, per rotation a header line and a member table, then a warnings table
+and, if any, an errors table. The `#All shifts` tab lists every shift of every
+rotation with `start`, `end` (scored end), rotation, `what`, pinned and note,
+sorted by `start` then rotation order. Both tabs are rewritten in full on
+every run, including dry runs.
 
 ### 5.9 Properties
 
@@ -347,26 +377,27 @@ on the next read, so fixing the cause and rerunning clears them.
   tab.
 - Unassignable slot: a `shift` with nobody plus an `error` row at the slot
   start. The empty shift keeps the interval rules intact.
-- Relaxation used: text in the generated shift's `note` and in the `Status`
+- Relaxation used: text in the generated shift's `note` and in the `#Status`
   warnings table.
-- Dangling link to a missing rotation tab: `error` row in `Links`, link ignored.
+- Dangling link to a missing or disabled rotation tab: `error` row in
+  `#Links`, link ignored.
 
 ## 7. Multiple rotations and Links
 
 Rotations are tabs and can appear or disappear at any time. Relations between
-them live in the `Links` tab, a timeline with the same column layout as a
+them live in the `#Links` tab, a timeline with the same column layout as a
 ledger:
 
 ```
-pin | start | type | who | arg | end | duration | note
+pin | start | type | what | end | duration | note
 ```
 
-The tab carries the ledger header row. `who` is empty for both types.
+The tab carries the ledger header row.
 
-- `link`: `arg` is `distinct: primary, secondary` or `joined: alerts, tickets`,
+- `link`: `what` is `distinct: primary, secondary` or `joined: alerts, tickets`,
   two or more distinct rotation names. Active from `start` until `end`,
   `duration`, or a matching `unlink` row.
-- `unlink`: same `arg`; closes every open link of the same kind and the same
+- `unlink`: same `what`; closes every open link of the same kind and the same
   set of rotations, in any order, that is active at its `start`.
 
 A link applies to a slot when it is active at the slot's start. Overlap is
@@ -383,15 +414,15 @@ Rotations are decided at equal starts in the order they first appear in the
 `link` rows, top to bottom, then the remaining rotations in tab order. This
 order is static for the run; it does not change when links start or end.
 
-Link rows that fail validation (unknown type, bad `start`, `who` given,
-malformed `arg`, a rotation name without a ledger tab, `unlink` without an
-active link, bad `end` or `duration`) get an `error` row above them in `Links`
-and are ignored; the run still reports them. They do not stop regeneration,
-because the ledgers do not depend on the `Links` tab being valid. `Links` is
-written back in full like a ledger when the tab exists; a dry run writes
-`Links.preview`. The sweep already walks all rotations in one merged time
-order, so links add only the `Links` reader and two candidate filters. The
-`Shifts` tab is the all-rotations view.
+Link rows that fail validation (unknown type, bad `start`, malformed `what`, a
+rotation name without a ledger tab, `unlink` without an active link, bad `end`
+or `duration`) get an `error` row above them in `#Links` and are ignored; the
+run still reports them. They do not stop regeneration, because the ledgers do
+not depend on the `#Links` tab being valid. `#Links` is written back in full
+like a ledger when the tab exists; a dry run writes `#Preview Links`. The
+sweep already walks all rotations in one merged time order, so links add only
+the `#Links` reader and two candidate filters. The `#All shifts` tab is the
+all-rotations view.
 
 ## 8. Code layout
 
@@ -400,12 +431,12 @@ build.sh              bundle src/ into dist/Code.js and copy the manifest
 test.sh               node --test test/**/*.test.js
 src/
   00_util.js          naive datetime, durations, lists, FNV-1a, CSV
-  10_model.js         row parsing, validation, serialization
+  10_model.js         tab names, rows, item grammar, validation, serialization
   20_calendar.js      grid, claims, units
   30_state.js         roster, scores, exclusions, settings replay
   40_scheduler.js     prune, claims, pre-credit, sweep, selection
-  50_status.js        status data, Status and Shifts rows
-  60_links.js         Links reader, rotation order, distinct and joined filters
+  50_status.js        status data, #Status and #All shifts rows
+  60_links.js         #Links reader, rotation order, distinct and joined filters
   80_runner.js        storage-agnostic run: read, advance, regenerate, write
   90_gas.js           Apps Script entry points and Sheets adapter
   appsscript.json     V8 runtime, time zone
@@ -435,22 +466,27 @@ The core is storage-agnostic. The `Storage` interface:
 readLedgers()   -> { [rotation]: rows[] }
 readHolidays()  -> dates[]
 readLinks()     -> rows[]
+ignoredTabs()   -> names[]
 writeLedger(rotation, rows)
 writeLinks(rows)
 writeStatus(status)
 ```
 
 `90_gas.js` implements it on `SpreadsheetApp`, `node/storage.js` on memory and
-CSV files. `writeStatus` receives the status data and writes both the `Status`
-and the `Shifts` tab; `50_status.js` turns the data into the 2D text arrays
-so the adapters and the CLI `--status` share one layout. `80_runner.js` holds
-the shared `runStorage(storage, nowText, options)`: it reads through the
-storage, drops blank rows, calls `advance` and then `regenerate`, and writes
-when asked. Each adapter only obtains `now` in
-the spreadsheet time zone as `YYYY-MM-DDTHH:MM` text and converts date cells
-to that form before handing them over.
+CSV files. In the CSV directory `<rotation>.csv` is a rotation tab,
+`holidays.csv` is `#Holidays`, `links.csv` is `#Links`, `status.json` holds the
+`#Status` and `#All shifts` data and `now.txt` the run instant; a file named
+`#<anything>.csv` is never a rotation, like a `#` tab. `writeStatus` receives
+the status data and writes both the `#Status` and the `#All shifts` tab;
+`50_status.js` turns the data into the 2D text arrays so the adapters and the
+CLI `--status` share one layout. `80_runner.js` holds the shared
+`runStorage(storage, nowText, options)`: it reads through the storage, drops
+blank rows, calls `advance` and then `regenerate`, fills in the tabs block, and
+writes when asked. Each adapter only obtains `now` in the spreadsheet time
+zone as `YYYY-MM-DDTHH:MM` text and converts date cells to that form before
+handing them over.
 
-Apps Script menu: `Run now`, `Dry run` (writes `<rotation>.preview` tabs),
+Apps Script menu: `Run now`, `Dry run` (writes `#Preview <rotation>` tabs),
 `Install nightly trigger`, `Remove trigger`.
 
 ## 9. Testing
@@ -467,7 +503,8 @@ Apps Script menu: `Run now`, `Dry run` (writes `<rotation>.preview` tabs),
   the current grid boundary; tolerance and min_distance interplay; shuffle
   determinism across runs; period change via `set`; validation errors produce
   error rows and no other change; unassignable slot; snapshot deletion
-  triggers full replay; `distinct` and `joined` links between two rotations.
+  triggers full replay; `distinct` and `joined` links between two rotations;
+  a rotation disabled by a `#` prefix with a link that dangles.
 
 ## 10. Deployment
 
@@ -480,14 +517,14 @@ Two paths, both in INSTALL.md.
   menu to install the nightly trigger.
 
 INSTALL.md also provides the spreadsheet template: header row, `start`, `end`
-columns formatted as plain text, initial `set` and `team` rows, `Holidays` tab.
+columns formatted as plain text, initial `set` and `team` rows, `#Holidays` tab.
 
 ## 11. Stages
 
 1. Core, memory and CSV adapters, CLI, tests, DESIGN.md.
 2. Apps Script adapter, menu, trigger, README.md, INSTALL.md.
-3. `Status` tab and all-rotations view.
-4. `Links` tab with `distinct` and `joined`.
+3. `#Status` tab and the `#All shifts` view.
+4. `#Links` tab with `distinct` and `joined`.
 
 ## 12. Known limitations
 
@@ -500,7 +537,7 @@ columns formatted as plain text, initial `set` and `team` rows, `Holidays` tab.
 - Period `Nm` (months) is not supported.
 - Member identity is the verbatim string. Renaming a member means editing
   history or adding a `score` row.
-- Only the eight ledger columns are managed. Content in further columns does
+- Only the seven ledger columns are managed. Content in further columns does
   not follow its row when the ledger is re-sorted.
 - A hand-entered history shift without `end` or `duration` extends only to
   the next grid boundary, so a longer shift is credited one period.

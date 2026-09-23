@@ -4,13 +4,18 @@ const path = require('node:path');
 const { load } = require('./load.js');
 
 // Storage interface of DESIGN 8. Ledgers are cell arrays without the header row; holidays are date texts
-// (null for a blank row).
+// (null for a blank row); ignored are tab names reported in #Status.
 class MemoryStorage {
-  constructor({ ledgers = {}, holidays = [], links = [] } = {}) {
+  constructor({ ledgers = {}, holidays = [], links = [], ignored = [] } = {}) {
     this.ledgers = structuredClone(ledgers);
     this.holidays = holidays.slice();
     this.links = structuredClone(links);
+    this.ignored = ignored.slice();
     this.status = null;
+  }
+
+  ignoredTabs() {
+    return this.ignored.slice();
   }
 
   readLedgers() {
@@ -38,12 +43,15 @@ class MemoryStorage {
   }
 }
 
-// Directory of <rotation>.csv ledgers (recognised by header), holidays.csv, optional links.csv, now.txt.
+// Directory form of the spreadsheet. File to tab mapping: <rotation>.csv is a rotation tab (recognised by
+// header), holidays.csv is #Holidays, links.csv is #Links, status.json holds the #Status and #All shifts data,
+// now.txt is the run instant. A file named #<anything>.csv is never a rotation, like a '#' tab.
 // Blank lines are kept as all-empty rows so row numbers match the file; callers drop them.
 class CsvDirStorage {
   constructor(dir) {
     this.dir = dir;
     this.U = load();
+    this.tabs = null;
   }
 
   file(name) {
@@ -55,14 +63,27 @@ class CsvDirStorage {
     return fs.existsSync(file) ? this.U.parseCsv(fs.readFileSync(file, 'utf8')) : null;
   }
 
-  readLedgers() {
+  scanTabs() {
+    if (this.tabs) return this.tabs;
     const ledgers = {};
+    const ignored = [];
     fs.readdirSync(this.dir).sort().forEach((name) => {
       if (!name.endsWith('.csv') || name === 'holidays.csv' || name === 'links.csv') return;
+      const tab = name.slice(0, -4);
       const rows = this.readCsv(name);
-      if (rows.length && this.U.isLedgerHeader(rows[0])) ledgers[name.slice(0, -4)] = rows.slice(1);
+      if (!this.U.isSystemTab(tab) && rows.length && this.U.isLedgerHeader(rows[0])) ledgers[tab] = rows.slice(1);
+      else ignored.push(tab);
     });
-    return ledgers;
+    this.tabs = { ledgers, ignored };
+    return this.tabs;
+  }
+
+  readLedgers() {
+    return structuredClone(this.scanTabs().ledgers);
+  }
+
+  ignoredTabs() {
+    return this.scanTabs().ignored.slice();
   }
 
   readHolidays() {

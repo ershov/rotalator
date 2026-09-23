@@ -1,7 +1,7 @@
-// Status data and the 2D text arrays for the Status and Shifts tabs (DESIGN 5.8).
+// Status data and the 2D text arrays for the #Status and #All shifts tabs (DESIGN 5.8).
 
 var STATUS_WIDTH = 6;
-var SHIFTS_HEADER = ['start', 'end', 'rotation', 'who', 'pinned', 'note'];
+var SHIFTS_HEADER = ['start', 'end', 'rotation', 'what', 'pinned', 'note'];
 
 function statusInstant(min) {
   return min === null || min === undefined ? '' : formatDateTime(min);
@@ -44,7 +44,7 @@ function shiftsView(rots) {
       var row = e.row || e.generated;
       out.push({
         start: e.start, end: e.end, rotation: rot.name,
-        who: e.who === null ? '' : e.who,
+        what: e.who === null ? '' : e.who,
         pinned: Boolean(row && row.pinned),
         note: row ? row.note : '',
       });
@@ -73,11 +73,19 @@ function formatExclusions(list) {
   }).join('; ');
 }
 
-// Rows of the Status tab. status.now and status.mode are set by the runner.
+// Rows of the #Status tab. status.now, status.mode and status.tabs are set by the runner.
 function statusRows(status) {
   var rows = [];
   var push = function (cells) { rows.push(padStatusRow(cells)); };
   push(['Rotalator', status.mode || '', status.now || '']);
+  if (status.tabs) {
+    push([]);
+    push(['tabs']);
+    push(['rotations', status.tabs.rotations.join(', ')]);
+    push(['holidays', String(status.tabs.holidays)]);
+    push(['links', String(status.tabs.links)]);
+    push(['ignored', status.tabs.ignored.join(', ')]);
+  }
   status.rotations.forEach(function (rot) {
     push([]);
     push(['rotation', rot.name, 'snapshot', statusInstant(rot.snapshotAt), 'horizon', statusInstant(rot.horizonEnd)]);
@@ -103,9 +111,9 @@ function statusRows(status) {
   return rows;
 }
 
-// Rows of the Shifts tab, header included.
+// Rows of the #All shifts tab, header included.
 function shiftsRows(shifts) {
   return [SHIFTS_HEADER.slice()].concat(shifts.map(function (s) {
-    return [statusInstant(s.start), statusInstant(s.end), s.rotation, s.who, s.pinned ? 'yes' : '', s.note];
+    return [statusInstant(s.start), statusInstant(s.end), s.rotation, s.what, s.pinned ? 'yes' : '', s.note];
   }));
 }

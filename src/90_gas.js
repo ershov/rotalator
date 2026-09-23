@@ -1,21 +1,18 @@
-// Apps Script entry points and Sheets adapter. Not loaded by Node tests.
+// Apps Script entry points and Sheets adapter. Not loaded by Node tests. Tab names are in 10_model.js.
 
-var HOLIDAYS_TAB = 'Holidays';
-var STATUS_TAB = 'Status';
-var SHIFTS_TAB = 'Shifts';
-var PREVIEW_SUFFIX = '.preview';
 var CELL_DATETIME_FORMAT = "yyyy-MM-dd'T'HH:mm";
 var CELL_DATE_FORMAT = 'yyyy-MM-dd';
 var TRIGGER_HANDLER = 'run';
 
 // Storage interface of DESIGN 8 over the active spreadsheet. With preview set, ledgers are written to
-// <rotation>.preview tabs instead of the ledger tabs. Ledgers are written as plain text only.
+// '#Preview <rotation>' tabs instead of the ledger tabs. Ledgers are written as plain text only.
 class SheetsStorage {
   constructor(spreadsheet, options) {
     this.ss = spreadsheet;
     this.tz = spreadsheet.getSpreadsheetTimeZone();
     this.preview = Boolean(options && options.preview);
     this.nowText = Utilities.formatDate(new Date(), this.tz, CELL_DATETIME_FORMAT);
+    this.tabs = null;
   }
 
   isDateCell(cell) {
@@ -34,24 +31,34 @@ class SheetsStorage {
     });
   }
 
-  isReservedName(name) {
-    return name.charAt(0) === '.' || name === HOLIDAYS_TAB || name === LINKS_NAME || name === STATUS_TAB || name === SHIFTS_TAB ||
-      name.slice(-PREVIEW_SUFFIX.length) === PREVIEW_SUFFIX;
-  }
-
-  // Only the ledger columns are read; content further right is ignored.
-  readLedgers() {
+  // Rotations are the non-'#' tabs with the ledger header; only the ledger columns are read. Every other tab
+  // except the known system tabs is reported as ignored, so a disabled '#<rotation>' shows up in #Status.
+  scanTabs() {
+    if (this.tabs) return this.tabs;
     var ledgers = {};
+    var ignored = [];
     var self = this;
     this.ss.getSheets().forEach(function (sheet) {
       var name = sheet.getName();
-      if (self.isReservedName(name)) return;
+      if (isSystemTab(name)) {
+        if (!isKnownSystemTab(name)) ignored.push(name);
+        return;
+      }
       var header = sheet.getRange(1, 1, 1, LEDGER_HEADER.length).getValues()[0];
-      if (!isLedgerHeader(header)) return;
+      if (!isLedgerHeader(header)) { ignored.push(name); return; }
       ledgers[name] = self.readValues(sheet, CELL_DATETIME_FORMAT).slice(1)
         .map(function (row) { return row.slice(0, LEDGER_HEADER.length); });
     });
-    return ledgers;
+    this.tabs = { ledgers: ledgers, ignored: ignored };
+    return this.tabs;
+  }
+
+  readLedgers() {
+    return this.scanTabs().ledgers;
+  }
+
+  ignoredTabs() {
+    return this.scanTabs().ignored.slice();
   }
 
   // Date texts per row after the header, null for blank rows so row numbers stay aligned.
@@ -63,9 +70,9 @@ class SheetsStorage {
     return body.map(function (r) { return isBlankRow(r) ? null : cellText(r[0]); });
   }
 
-  // The Links tab must carry the ledger header; anything else is ignored.
+  // The #Links tab must carry the ledger header; anything else is ignored.
   readLinks() {
-    var sheet = this.ss.getSheetByName(LINKS_NAME);
+    var sheet = this.ss.getSheetByName(LINKS_TAB);
     if (!sheet) return [];
     var rows = this.readValues(sheet, CELL_DATETIME_FORMAT);
     return rows.length && isLedgerHeader(rows[0]) ? rows.slice(1).map(function (row) { return row.slice(0, LEDGER_HEADER.length); }) : [];
@@ -73,6 +80,14 @@ class SheetsStorage {
 
   sheetNamed(name) {
     return this.ss.getSheetByName(name) || this.ss.insertSheet(name);
+  }
+
+  // A missing preview tab is created right after the tab it previews; an existing one is never moved.
+  previewSheet(name) {
+    var sheet = this.ss.getSheetByName(previewTabName(name));
+    if (sheet) return sheet;
+    var base = this.ss.getSheetByName(name);
+    return this.ss.insertSheet(previewTabName(name), base ? base.getIndex() : this.ss.getNumSheets());
   }
 
   writeTextRows(sheet, row, rows) {
@@ -83,11 +98,11 @@ class SheetsStorage {
     range.setValues(rows);
   }
 
-  // Rows below the header of a ledger-shaped tab; previews go to <name>.preview with a fresh header.
+  // Rows below the header of a ledger-shaped tab; previews go to '#Preview <name>' with a fresh header.
   writeLedgerRows(name, rows) {
     var sheet;
     if (this.preview) {
-      sheet = this.sheetNamed(name + PREVIEW_SUFFIX);
+      sheet = this.previewSheet(name);
       sheet.clearContents();
       this.writeTextRows(sheet, 1, [LEDGER_HEADER]);
     } else {
@@ -104,7 +119,7 @@ class SheetsStorage {
   }
 
   writeLinks(rows) {
-    this.writeLedgerRows(LINKS_NAME, rows);
+    this.writeLedgerRows(LINKS_TAB, rows);
   }
 
   writeTable(name, rows) {
@@ -113,10 +128,10 @@ class SheetsStorage {
     this.writeTextRows(sheet, 1, rows);
   }
 
-  // Status and Shifts tabs, rewritten in full from the status data (DESIGN 5.8).
+  // #Status and #All shifts tabs, rewritten in full from the status data (DESIGN 5.8).
   writeStatus(data) {
     this.writeTable(STATUS_TAB, statusRows(data));
-    this.writeTable(SHIFTS_TAB, shiftsRows(data.shifts));
+    this.writeTable(ALL_SHIFTS_TAB, shiftsRows(data.shifts));
   }
 }
 

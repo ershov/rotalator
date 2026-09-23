@@ -46,13 +46,13 @@ test('units counts fractional days and skips weekends and holidays', () => {
 
 test('claimEnd: explicit end or next boundary, truncated by next shift and grid change', () => {
   const g = new U.Grid({ period: W, anchor: MON });
-  const open = U.makeRow({ type: 'shift', start: MON + 1440, who: 'a' });
+  const open = U.makeRow({ type: 'shift', start: MON + 1440, what: 'a' });
   assert.equal(U.claimEnd(open, null, g, []), MON + W);
   assert.equal(U.claimEnd(open, MON + 3 * 1440, g, []), MON + 3 * 1440);
   assert.equal(U.claimEnd(open, MON + 2 * W, g, []), MON + W);
   assert.equal(U.claimEnd(open, null, g, [MON, MON + 2 * 1440, MON + 5 * 1440]), MON + 2 * 1440);
   assert.equal(U.claimEnd(open, MON + 2 * 1440, g, [MON + 3 * 1440]), MON + 2 * 1440);
-  const long = U.makeRow({ type: 'shift', start: MON, who: 'a', duration: 2 * W });
+  const long = U.makeRow({ type: 'shift', start: MON, what: 'a', duration: 2 * W });
   assert.equal(U.claimEnd(long, null, g, []), MON + 2 * W);
   assert.equal(U.claimEnd(long, MON + W, g, []), MON + W);
   assert.equal(U.claimEnd(long, undefined, g, undefined), MON + 2 * W);
@@ -60,7 +60,7 @@ test('claimEnd: explicit end or next boundary, truncated by next shift and grid 
 
 test('scoredEnd: explicit end, else the earlier of next shift start and next boundary', () => {
   const g = new U.Grid({ period: W, anchor: MON });
-  const open = U.makeRow({ type: 'shift', start: MON + 1440, who: 'a' });
+  const open = U.makeRow({ type: 'shift', start: MON + 1440, what: 'a' });
   assert.equal(U.scoredEnd(open, null, g), MON + W);
   assert.equal(U.scoredEnd(open, MON + 3 * 1440, g), MON + 3 * 1440);
   assert.equal(U.scoredEnd(open, MON + 3 * W, g), MON + W);

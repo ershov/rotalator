@@ -1,7 +1,6 @@
-// Links tab (DESIGN 7): link and unlink rows relating rotations over time.
+// #Links tab (DESIGN 7): link and unlink rows relating rotations over time.
 
 var LINK_KINDS = ['distinct', 'joined'];
-var LINKS_NAME = 'Links';
 
 // "distinct: a, b" -> { kind, rotations } or null.
 function parseLinkArg(text) {
@@ -21,10 +20,9 @@ function sameRotations(a, b) {
 function validateLinkRow(row, rotationNames) {
   if (row.type !== 'link' && row.type !== 'unlink') return row.type === '' ? 'missing type' : 'unknown type "' + row.type + '"';
   if (row.start === null) return row.startText === '' ? 'missing start' : 'bad start "' + row.startText + '"';
-  if (row.who !== '') return row.type + ' does not take who';
-  if (row.arg === '') return row.type + ' requires arg';
-  var parsed = parseLinkArg(row.arg);
-  if (!parsed) return 'arg must be "distinct: a, b" or "joined: a, b"';
+  if (row.what === '') return row.type + ' requires what';
+  var parsed = parseLinkArg(row.what);
+  if (!parsed) return 'what must be "distinct: a, b" or "joined: a, b"';
   for (var i = 0; i < parsed.rotations.length; i++) {
     if (rotationNames.indexOf(parsed.rotations[i]) < 0) return 'unknown rotation "' + parsed.rotations[i] + '"';
   }
@@ -36,7 +34,7 @@ function validateLinkRow(row, rotationNames) {
   return null;
 }
 
-// rows: Links row objects. Returns { links: [{ kind, rotations, from, to }], errors, rows } where rows are the
+// rows: #Links row objects. Returns { links: [{ kind, rotations, from, to }], errors, rows } where rows are the
 // kept rows plus an error row above each rejected one. Rejected rows are ignored; unlink closes matching open links.
 function parseLinks(rows, rotationNames) {
   var errors = [];
@@ -45,7 +43,7 @@ function parseLinks(rows, rotationNames) {
   kept.forEach(function (row) {
     var message = validateLinkRow(row, rotationNames);
     if (message === null) {
-      var parsed = parseLinkArg(row.arg);
+      var parsed = parseLinkArg(row.what);
       if (row.type === 'link') {
         links.push({ kind: parsed.kind, rotations: parsed.rotations, from: row.start, to: row.end });
       } else {
