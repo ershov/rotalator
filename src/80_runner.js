@@ -36,7 +36,7 @@ function runStorage(storage, nowText, options) {
 
   var rotations = Object.keys(ledgers).map(function (name) {
     var rows = rowsFromCells(ledgers[name]);
-    return { name: name, rows: rows, snapshotAt: advance(rows, now) };
+    return { name: name, rows: rows, snapshotAt: advance(rows, now, new Set(holidays)) };
   });
   var linkRows = rowsFromCells(linkCells);
   var linkCount = linkRows.filter(function (r) { return r.type !== 'error'; }).length;

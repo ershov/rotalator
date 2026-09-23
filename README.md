@@ -143,13 +143,14 @@ applies the default in this table; `anchor` is always bare and takes the row's
 
 | key | default | meaning |
 |---|---|---|
-| `period` | required | Regular shift length, `Nd` or `Nw`. |
+| `period` | required | Regular shift length, `Nd` or `Nw` (`w` is `7d`). |
 | `anchor` | `start` of the `set` row | A grid instant. Shifts start and end at `anchor + k * period`. Also the earliest instant the schedule can begin. Write a bare `anchor` in a `set` row dated at the new grid instant to realign the grid. |
+| `grid` | `calendar` | `calendar`: shifts change every `period` of wall-clock time. `counted`: every `period` of counted days, the days not skipped by `skip_weekends` and `skip_holidays`; with `skip_weekends=true` a daily shift starting on Friday runs until Monday, and `1w` means seven counted days and drifts across weekdays. An anchor inside a skipped day counts as the boundary between the surrounding counted days. |
 | `horizon` | `90d` | Generate shifts up to the first grid boundary at or after `snapshot + horizon`. |
 | `skip_weekends` | `false` | Saturdays and Sundays credit zero days. |
 | `skip_holidays` | `false` | Dates in `#Holidays` credit zero days. |
 | `tolerance` | `0` | Days. Members within `tolerance` of the lowest projected score are candidates. |
-| `min_distance` | `0` | Regular shifts of rest required on both sides of a slot. Relaxed one step at a time when nobody is eligible. |
+| `min_distance` | `0` | Regular shifts (grid steps) of rest required on both sides of a slot. Relaxed one step at a time when nobody is eligible. |
 | `tiebreak` | `order` | `order`: walk the roster cyclically after the previous assignee. `shuffle`: deterministic hash of seed, rotation, slot start and member. |
 | `seed` | `0` | Integer mixed into the shuffle hash. |
 | `baseline` | `median` | Default score for joiners: `median`, `mean`, `min`, `max`. |

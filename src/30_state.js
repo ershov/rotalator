@@ -11,21 +11,20 @@ class Settings {
     return this.values[key];
   }
 
-  // Returns true when the row changes the grid (period or anchor).
+  // Returns true when the row changes the grid: period, anchor or grid mode, or a skip flag while counted.
   apply(setRow) {
     var values = parseSetArg(setRow.what, setRow.start).values;
-    var changed = false;
-    if ('period' in values && values.period !== this.values.period) {
-      changed = true;
-      if (!('anchor' in values)) this.values.anchor = setRow.start;
-    }
-    if ('anchor' in values && values.anchor !== this.values.anchor) changed = true;
-    Object.assign(this.values, values);
+    var before = this.values;
+    var changes = function (key) { return key in values && values[key] !== before[key]; };
+    var changed = changes('period') || changes('anchor') || changes('grid');
+    if (changes('period') && !('anchor' in values)) this.values.anchor = setRow.start;
+    this.values = Object.assign({}, before, values);
+    if (this.values.grid === 'counted' && (changes('skip_weekends') || changes('skip_holidays'))) changed = true;
     return changed;
   }
 
-  grid() {
-    return this.values.period === null ? null : new Grid(this.values);
+  grid(holidays) {
+    return this.values.period === null ? null : new Grid(this.values, holidays);
   }
 
   // Number of regular shifts after the snapshot within which pins are pre-credited.
@@ -38,9 +37,10 @@ class Settings {
   }
 }
 
-// Settings after each set row, in start order.
+// Settings after each set row, in start order. holidays: Set of day indexes for counted grids.
 class SettingsTimeline {
-  constructor(setRows) {
+  constructor(setRows, holidays) {
+    this.holidays = holidays || new Set();
     this.entries = [];
     var settings = new Settings();
     var rows = sortRows(setRows);
@@ -50,14 +50,23 @@ class SettingsTimeline {
     }
   }
 
-  at(t) {
+  entryAt(t) {
     var found = null;
-    for (var i = 0; i < this.entries.length && this.entries[i].start <= t; i++) found = this.entries[i].settings;
-    return found ? found.clone() : new Settings();
+    for (var i = 0; i < this.entries.length && this.entries[i].start <= t; i++) found = this.entries[i];
+    return found;
   }
 
+  at(t) {
+    var entry = this.entryAt(t);
+    return entry ? entry.settings.clone() : new Settings();
+  }
+
+  // One Grid per entry, built on first use so its day caches survive across calls.
   gridAt(t) {
-    return this.at(t).grid();
+    var entry = this.entryAt(t);
+    if (!entry) return null;
+    if (entry.grid === undefined) entry.grid = entry.settings.grid(this.holidays);
+    return entry.grid;
   }
 
   gridChanges() {

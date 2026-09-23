@@ -24,10 +24,16 @@ function firstOfType(rows, types) {
   return null;
 }
 
-// DESIGN 5.2. now may be null to skip the clock-dependent steps.
-function advance(rows, now) {
+// An instant inside a skipped day of a counted grid moves to the next boundary, so S never lands there.
+function onCountedDay(timeline, t) {
+  var grid = t === null || t === undefined ? null : timeline.gridAt(t);
+  return grid ? grid.onCounted(t) : t;
+}
+
+// DESIGN 5.2. now may be null to skip the clock-dependent steps. holidays: Set of day indexes.
+function advance(rows, now, holidays) {
   rows = ledgerRows(rows);
-  var timeline = new SettingsTimeline(rowsOfType(rows, 'set'));
+  var timeline = new SettingsTimeline(rowsOfType(rows, 'set'), holidays);
   var S = null;
   if (now !== null && now !== undefined) {
     var grid = timeline.gridAt(now);
@@ -40,10 +46,10 @@ function advance(rows, now) {
       if (shiftGrid && scoredEnd(shifts[i], next, shiftGrid) > now) S = shifts[i].start;
       break;
     }
-    S = raiseTo(S, timeline.at(now).get('anchor'));
+    S = raiseTo(S, onCountedDay(timeline, timeline.at(now).get('anchor')));
   }
   var roster = firstOfType(rows, ['team', 'join']);
-  S = raiseTo(S, roster ? roster.start : null);
+  S = raiseTo(S, roster ? onCountedDay(timeline, roster.start) : null);
   var snapshot = firstOfType(rows, ['snapshot']);
   S = raiseTo(S, snapshot ? snapshot.start : null);
   return S;
@@ -101,15 +107,15 @@ function resolvedExcludeEnds(rows) {
   return ends;
 }
 
-function prepareRotation(input, index) {
+function prepareRotation(input, index, holidays) {
   var validated = validateLedger(input.rows, input.name);
   var rot = { name: input.name, index: index, rows: validated.rows, errors: validated.errors.slice(), problems: [], warnings: [] };
   if (rot.errors.length) return rot;
   var rows = rot.rows;
-  var timeline = new SettingsTimeline(rowsOfType(rows, 'set'));
+  var timeline = new SettingsTimeline(rowsOfType(rows, 'set'), holidays);
   var previous = firstOfType(rows, ['snapshot']);
-  var S = input.snapshotAt === null || input.snapshotAt === undefined ? advance(rows, null) : input.snapshotAt;
-  S = raiseTo(raiseTo(S, previous ? previous.start : null), rows[0].start);
+  var S = input.snapshotAt === null || input.snapshotAt === undefined ? advance(rows, null, holidays) : input.snapshotAt;
+  S = raiseTo(raiseTo(S, previous ? previous.start : null), onCountedDay(timeline, rows[0].start));
   rot.timeline = timeline;
   rot.previousAt = previous ? previous.start : null;
   rot.previousWhat = previous ? previous.what : '';
@@ -209,9 +215,10 @@ function applyStateRow(rot, item) {
   }
 }
 
+// The window is precredit grid steps after S (DESIGN 5.5).
 function precredit(rot, holidays) {
   var n = rot.settings.precreditPeriods(rot.roster.size());
-  var limit = rot.S + n * rot.settings.get('period');
+  var limit = rot.timeline.gridAt(rot.S).step(rot.S, n);
   var options = rot.settings.unitsOptions(holidays);
   rot.entries.forEach(function (entry) {
     if (entry.slot || !entry.row.pinned || entry.who === null || entry.start <= rot.S || entry.start >= limit) return;
@@ -261,13 +268,14 @@ function assignSlot(rot, entry, holidays, ctx) {
   var minDistance = settings.get('min_distance');
   var distinct = linkedHolders(ctx, rot, 'distinct', a, b);
   var members = roster.members.filter(function (m) { return !distinct.has(m.name); });
+  var grid = rot.timeline.gridAt(a);
   var eligible = [];
   var used = 0;
   for (var d = minDistance; d >= 0 && !eligible.length; d--) {
-    var D = d * settings.get('period');
+    var from = grid.step(a, -d), to = grid.step(b, d);
     used = d;
     eligible = members.filter(function (m) {
-      return !roster.isExcluded(m.name, a, b) && !hasShiftOverlapping(rot, m.name, a - D, b + D);
+      return !roster.isExcluded(m.name, a, b) && !hasShiftOverlapping(rot, m.name, from, to);
     });
   }
   var note = '';
@@ -368,7 +376,7 @@ function rotationOutput(rot) {
 // Output: { rotations: [{ name, rows }], links: { rows, errors }, errors, status }.
 function regenerate(input) {
   var holidays = new Set(input.holidays || []);
-  var rots = input.rotations.map(prepareRotation);
+  var rots = input.rotations.map(function (r, i) { return prepareRotation(r, i, holidays); });
   var links = prepareLinks(input.links, rots);
   var hasErrors = function () { return rots.some(function (rot) { return rot.errors.length > 0; }); };
   if (hasErrors()) return errorOutput(rots, links);

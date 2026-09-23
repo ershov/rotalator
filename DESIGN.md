@@ -163,8 +163,10 @@ for most keys, and for `anchor` the row's own `start`. `anchor` never takes a
 value; `period` always needs one. `set` rows are always replayed from the top
 of the ledger even when older than the snapshot, so the settings history stays
 in one visible place. When `period` changes and `anchor` is not given,
-`anchor` defaults to the row's own `start`. A `set` row that changes `period`
-or `anchor` cuts claims and slots at its `start`; the grid realigns from there.
+`anchor` defaults to the row's own `start`. A `set` row that changes `period`,
+`anchor` or `grid`, or that changes `skip_weekends` or `skip_holidays` while
+`grid=counted`, cuts claims and slots at its `start`; the grid realigns from
+there.
 
 **snapshot.** One per rotation, written by the script. Its instant is the
 start of the current shift, see 5.2. `what` is the roster in order with scores
@@ -185,17 +187,18 @@ removed on read, so they are purely diagnostic and never accumulate. See 6.
 
 | key | default | meaning |
 |---|---|---|
-| period | required | `Nd` or `Nw`. Always `period=value`. |
+| period | required | `Nd` or `Nw`; `w` is `7d`. Always `period=value`. |
 | anchor | start of the `set` row | A grid instant. Also the earliest instant the schedule can begin. Written as a bare `anchor`; it takes no value and the row's `start` is the anchor. |
+| grid | calendar | `calendar`: a boundary every `period` of wall-clock time. `counted`: a boundary every `period` of counted days, the days not skipped by `skip_weekends` and `skip_holidays` (see 4); a shift whose boundary would fall in skipped days runs through them to the next counted day. `1w` is then seven counted days and drifts across weekdays when weekends are skipped. |
 | horizon | 90d | Generate slots up to the first grid boundary at or after `snapshot + horizon`. |
 | skip_weekends | false | Saturdays and Sundays credit zero units. |
 | skip_holidays | false | Dates in `#Holidays` credit zero units. |
 | tolerance | 0 | Days. Candidates are members within `tolerance` of the lowest projected score. |
-| min_distance | 0 | Regular shifts of rest required on both sides of a slot. |
+| min_distance | 0 | Grid steps (regular shifts) of rest required on both sides of a slot. |
 | tiebreak | order | `order` or `shuffle`. |
 | seed | 0 | Integer mixed into the shuffle hash. |
 | baseline | median | Default for joiners: `median`, `mean`, `min`, `max`. |
-| precredit | auto | Regular shifts after the snapshot within which pinned shifts are pre-credited. `auto` means the roster size. `0` disables. |
+| precredit | auto | Grid steps (regular shifts) after the snapshot within which pinned shifts are pre-credited. `auto` means the roster size. `0` disables. |
 
 A bare key restores the default in this table (`tolerance`, `tiebreak`,
 `precredit`, ...); a bare `anchor` re-anchors the grid at the row's `start`
@@ -224,6 +227,19 @@ All datetimes are naive wall-clock values in the spreadsheet time zone.
 Internally they are minutes since 1970 with the wall clock treated as UTC, so
 arithmetic never crosses a DST boundary. A weekly shift that starts at 09:00
 starts at 09:00 local in every week.
+
+With `grid=counted` the grid is laid out on the counted timeline: the
+concatenation of the days that are not skipped, each keeping its 24 hours. An
+instant maps to counted minutes as the number of counted days before its day
+times 1440 plus its offset within the day. An instant inside a skipped day,
+including an anchor, maps to the boundary between the adjacent counted days,
+with no error: a Saturday anchor at 09:00 therefore puts the boundaries at
+00:00 of counted days. Boundaries are `anchor + k*period` in counted minutes,
+mapped back to wall-clock instants, so with `skip_weekends` a daily shift
+starting on Friday 09:00 ends on Monday 09:00 and credits one unit, and `1w`
+means seven counted days and drifts across weekdays. Grid steps
+(`min_distance`, `precredit`) are counted along the same timeline. Scoring is
+identical in both modes: skipped days credit zero.
 
 ## 5. Algorithm
 
@@ -254,7 +270,9 @@ For each rotation compute the new snapshot instant `S`:
 3. `S` is raised to the `anchor` if that is later, so a rotation whose first
    `set` row is dated next Monday starts next Monday.
 4. `S` is raised to the start of the first `team` or `join` row if that is
-   later, so no slot is generated before there is a roster.
+   later, so no slot is generated before there is a roster. In steps 3 and 4
+   an instant inside a skipped day of a counted grid is replaced by the next
+   grid boundary, so `S` never sits inside skipped days.
 5. `S` is never earlier than the existing snapshot.
 
 The snapshot row is placed at `S`. Its scores are filled in by the sweep in
@@ -287,13 +305,13 @@ pinned shift with an odd end. Boundaries never move because of irregular rows.
 
 ### 5.5 Pre-credit
 
-Pinned shifts with `start` in `(S, S + precredit * period)` whose assignee is
-on the roster are credited when the sweep reaches `S`, after the state rows at
-`S` and after the snapshot is recorded, and skipped when the sweep reaches
-them. Doing it at `S` lets a fresh ledger's `team` row dated `S` and
-`precredit = auto` work. This lets someone who volunteered for a shift inside
-the next cycle skip a turn before it. Pins further out are credited when
-reached, and the greedy compensates afterwards.
+Pinned shifts with `start` in `(S, S')`, where `S'` is `precredit` grid steps
+after `S`, whose assignee is on the roster are credited when the sweep
+reaches `S`, after the state rows at `S` and after the snapshot is recorded,
+and skipped when the sweep reaches them. Doing it at `S` lets a fresh ledger's
+`team` row dated `S` and `precredit = auto` work. This lets someone who
+volunteered for a shift inside the next cycle skip a turn before it. Pins
+further out are credited when reached, and the greedy compensates afterwards.
 
 ### 5.6 Sweep
 
@@ -315,8 +333,9 @@ that extend past it are clipped.
 ### 5.7 Selection for a slot `[a, b)`
 
 1. Eligible: on the roster, no exclusion overlapping `[a, b)`, and no shift of
-   theirs, kept or already generated, overlapping `[a - D, b + D)` where
-   `D = min_distance * period`.
+   theirs, kept or already generated, overlapping `[a', b')` where `a'` is
+   `min_distance` grid steps before `a` and `b'` as many steps after `b`
+   (`a - D` and `b + D` with `D = min_distance * period` in calendar mode).
 2. Candidates: eligible members with `score <= min(score) + tolerance`.
 3. Tiebreak `order`: walk the roster cyclically starting after the assignee of
    the previous shift in this rotation and take the first candidate. With no

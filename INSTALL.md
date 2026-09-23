@@ -42,13 +42,14 @@ as separator and keeping text as text):
 
 ```
 pin,start,type,what,end,duration,note
-,2026-06-01T09:00,set,"period=1w, horizon=12w",,,
+,2026-06-01T09:00,set,"period=1w, horizon=12w, grid=calendar",,,
 ,2026-06-01T09:00,team,"alice, bob, carol, dave",,,
 ```
 
-Weekly shifts from Monday 2026-06-01 09:00, twelve weeks ahead, four members
-round robin. Add `skip_weekends=true` or other keys from the README settings
-table to the `set` row as needed.
+Weekly shifts from Monday 2026-06-01 09:00 on the plain calendar grid, twelve
+weeks ahead, four members round robin. Add `skip_weekends=true`,
+`grid=counted` or other keys from the README settings table to the `set` row
+as needed.
 
 Entering existing history: add one `shift` row per past shift with `start`
 and the member in `what`. Do not add a `snapshot` row; the script writes it.

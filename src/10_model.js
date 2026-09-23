@@ -39,6 +39,7 @@ var ROW_TYPES = {
 
 var BASELINE_KEYWORDS = ['median', 'mean', 'min', 'max'];
 var TIEBREAKS = ['order', 'shuffle'];
+var GRID_MODES = ['calendar', 'counted'];
 
 function parseNumber(text) {
   return /^-?\d+(\.\d+)?$/.test(text) ? Number(text) : null;
@@ -94,6 +95,7 @@ function parsePrecredit(text) {
 var SETTINGS = {
   period:        { parse: parsePeriod,             def: null,               bare: 'none' },
   anchor:        { parse: null,                    def: null,               bare: 'start' },
+  grid:          { parse: parseKeyword(GRID_MODES), def: 'calendar',         bare: 'default' },
   horizon:       { parse: parsePositiveDuration,   def: 90 * MINUTES_PER_DAY, bare: 'default' },
   skip_weekends: { parse: parseBoolean,            def: false,              bare: 'default' },
   skip_holidays: { parse: parseBoolean,            def: false,              bare: 'default' },
