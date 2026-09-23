@@ -176,6 +176,30 @@ start makes it the anchor.
 Scores are days on call, honouring `skip_weekends` and `skip_holidays`.
 A week is 7 days, or 5 with `skip_weekends`. Partial shifts credit fractions.
 
+## Setting up
+
+The **Rotalator** menu has three tools that prepare the spreadsheet; none of
+them opens a dialog and none rewrites existing data.
+
+- **Set up** creates the missing system tabs, a first rotation `On-Call` from
+  the template when there is none, and formats every rotation and system tab:
+  monospace font, plain text on the ledger columns, bold frozen header with a
+  note on each header cell, column widths, spare columns removed, tab colours
+  on `#` tabs. It is idempotent.
+- **Template** fills the active tab from its name: an empty rotation tab gets
+  the header, a `set` row with every setting at its default (bare `anchor`,
+  dated the most recent Monday 09:00) and a sample `team` row; an empty
+  `#Holidays` or `#Links` tab gets its header. Non-empty tabs are refused.
+- **Fill Shifts Grid** fills the `start` of the selected rows of a rotation
+  tab so they sit on the grid: empty rows above the first dated row are
+  placed on the boundaries before it, empty rows below the last dated row on
+  the boundaries after it, and gaps between dated shifts are filled. Missing
+  `type` becomes `shift`; `what`, `end` and `duration` are never written.
+  Undated rows must be blank or `type` = `shift` only. Use it to lay out
+  history before typing the names.
+
+INSTALL.md has the step by step.
+
 ## Everyday tasks
 
 **Update the team.** Add a `team` row dated when the change takes effect with
@@ -297,7 +321,7 @@ generated shift's `note`.
 - Only the seven ledger columns are managed. Extra columns do not follow rows
   when the ledger is re-sorted.
 
-## Local dry runs
+## Command line
 
 The core also runs in Node without a spreadsheet, using a directory of CSV
 files. Files map to tabs: one `<rotation>.csv` per ledger with the header row,
@@ -308,11 +332,22 @@ rotation, like a `#` tab, and other `.csv` files without the ledger header are
 ignored.
 
 ```
-node node/cli.js --dir DIR [--now YYYY-MM-DDTHH:MM] [--write] [--status]
+bin/rotalator run DIR [--now YYYY-MM-DDTHH:MM] [--write] [--status]
+bin/rotalator init DIR --rotation NAME [--start YYYY-MM-DDTHH:MM]
+                                       [--history-from YYYY-MM-DD]
+bin/rotalator help
 ```
 
-Without `--write` the regenerated ledgers are printed as CSV and nothing is
-changed. `--status` appends the `#Status` and `#All shifts` tables as plain
-text. Errors
-go to stderr and set exit code 1. See `test/fixtures/` for worked scenarios,
-each with a README explaining the expected result.
+`run` regenerates the ledgers in `DIR`. Without `--write` they are printed as
+CSV and nothing is changed. `--status` appends the `#Status` and `#All shifts`
+tables as plain text. Errors go to stderr and set exit code 1.
+
+`init` creates `NAME.csv` from the rotation template, plus `holidays.csv` and
+`now.txt` when they are missing. `--start` dates the `set` and `team` rows
+(default: the most recent Monday 09:00 before `now`). `--history-from` adds
+empty `shift` rows on the grid from that date up to the start; the `set` and
+`team` rows are then dated at the first of those boundaries so the ledger
+validates. Fill in the names, then `run`.
+
+See `test/fixtures/` for worked scenarios, each with a README explaining the
+expected result.

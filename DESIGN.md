@@ -464,13 +464,16 @@ src/
   40_scheduler.js     prune, claims, pre-credit, sweep, selection
   50_status.js        status data, #Status and #All shifts rows
   60_links.js         #Links reader, rotation order, distinct and joined filters
+  70_tools.js         template rows, Fill Shifts Grid rows, header notes
   80_runner.js        storage-agnostic run: read, advance, regenerate, write
   90_gas.js           Apps Script entry points and Sheets adapter
   appsscript.json     V8 runtime, time zone
 node/
   load.js             evaluates src/*.js except 90_gas.js into one vm context
   storage.js          in-memory and CSV directory adapters
-  cli.js              node node/cli.js --dir DIR --now ISO [--write]
+  cli.js              run, init and help commands behind bin/rotalator
+bin/
+  rotalator           bash wrapper: exec node node/cli.js "$@"
 test/
   *.test.js           unit tests
   fixtures/<case>/    golden scenarios
@@ -514,7 +517,9 @@ zone as `YYYY-MM-DDTHH:MM` text and converts date cells to that form before
 handing them over.
 
 Apps Script menu: `Run now`, `Dry run` (writes `#Preview <rotation>` tabs),
-`Install nightly trigger`, `Remove trigger`.
+`Set up`, `Template`, `Fill Shifts Grid` (section 10), `Install nightly
+trigger`, `Remove trigger`. `90_gas.js` reads cells, calls the core and
+writes cells; the row logic of the tools lives in `70_tools.js`.
 
 ## 9. Testing
 
@@ -543,8 +548,70 @@ Two paths, both in INSTALL.md.
   `dist/Code.js` and `appsscript.json`, run `onOpen` once to authorise, use the
   menu to install the nightly trigger.
 
-INSTALL.md also provides the spreadsheet template: header row, `start`, `end`
-columns formatted as plain text, initial `set` and `team` rows, `#Holidays` tab.
+INSTALL.md also provides the hand-made spreadsheet template as an appendix:
+header row, ledger columns formatted as plain text, initial `set` and `team`
+rows, `#Holidays` tab. The menu tools below do the same without typing.
+
+### 10.1 Set up
+
+`setup()` is idempotent and never rewrites existing data. It creates the
+missing `#Holidays`, `#Links`, `#Status` and `#All shifts` tabs with their
+headers, creates `On-Call` from the rotation template when no rotation
+exists, and formats every rotation tab, `#Holidays`, `#Links`, `#All shifts`
+and empty non-`#` tabs: Roboto Mono on the whole sheet, plain text number
+format on the whole ledger columns (`A:G`), which is expected to carry over to
+rows added later the way a select-all format does in the UI (to be confirmed
+on a live sheet), and on tabs that have their header a bold frozen header
+row, column widths per column, a note on each header cell explaining the
+column and empty columns beyond the last one deleted; plus a tab colour on
+`#` tabs (one for generated tabs, another for the editable `#Holidays` and
+`#Links`). Tabs with content but no ledger header are left alone. The runner
+keeps applying plain text to the ranges it writes. Preview tabs are created
+right after the tab they preview and never moved.
+
+### 10.2 Template
+
+`template()` fills the active tab according to its name. A non-`#` tab must
+be empty, otherwise the command refuses with a toast; it gets the header, a
+`set` row listing every setting explicitly at its default (`period=1w`, bare
+`anchor`, `horizon=90d`, ...) dated the most recent Monday 09:00, and a
+`team` row with sample names. `#Holidays` and `#Links` get their header row.
+Tabs the script writes get a toast and nothing else.
+
+### 10.3 Fill Shifts Grid
+
+`fillShiftsGrid()` needs a selection of more than one row below the header of
+a rotation tab. It fills `start` (and sets `type` to `shift` where empty) so
+that afterwards every selected row is dated. `what`, `end` and `duration` are
+never written; the other cells of existing rows travel with their rows. An
+undated row must be blank or carry only `type` = `shift`; any other undated
+row stops the command with a toast naming it. The grid comes from the whole
+tab's `set` rows and from `#Holidays`.
+
+Over the selected rows, `gridRows(rows, nPre, nPost, timeline)`:
+
+1. `nPre` is the number of empty rows before the first dated row, `nPost`
+   the number after the last one; empty rows between dated rows are dropped.
+2. Dated rows are sorted by `start` and the 3.6 type order. Shift rows claim
+   `[start, claimEnd)` exactly as in 5.4; a shift without `end` or `duration`
+   claims to the next grid boundary, truncated by the next shift. Between the
+   first row's `start` and the later of the last claim end and the last row's
+   `start`, every uncovered span is split at grid boundaries and each piece
+   becomes an empty `shift` row, so gaps and odd ends get a row at the gap
+   start, like generation without assignment.
+3. `nPre` empty `shift` rows are placed on the boundaries strictly before the
+   first row, in the grid effective at that row. `nPost` rows start at the
+   tail: the last claim end when it lies inside a period, else the boundary at
+   or after the last row, then one per boundary.
+4. The result is written over the selected region, which grows by the number
+   of inserted rows (rows are inserted below the selection first), and the
+   active range is set to the written rows.
+
+One command therefore covers backfill, extension and gap filling. The CLI
+`init` uses the same functions to create a ledger directory, optionally with
+empty history rows from `--history-from` up to `--start`; the `set` and
+`team` rows are then dated at the first of those boundaries so the ledger
+validates (the grid is unchanged because every boundary is an anchor).
 
 ## 11. Stages
 

@@ -1,65 +1,10 @@
 # Installing Rotalator
 
-Two parts: prepare the spreadsheet, then deploy the script into it, either
-with `clasp` or by pasting the bundle into the Apps Script editor.
+Three parts: build the script, deploy it into a Google Spreadsheet, then let
+the **Rotalator** menu set the spreadsheet up. Hand-made templates are in the
+appendix for people who prefer to type everything themselves.
 
-## 1. Spreadsheet template
-
-1. Create a Google Spreadsheet. In **File > Settings** check the time zone:
-   every datetime in the sheet is interpreted in it.
-2. Rename the first tab to the rotation name, for example `primary`. One tab
-   per rotation; the tab name is the rotation name.
-3. Put the header in row 1, exactly these seven cells in columns A to G:
-
-   ```
-   pin | start | type | what | end | duration | note
-   ```
-
-4. Select columns B (`start`) and E (`end`) and set **Format > Number > Plain
-   text** before entering any dates. Otherwise Sheets converts typed values
-   into date cells. The script still reads date cells, but plain text is what
-   it writes and what keeps the tab readable.
-5. Row 2: a `set` row with at least `period`. Date it at the intended start
-   of the first shift, so it becomes the grid anchor and the first shift
-   starts there. Row 3: a `team` row with the roster, same `start`.
-6. Add a `#Holidays` tab with the header `date | note` in row 1. Column A holds
-   one date per row as `YYYY-MM-DD` text or a real date cell; column B is a
-   note. Holidays only matter when a rotation sets `skip_holidays=true`.
-7. Optional, with more than one rotation: add a `#Links` tab with the same
-   seven-cell header as a ledger, and `link` rows such as
-   `distinct: primary, secondary` in `what` (see the README). Format column B
-   as plain text like a ledger; the script writes `error` rows there.
-
-   Tab names starting with `#` are reserved for the script's tabs and for
-   disabled rotations: rename a rotation tab to `#<rotation>` to pause it.
-8. Optional: freeze row 1 (**View > Freeze > 1 row**) and add a checkbox to
-   the `pin` column (**Insert > Checkbox**). An unticked checkbox counts as
-   empty.
-
-Minimal ledger as CSV (paste the header row and two data rows into the tab,
-or import the file with **File > Import**, choosing "Detect automatically"
-as separator and keeping text as text):
-
-```
-pin,start,type,what,end,duration,note
-,2026-06-01T09:00,set,"period=1w, horizon=12w, grid=calendar",,,
-,2026-06-01T09:00,team,"alice, bob, carol, dave",,,
-```
-
-Weekly shifts from Monday 2026-06-01 09:00 on the plain calendar grid, twelve
-weeks ahead, four members round robin. Add `skip_weekends=true`,
-`grid=counted` or other keys from the README settings table to the `set` row
-as needed.
-
-Entering existing history: add one `shift` row per past shift with `start`
-and the member in `what`. Do not add a `snapshot` row; the script writes it.
-
-A shift row without `end` or `duration` ends at the earlier of the next
-shift's start and the next grid boundary after its `start`. History rows that
-span several periods therefore need a `duration` or an `end`; otherwise only
-their first period is credited.
-
-## 2. Build
+## 1. Build
 
 ```
 ./build.sh
@@ -84,7 +29,7 @@ timestamps and the editor; setting it to the same zone (for example
 works for one push; `build.sh` overwrites it from `src/appsscript.json` each
 time, so change `src/appsscript.json` for a lasting setting.
 
-## 3. Deployment with clasp
+## 2. Deployment with clasp
 
 `clasp` is Google's command line tool for Apps Script. It is an external tool,
 not a project dependency. Install it with `npm install -g @google/clasp` and
@@ -96,8 +41,9 @@ clasp login
 cd dist
 ```
 
-Bind a new script project to the spreadsheet. The spreadsheet id is the long
-segment of its URL between `/d/` and `/edit`.
+Create a spreadsheet (or open an existing one) and check its time zone in
+**File > Settings**. Bind a new script project to it. The spreadsheet id is
+the long segment of its URL between `/d/` and `/edit`.
 
 ```
 clasp create --type sheets --parentId <spreadsheetId>
@@ -123,11 +69,9 @@ clasp push -f
 `.clasp.json` stays in `dist/` between builds because `build.sh` only rewrites
 `Code.js` and `appsscript.json`. `dist/` is not committed.
 
-Then in the spreadsheet: reload, run **Rotalator > Dry run**, authorise when
-asked (see Troubleshooting), check the `#Preview <rotation>` tab, and continue
-with step 5.
+Reload the spreadsheet and continue with section 4.
 
-## 4. Manual deployment
+## 3. Manual deployment
 
 1. Open the spreadsheet, **Extensions > Apps Script**. A script project bound
    to the spreadsheet opens.
@@ -140,7 +84,66 @@ with step 5.
    Grant the permissions (spreadsheet access and trigger management).
 5. Reload the spreadsheet. A **Rotalator** menu appears next to **Help**.
 
-## 5. First run and nightly trigger
+## 4. Set up the spreadsheet from the menu
+
+1. **Rotalator > Set up**. Authorise when asked (see Troubleshooting). The
+   command is idempotent and never rewrites existing data. It:
+   - creates the missing system tabs `#Holidays`, `#Links`, `#Status` and
+     `#All shifts` with their headers;
+   - creates a first rotation tab `On-Call` from the template when the
+     spreadsheet has no rotation yet;
+   - on every rotation, `#Holidays`, `#Links` and `#All shifts` tab: Roboto
+     Mono font, plain text format on the whole ledger columns (`A:G`), which
+     should carry over to rows added later (to be confirmed on a live sheet,
+     see the appendix), bold frozen header, column widths, a note on each
+     header cell explaining the column, spare empty columns beyond the last
+     one removed;
+   - colours the `#` tabs: one colour for tabs the script writes, another for
+     `#Holidays` and `#Links`, which you edit.
+   Tabs without the ledger header that already have content are left alone.
+2. Open `On-Call` (or rename it: the tab name is the rotation name). Row 2 is
+   a `set` row listing every setting at its default, dated the most recent
+   Monday 09:00 with a bare `anchor`, so the first shift starts there. Adjust
+   `period`, `horizon`, `skip_weekends` and the rest as needed. Row 3 is a
+   `team` row with sample names: replace them with your members.
+3. More rotations: add a tab, name it, and choose **Rotalator > Template**
+   with the tab active. The template only fills empty tabs. On `#Holidays` or
+   `#Links` it writes the header row; on tabs the script writes it does
+   nothing.
+4. Existing history, optional: type the past shifts as `shift` rows with
+   `start` and the member in `what`, or let **Fill Shifts Grid** lay out the
+   dates for you (section 5) and fill in the names. A shift row without `end`
+   or `duration` ends at the earlier of the next shift's start and the next
+   grid boundary after its `start`; history rows spanning several periods need
+   a `duration` or an `end`, otherwise only their first period is credited. Do
+   not add a `snapshot` row; the script writes it.
+5. `#Holidays`: one date per row in column A as `YYYY-MM-DD` (text or a date
+   cell), a note in column B. Holidays only matter when a rotation sets
+   `skip_holidays=true`.
+
+## 5. Fill Shifts Grid
+
+**Rotalator > Fill Shifts Grid** fills the `start` column of a selection so
+that every selected row sits on the rotation's grid. Select more than one row
+of a rotation tab (any columns; the whole rows are used) and run it:
+
+- Empty rows above the first dated row become empty `shift` rows at the grid
+  boundaries before it (backfill). Empty rows below the last dated row become
+  empty `shift` rows after the last shift's end (extension).
+- Between dated rows, every uncovered grid boundary and every gap after a
+  shift with an early `end` gets an empty `shift` row; the selection grows by
+  the inserted rows. Dated rows are sorted; their other cells travel with them
+  and a missing `type` becomes `shift`.
+- Rows without `start` must be blank or contain only `type` = `shift`; any
+  other undated row stops the command with a toast naming it.
+- `end` and `duration` are never written. The grid comes from the tab's `set`
+  rows and `#Holidays`, so it follows `period`, `anchor`, `grid`, and the
+  skip flags of a counted grid.
+
+After the command the affected rows are selected. Fill in `what` by hand for
+history rows; leave future rows to the script.
+
+## 6. First run and nightly trigger
 
 1. **Rotalator > Dry run** writes `#Preview <rotation>` tabs (created right
    after each rotation tab on the first dry run), `#Status` and `#All shifts`,
@@ -158,7 +161,7 @@ Each run shows a toast at the bottom right with the number of rotations
 written or the number of errors and the first message. Trigger runs have no
 toast; their output is in **Executions** in the Apps Script editor.
 
-## 6. Troubleshooting
+## 7. Troubleshooting
 
 **No Rotalator menu after reload.** Open the script editor, select `onOpen`,
 click **Run**, accept the prompts, reload the spreadsheet.
@@ -175,11 +178,19 @@ prompt and choose the menu item again.
 you typed.** Date cells are converted using the spreadsheet's time zone in
 **File > Settings**; check it is the zone the team means, and make sure the
 `start` and `end` columns are plain text so no conversion happens at all.
+**Set up** applies plain text to the whole ledger columns.
 
 **A `start` cell shows as `6/1/2026 9:00:00` and right-aligns.** Sheets
 converted the text into a date cell. The script reads it correctly and writes
-text back, setting the ledger range to plain text format on every write. To
-stop it happening, set the columns to plain text before typing (step 1.4).
+text back, setting the ledger range to plain text format on every write. Run
+**Set up** once so the whole columns are plain text before typing.
+
+**Template says the tab is not empty.** The template never overwrites
+content. Clear the tab or add a new one.
+
+**Fill Shifts Grid says a row has content but no start.** An undated row has
+something other than `type` = `shift` in it. Date it or clear it, then run
+again.
 
 **Error row `first row must be a set row with period`.** The earliest row by
 `start` must be a `set` row containing `period=`. Typical causes: a shift or
@@ -208,3 +219,45 @@ boundary.
 **Nightly run did not happen.** Check **Triggers** and **Executions** in the
 Apps Script editor. The trigger runs under the account that installed it; if
 that account lost access to the spreadsheet, reinstall from another account.
+
+## Appendix: hand-made template
+
+Everything **Set up** and **Template** do can be typed by hand.
+
+1. Rename a tab to the rotation name. Tab names starting with `#` are reserved
+   for the script's tabs and for disabled rotations.
+2. Put the header in row 1, exactly these seven cells in columns A to G:
+
+   ```
+   pin | start | type | what | end | duration | note
+   ```
+
+3. Select columns A to G and set **Format > Number > Plain text** before
+   entering any dates, so Sheets does not convert typed values into date
+   cells. Whether rows added later inherit the column format the way the
+   script's **Set up** relies on is to be confirmed on a live sheet; if a new
+   row shows a converted date, reapply plain text to the column.
+4. Row 2: a `set` row with at least `period`, dated at the intended start of
+   the first shift so it becomes the grid anchor. Row 3: a `team` row with
+   the roster, same `start`.
+5. Add a `#Holidays` tab with the header `date | note` in row 1, and
+   optionally a `#Links` tab with the same seven-cell header as a ledger (see
+   the README for `link` rows).
+6. Optional: freeze row 1 (**View > Freeze > 1 row**) and add a checkbox to
+   the `pin` column (**Insert > Checkbox**). An unticked checkbox counts as
+   empty.
+
+Minimal ledger as CSV (paste the header row and two data rows into the tab,
+or import the file with **File > Import**, choosing "Detect automatically"
+as separator and keeping text as text):
+
+```
+pin,start,type,what,end,duration,note
+,2026-06-01T09:00,set,"period=1w, horizon=12w, grid=calendar",,,
+,2026-06-01T09:00,team,"alice, bob, carol, dave",,,
+```
+
+Weekly shifts from Monday 2026-06-01 09:00 on the plain calendar grid, twelve
+weeks ahead, four members round robin. Add `skip_weekends=true`,
+`grid=counted` or other keys from the README settings table to the `set` row
+as needed.
