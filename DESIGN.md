@@ -117,6 +117,15 @@ are kept sorted by `start`; the script re-sorts on every write.
 | set | `key`, `key=value` | | users |
 | snapshot | `name=score` | | script |
 | error | message | | script |
+| (empty) | free text | | users |
+
+A row with an empty `type` is a comment (internal type `comment`). It is never
+validated beyond parsing `start`, never replayed, never pruned and never
+rewritten except for sorting (3.6) and the canonical form of `start`, `end`
+and `duration`; replay, generation, status and the `#All shifts` view ignore
+it. A comment whose `start` does not parse counts as undated and produces a
+`#Status` warning naming the row. An entirely blank row is dropped on read; a
+comment needs content in some cell. `#Links` accepts comments the same way.
 
 **shift.** Assigns the member in `what` from `start`. Its scored interval ends
 at the explicit `end`, else at the earlier of the next `shift` row's start and
@@ -206,14 +215,29 @@ without changing the period.
 
 The first row of a new rotation must be a `set` row with at least `period`,
 followed by a `team` row. Dating the `set` row at the intended first shift
-start makes it the anchor.
+start makes it the anchor. The templates and `init` date it at the most recent
+Monday 00:00: day-aligned boundaries keep the arithmetic simple (a shift is a
+whole number of days, `skip_weekends` and `skip_holidays` cut at midnight), and
+the nightly run between 02:00 and 03:00 then produces today's schedule. A
+rotation that hands over during the day sets its own time in the `set` row.
 
 ### 3.6 Same-instant ordering
 
-Rows with equal `start` sort as: `error`, `set`, `snapshot`, `team`, `join`,
-`leave`, `score`, `exclude`, `include`, `shift`. State changes at an instant
-therefore apply before the shift starting at it. Sorting is stable, so user
-order is kept otherwise.
+Rows with equal `start` sort as: comment, `error`, `set`, `snapshot`, `team`,
+`join`, `leave`, `score`, `exclude`, `include`, `shift`. State changes at an
+instant therefore apply before the shift starting at it. Sorting is stable, so
+user order is kept otherwise.
+
+An undated comment attaches to the next dated row below it in the ledger as
+read: its sort key becomes that row's `start` with an order just before that
+row's type, resolved once when the ledger is validated and kept for the rest
+of the run. The comment therefore sorts directly above the instant it was
+written at even when the row below it is deleted and recreated: a comment
+above a generated shift stays above the regenerated shift run after run, and a
+comment above the snapshot row ends up above the shift that follows it once
+the snapshot moves on. Undated comments with no dated row below them are
+trailing and sort after everything. Rows the script adds (snapshot, generated
+shifts, error rows) are placed in front of the kept rows before sorting.
 
 ## 4. Scoring
 
@@ -244,10 +268,18 @@ identical in both modes: skipped days credit zero.
 ## 5. Algorithm
 
 One run processes all rotations together. Input: the ledgers, `#Holidays`,
-`#Links`, and `now`. Output: new ledgers, status data, and a list of errors.
-`now` is consumed by step 5.2 only. Everything from 5.3 on depends on the
-ledger alone, so `regenerate(ledgers, holidays, links)` is a pure function of
-the sheet content and can be tested without a clock.
+`#Links`, `now`, and optionally the names of the rotations to regenerate.
+Output: new ledgers, status data, and a list of errors. `now` is consumed by
+step 5.2 only. Everything from 5.3 on depends on the ledger alone, so
+`regenerate(ledgers, holidays, links, only)` is a pure function of the sheet
+content and can be tested without a clock.
+
+Run scope: with `only`, rotations not listed are frozen. They are read,
+validated and swept with all their rows kept as they stand (no prune, no
+slots, no snapshot move), so link constraints still see their shifts and the
+status still shows them; they are not returned for writing. A frozen rotation
+with a validation error still stops the run (5.1). The tabs block of `#Status`
+lists the rotations regenerated in the run.
 
 ### 5.1 Read and validate
 
@@ -256,8 +288,9 @@ references: unknown type, bad datetime, bad duration, both `end` and
 `duration` set, `what` missing where required, an item form the type does not
 accept (a `shift` with two names, `leave` with `name=1`, `anchor=value`, a
 bare `period`), unknown setting key, `join` of a current member, `leave` or
-`exclude` of an unknown member, first row not a `set` with `period`. If any
-error exists in any tab, no regeneration happens in this run; see 6.
+`exclude` of an unknown member, first row other than a comment not a `set`
+with `period`. Comments are skipped. If any error exists in any tab, no
+regeneration happens in this run; see 6.
 
 ### 5.2 Advance the snapshot
 
@@ -284,8 +317,8 @@ past.
 ### 5.3 Prune and sort
 
 Delete unpinned `shift` rows with `start > S`. Everything else is kept: rows
-before `S`, the current shift at `S`, pinned shifts, and all user rows dated
-after `S`. Stable sort by `start` and the 3.6 type order.
+before `S`, the current shift at `S`, pinned shifts, comments, and all user
+rows dated after `S`. Stable sort by `start` and the 3.6 type order.
 
 ### 5.4 Claims and slots
 
@@ -359,7 +392,8 @@ shift's extent is the next grid boundary after its start, by the rule in 3.4,
 and `horizonEnd` is always a grid boundary so the two agree.
 
 Status data is built from the swept state: the run instant and mode, the
-recognised tabs (rotations found, holidays and link rows read, tabs ignored),
+recognised tabs (rotations found, rotations regenerated in this run, holidays
+and link rows read, tabs ignored),
 and per rotation the snapshot instant, `horizonEnd`, and for each roster
 member the score at `S`, the projected score at `horizonEnd`, the last shift
 (latest start at or before `S`), the next shift (first start after `S`) and
@@ -512,9 +546,12 @@ the status data and writes both the `#Status` and the `#All shifts` tab;
 CLI `--status` share one layout. `80_runner.js` holds the shared
 `runStorage(storage, nowText, options)`: it reads through the storage, drops
 blank rows, calls `advance` and then `regenerate`, fills in the tabs block, and
-writes when asked. Each adapter only obtains `now` in the spreadsheet time
-zone as `YYYY-MM-DDTHH:MM` text and converts date cells to that form before
-handing them over.
+writes when asked. Its `rotations` option names the rotations to regenerate;
+the others are read but not written, and an unknown name stops the run like a
+bad `now`, with nothing written. The CLI exposes it as `rotalator run DIR
+--rotation NAME`, repeatable. Each adapter only obtains `now` in the
+spreadsheet time zone as `YYYY-MM-DDTHH:MM` text and converts date cells to
+that form before handing them over.
 
 Apps Script menu: `Run now`, `Dry run` (writes `#Preview <rotation>` tabs),
 `Set up`, `Template`, `Fill Shifts Grid` (section 10), `Install nightly
@@ -536,7 +573,8 @@ writes cells; the row logic of the tools lives in `70_tools.js`.
   determinism across runs; period change via `set`; validation errors produce
   error rows and no other change; unassignable slot; snapshot deletion
   triggers full replay; `distinct` and `joined` links between two rotations;
-  a rotation disabled by a `#` prefix with a link that dangles.
+  a rotation disabled by a `#` prefix with a link that dangles; comment rows
+  dated, attached and trailing.
 
 ## 10. Deployment
 
@@ -575,19 +613,23 @@ right after the tab they preview and never moved.
 `template()` fills the active tab according to its name. A non-`#` tab must
 be empty, otherwise the command refuses with a toast; it gets the header, a
 `set` row listing every setting explicitly at its default (`period=1w`, bare
-`anchor`, `horizon=90d`, ...) dated the most recent Monday 09:00, and a
+`anchor`, `horizon=90d`, ...) dated the most recent Monday 00:00, and a
 `team` row with sample names. `#Holidays` and `#Links` get their header row.
 Tabs the script writes get a toast and nothing else.
 
 ### 10.3 Fill Shifts Grid
 
 `fillShiftsGrid()` needs a selection of more than one row below the header of
-a rotation tab. It fills `start` (and sets `type` to `shift` where empty) so
-that afterwards every selected row is dated. `what`, `end` and `duration` are
-never written; the other cells of existing rows travel with their rows. An
-undated row must be blank or carry only `type` = `shift`; any other undated
-row stops the command with a toast naming it. The grid comes from the whole
-tab's `set` rows and from `#Holidays`.
+a rotation tab. It fills `start` so that afterwards every selected row that is
+not a comment is dated; a dated row with nothing but its `start` (and `pin`)
+gets `type` = `shift`. `what`, `end` and `duration` are never written; the
+other cells of existing rows travel with their rows. An undated row is either
+an empty grid position (blank, or `type` = `shift` and nothing else), a
+comment (empty `type` with other content), or an error: an undated row with a
+`type` stops the command with a toast naming it. Dated comments are kept in
+place like other non-shift rows; undated comments travel with the next dated
+row below them, and trailing ones stay at the end. The grid comes from the
+whole tab's `set` rows and from `#Holidays`.
 
 Over the selected rows, `gridRows(rows, nPre, nPost, timeline)`:
 

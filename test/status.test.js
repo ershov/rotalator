@@ -28,7 +28,7 @@ test('status: scores, last and next shift, active exclusions, instants', () => {
   assert.deepEqual(errors, []);
   assert.equal(status.now, NOW);
   assert.equal(status.mode, 'dry run');
-  assert.deepEqual(status.tabs, { rotations: ['primary', 'secondary'], holidays: 1, links: 0, ignored: ['Notes'] });
+  assert.deepEqual(status.tabs, { rotations: ['primary', 'secondary'], regenerated: ['primary', 'secondary'], holidays: 1, links: 0, ignored: ['Notes'] });
   const [primary, secondary] = status.rotations;
   assert.equal(primary.snapshotAt, dt('2026-10-05T09:00'));
   assert.equal(primary.horizonEnd, dt('2026-10-26T09:00'));
@@ -61,23 +61,25 @@ test('statusRows and shiftsRows: fixed width text tables', () => {
   const rows = structuredClone(U.statusRows(status));
   assert.ok(rows.every((r) => r.length === 6));
   assert.deepEqual(rows[0], ['Rotalator', 'dry run', NOW, '', '', '']);
-  assert.deepEqual(rows.slice(1, 7), [
+  assert.deepEqual(rows.slice(1, 8), [
     ['', '', '', '', '', ''],
     ['tabs', '', '', '', '', ''],
     ['rotations', 'primary, secondary', '', '', '', ''],
+    ['regenerated', 'primary, secondary', '', '', '', ''],
     ['holidays', '0', '', '', '', ''],
     ['links', '0', '', '', '', ''],
     ['ignored', 'Notes, #old', '', '', '', ''],
   ]);
-  assert.deepEqual(rows.slice(8, 12), [
+  assert.deepEqual(rows.slice(8, 13), [
+    ['', '', '', '', '', ''],
     ['rotation', 'primary', '', '', '', ''],
     ['snapshot', '2026-10-05T09:00', '', '', '', ''],
     ['horizon', '2026-10-26T09:00', '', '', '', ''],
     ['', '', '', '', '', ''],
   ]);
-  assert.deepEqual(rows[12], ['member', 'score', 'projected', 'last shift', 'next shift', 'exclusions']);
-  assert.deepEqual(rows[14], ['bob', '', '0.00', '', '', '2026-10-05T09:00 to 2026-10-15T09:00']);
-  assert.deepEqual(rows.slice(16, 20), [
+  assert.deepEqual(rows[13], ['member', 'score', 'projected', 'last shift', 'next shift', 'exclusions']);
+  assert.deepEqual(rows[15], ['bob', '', '0.00', '', '', '2026-10-05T09:00 to 2026-10-15T09:00']);
+  assert.deepEqual(rows.slice(17, 21), [
     ['', '', '', '', '', ''],
     ['settings', 'as of 2026-10-05T10:00', '', '', '', ''],
     ['period', '1w', '', '', '', ''],
@@ -149,6 +151,7 @@ test('status on validation error: errors block, no rotations, no shifts', () => 
   broken.primary.push(R('', '2026-10-12T09:00', 'holiday', ''));
   const { status } = runStorage(new MemoryStorage({ ledgers: broken }), NOW, { write: true });
   assert.equal(status.mode, 'run');
+  assert.deepEqual(status.tabs.regenerated, []);
   assert.deepEqual(status.rotations, []);
   assert.deepEqual(status.shifts, []);
   assert.deepEqual(status.errors.map((e) => [e.rotation, e.rowIndex, e.message]), [['primary', 6, 'unknown type "holiday"']]);

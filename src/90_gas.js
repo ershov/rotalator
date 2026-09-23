@@ -260,7 +260,7 @@ function ensureTab(ss, name, header) {
   return sheet;
 }
 
-// Rotation template into an empty tab: header, set row dated the most recent Monday 09:00, sample team.
+// Rotation template into an empty tab: header, set row dated the most recent Monday 00:00, sample team.
 function writeRotationTemplate(sheet, storage) {
   var rows = templateRows(recentMonday(parseDateTime(storage.nowText)));
   var range = sheet.getRange(1, 1, rows.length, LEDGER_HEADER.length);

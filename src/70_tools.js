@@ -15,11 +15,10 @@ var COLUMN_NOTES = {
   date: 'YYYY-MM-DD, one holiday per row. Counted by rotations with skip_holidays=true.',
 };
 
-// Most recent Monday 09:00 at or before t.
+// Most recent Monday 00:00 at or before t.
 function recentMonday(t) {
   var day = dayIndex(t);
-  var monday = dayStart(day - (weekdayOfDay(day) + 6) % 7) + 9 * MINUTES_PER_HOUR;
-  return monday <= t ? monday : monday - MINUTES_PER_WEEK;
+  return dayStart(day - (weekdayOfDay(day) + 6) % 7);
 }
 
 // Whole days as Nd, otherwise the short chained form.
@@ -66,18 +65,19 @@ function gridFor(timeline, t) {
 // row and nPost rows from the tail on. rows: dated row objects at or after the timeline's first set row.
 function gridRows(rows, nPre, nPost, timeline) {
   var sorted = sortRows(rows);
-  if (!sorted.length) return sorted;
+  var dated = sorted.filter(function (r) { return r.start !== null; });
+  if (!dated.length) return sorted;
   var changes = timeline.gridChanges();
   var shifts = rowsOfType(sorted, 'shift');
   var claims = shifts.map(function (s, i) {
     return [s.start, claimEnd(s, shifts[i + 1] ? shifts[i + 1].start : null, timeline.gridAt(s.start), changes)];
   });
-  var first = sorted[0].start;
-  var lastStart = sorted[sorted.length - 1].start;
+  var first = dated[0].start;
+  var lastStart = dated[dated.length - 1].start;
   var claimsEnd = claims.length ? claims[claims.length - 1][1] : first;
   var regionEnd = Math.max(claimsEnd, lastStart);
 
-  var out = sorted.slice();
+  var out = [];
   var slots = [];
   uncoveredSpans(first, regionEnd, claims).forEach(function (span) { splitSlots(span[0], span[1], timeline, changes, slots); });
   slots.forEach(function (slot) { out.push(emptyShiftRow(slot.start)); });
@@ -93,17 +93,25 @@ function gridRows(rows, nPre, nPost, timeline) {
     out.push(emptyShiftRow(t));
     t = timeline.gridAt(t).next(t);
   }
-  return sortRows(out);
+  // New rows go in front so undated comments keep attaching to the selected row below them.
+  return sortRows(out.concat(sorted));
 }
 
-// An undated selection row may only be blank or carry type=shift and nothing else.
+// An undated selection row counts as an empty grid position when it is blank or carries type=shift and
+// nothing else; any other undated row is a comment that travels with the next dated row.
 function isTemplateShiftRow(cells) {
   return cells.every(function (c, i) { return i === 2 ? cellText(c).toLowerCase() === 'shift' : cellText(c) === ''; });
 }
 
+// A dated row with nothing but its start (and pin) is a grid position, not a comment.
+function hasOnlyStart(cells) {
+  return cells.every(function (c, i) { return i === 0 || i === 1 || cellText(c) === ''; });
+}
+
 // Fill Shifts Grid over a selection. selectedCells: the ledger columns of the selected rows; tabCells: every
 // row of the tab below the header, for the settings timeline; holidayTexts: #Holidays column A.
-// Returns { rows: cell arrays } or { error: message }.
+// Returns { rows: cell arrays } or { error: message }. Dated comments stay in place; undated comments
+// attach to the next dated row, trailing ones stay at the end.
 function fillShiftsGridCells(selectedCells, tabCells, holidayTexts) {
   var holidays = new Set();
   (holidayTexts || []).forEach(function (text) { var day = parseDay(text ?? ''); if (day !== null) holidays.add(day); });
@@ -112,26 +120,29 @@ function fillShiftsGridCells(selectedCells, tabCells, holidayTexts) {
     return { error: 'the tab needs a set row with period before the grid can be filled' };
   }
   var dated = [];
+  var comments = [];
   var pre = 0, post = 0;
   for (var i = 0; i < selectedCells.length; i++) {
     var cells = selectedCells[i];
     var startText = cellText(cells[1]);
+    var row = rowFromArray(cells, i + 1);
+    row.cells = cells.slice();
     if (startText === '') {
-      if (!isBlankRow(cells) && !isTemplateShiftRow(cells)) return { error: 'selected row ' + (i + 1) + ' has content but no start' };
-      if (dated.length) post++; else pre++;
+      if (isBlankRow(cells) || isTemplateShiftRow(cells)) { if (dated.length) post++; else pre++; continue; }
+      if (row.type !== 'comment') return { error: 'selected row ' + (i + 1) + ' has content but no start' };
+      comments.push(row);
       continue;
     }
-    var row = rowFromArray(cells, i + 1);
     if (row.start === null) return { error: 'selected row ' + (i + 1) + ': bad start "' + startText + '"' };
     if (row.start < timeline.entries[0].start) return { error: 'selected row ' + (i + 1) + ' is dated before the first set row' };
-    if (row.type === '') row.type = 'shift';
-    row.cells = cells.slice();
-    row.cells[2] = row.type;
-    dated.push(row);
+    if (row.type === 'comment' && hasOnlyStart(cells)) row.type = 'shift';
+    if (row.type !== 'comment') row.cells[2] = row.type;
+    dated = dated.concat(comments, [row]);
+    comments = [];
     post = 0;
   }
   if (!dated.length) return { error: 'the selection has no dated row to start from' };
-  var out = gridRows(dated, pre, post, timeline);
+  var out = gridRows(dated, pre, post, timeline).concat(comments);
   if (out[0].start < timeline.entries[0].start) return { error: pre + ' empty row(s) above would fall before the first set row' };
   return { rows: out.map(function (r) { return r.cells || rowToArray(r); }) };
 }

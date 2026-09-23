@@ -84,6 +84,22 @@ test('parseLinks: rejected rows get an error row above them and are ignored', ()
   assert.deepEqual(written[written.length - 2].slice(1, 4), ['soon', 'error', 'bad start "soon"']);
 });
 
+test('parseLinks: comment rows are kept, sorted like ledger comments and never validated', () => {
+  const cells = [
+    R('', '', '', 'links between the two rotations'),
+    LINK('2026-10-05T09:00', 'distinct: primary, secondary'),
+    R('', '2026-10-06T09:00', '', 'dated note'),
+    R('', '', '', 'trailing'),
+  ];
+  const out = U.parseLinks(rows(cells), ['primary', 'secondary']);
+  assert.deepEqual(plain(out.errors), []);
+  assert.equal(out.links.length, 1);
+  assert.deepEqual(cellsOf(out.rows).map((c) => [c[1], c[2], c[3]]), [
+    ['', '', 'links between the two rotations'], ['2026-10-05T09:00', 'link', 'distinct: primary, secondary'],
+    ['2026-10-06T09:00', '', 'dated note'], ['', '', 'trailing'],
+  ]);
+});
+
 test('linkedRotationOrder: link list order first, then tab order', () => {
   const links = [{ kind: 'distinct', rotations: ['c', 'a'] }, { kind: 'joined', rotations: ['d', 'a'] }];
   assert.deepEqual(plain(U.linkedRotationOrder(links, ['a', 'b', 'c', 'd'])), ['c', 'a', 'd', 'b']);
@@ -184,11 +200,14 @@ test('runner: #Links rows are written back with error rows and reported; absent 
     LINK('2026-10-05T09:00', 'distinct: primary, nowhere'),
     LINK('2026-10-05T09:00', 'distinct: primary, secondary'),
   ];
+  links.push(R('', '', '', 'a comment in #Links'));
   const storage = new MemoryStorage({ ledgers, links });
   const result = runStorage(storage, '2026-10-05T10:00', { write: true });
   assert.deepEqual(result.errors, ['#Links row 4: unknown rotation "nowhere"']);
+  assert.equal(result.status.tabs.links, 2);
+  assert.equal(result.links[result.links.length - 1][3], 'a comment in #Links');
   assert.deepEqual(result.links.map((c) => [c[2], c[3]]), [
-    ['error', 'unknown rotation "nowhere"'], ['link', 'distinct: primary, nowhere'], ['link', 'distinct: primary, secondary'],
+    ['error', 'unknown rotation "nowhere"'], ['link', 'distinct: primary, nowhere'], ['link', 'distinct: primary, secondary'], ['', 'a comment in #Links'],
   ]);
   assert.deepEqual(storage.links, result.links);
   assert.deepEqual(result.ledgers.secondary.filter((c) => c[2] === 'shift').map((c) => c[3]), ['bob', 'carol', 'alice']);

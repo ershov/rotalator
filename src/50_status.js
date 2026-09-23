@@ -103,6 +103,7 @@ function statusRows(status) {
     push([]);
     push(['tabs']);
     push(['rotations', status.tabs.rotations.join(', ')]);
+    push(['regenerated', status.tabs.regenerated.join(', ')]);
     push(['holidays', String(status.tabs.holidays)]);
     push(['links', String(status.tabs.links)]);
     push(['ignored', status.tabs.ignored.join(', ')]);

@@ -35,12 +35,14 @@ function validateLinkRow(row, rotationNames) {
 }
 
 // rows: #Links row objects. Returns { links: [{ kind, rotations, from, to }], errors, rows } where rows are the
-// kept rows plus an error row above each rejected one. Rejected rows are ignored; unlink closes matching open links.
+// kept rows plus an error row above each rejected one. Rejected rows are ignored; unlink closes matching open
+// links. Comments are kept and otherwise ignored.
 function parseLinks(rows, rotationNames) {
   var errors = [];
   var links = [];
-  var kept = sortRows(rows.filter(function (r) { return r.type !== 'error'; }));
+  var kept = sortRows(attachComments(rows.filter(function (r) { return r.type !== 'error'; })));
   kept.forEach(function (row) {
+    if (row.type === 'comment') return;
     var message = validateLinkRow(row, rotationNames);
     if (message === null) {
       var parsed = parseLinkArg(row.what);
@@ -56,7 +58,7 @@ function parseLinks(rows, rotationNames) {
     }
     if (message !== null) errors.push(rowError(row, message));
   });
-  return { links: links, errors: errors, rows: sortRows(kept.concat(errors.map(errorRow))) };
+  return { links: links, errors: errors, rows: sortRows(errors.map(errorRow).concat(kept)) };
 }
 
 // Sweep order at equal starts: rotations in link list order first, then the rest in tab order.

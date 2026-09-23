@@ -14,10 +14,31 @@ test('CsvDirStorage: # files and files without the ledger header are ignored and
   assert.deepEqual(storage.ignoredTabs(), ['#secondary', 'Notes']);
   assert.equal(storage.readLinks().length, 1);
   const first = runDir(path.join(FIXTURES, 'disabled-rotation'), '2026-09-08T10:00');
-  assert.deepEqual(first.status.tabs, { rotations: ['primary'], holidays: 2, links: 1, ignored: ['#secondary', 'Notes'] });
+  assert.deepEqual(first.status.tabs, { rotations: ['primary'], regenerated: ['primary'], holidays: 2, links: 1, ignored: ['#secondary', 'Notes'] });
   // The written #Links carries an error row, which must not count as a link row on the next run.
   const again = runStorage(new MemoryStorage({ ledgers: first.ledgers, holidays: storage.readHolidays(), links: first.links }), '2026-09-08T10:00');
   assert.equal(again.status.tabs.links, 1);
+});
+
+test('runner: rotations option writes only the named ledgers and reports unknown names', () => {
+  const dir = path.join(FIXTURES, 'links-distinct');
+  const storage = new CsvDirStorage(dir);
+  const before = storage.readLedgers();
+  const mem = new MemoryStorage({ ledgers: before, holidays: storage.readHolidays(), links: storage.readLinks() });
+  const result = runStorage(mem, storage.readNow(), { write: true, rotations: ['secondary'] });
+  assert.deepEqual(result.errors, []);
+  assert.deepEqual(Object.keys(result.ledgers), ['secondary']);
+  assert.deepEqual(mem.ledgers.primary, before.primary, 'primary untouched');
+  assert.equal(ledgerCsv(mem.ledgers.secondary), fs.readFileSync(path.join(dir, 'expected', 'secondary.csv'), 'utf8'));
+  assert.deepEqual(result.status.tabs.rotations, ['primary', 'secondary']);
+  assert.deepEqual(result.status.tabs.regenerated, ['secondary']);
+  assert.ok(mem.status !== null && mem.links !== null);
+  const bad = new MemoryStorage({ ledgers: before, holidays: storage.readHolidays(), links: storage.readLinks() });
+  const failed = runStorage(bad, storage.readNow(), { write: true, rotations: ['secondary', 'tertiary'] });
+  assert.deepEqual(failed.errors, ['unknown rotation "tertiary"']);
+  assert.equal(failed.status, null);
+  assert.equal(bad.status, null);
+  assert.deepEqual(bad.ledgers, before);
 });
 
 // Each fixture: inputs, expected/<rotation>.csv per ledger, optional expected/links.csv, errors.txt and status.txt.

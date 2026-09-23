@@ -109,6 +109,56 @@ test('isNobody, shiftAssignee, whatItems and whatNames', () => {
   assert.deepEqual(plain(U.whatItems(U.makeRow({ type: 'team', what: 'a+b' }))), []);
 });
 
+test('comments: empty type parses as comment, writes back empty, never validated', () => {
+  const dated = U.rowFromArray(R('', '2026-10-06T09:00', '', 'vacation season'), 4);
+  assert.equal(dated.type, 'comment');
+  assert.deepEqual(plain(U.rowToArray(dated)), R('', '2026-10-06T09:00', '', 'vacation season'));
+  const undated = U.rowFromArray(R('', '', '', 'todo: add erin'), 5);
+  assert.equal(undated.type, 'comment');
+  assert.equal(undated.start, null);
+  const garbage = U.rowFromArray(R('', 'someday', '', 'note'), 6);
+  assert.equal(garbage.type, 'comment');
+  assert.deepEqual(plain(U.rowToArray(garbage)), R('', 'someday', '', 'note'));
+  assert.deepEqual(messagesOf([SET, TEAM, R('', '2026-10-06T09:00', '', 'x'), R('', '', '', 'y'), R('', 'someday', '', 'z'), R('', '', '', '', '', '2x', '')]), []);
+  assert.deepEqual(messagesOf([R('', '2026-10-01T09:00', '', 'before the set row'), SET, TEAM]), []);
+  assert.deepEqual(messagesOf([R('', '', '', 'only a comment')]), ['r: ledger is empty']);
+});
+
+test('sortRows: dated comments first at their instant, undated ones attach to the next dated row', () => {
+  const t = dt('2026-10-05T09:00');
+  const mk = (type, start, what) => U.makeRow({ type, start, what });
+  const c = (start, what) => U.makeRow({ type: 'comment', start, what });
+  const rows = [
+    c(null, 'above set'), mk('set', t, 'period=1w'),
+    c(null, 'above dated'),
+    c(t, 'dated'), mk('shift', t, 'alice'), c(null, 'above bob'), c(null, 'also above bob'), mk('shift', t + 1, 'bob'),
+    mk('error', t, 'e'), c(null, 'trailing 1'), c(null, 'trailing 2'),
+  ];
+  const sorted = U.sortRows(rows);
+  assert.deepEqual(sorted.map((r) => r.what), [
+    'above dated', 'dated', 'e', 'above set', 'period=1w', 'alice', 'above bob', 'also above bob', 'bob', 'trailing 1', 'trailing 2',
+  ]);
+  assert.deepEqual(U.sortRows(sorted).map((r) => r.what), sorted.map((r) => r.what));
+  const badStart = U.makeRow({ type: 'shift', start: null, startText: 'nope', what: 'z' });
+  assert.deepEqual(U.sortRows([c(null, 'skips bad start'), badStart, mk('shift', t, 'a')]).map((r) => r.what), ['skips bad start', 'a', 'z']);
+  const errorRow = U.makeRow({ type: 'error', start: null, startText: 'nope', what: 'bad start' });
+  assert.deepEqual(U.sortRows([c(null, 'trailing'), errorRow, badStart]).map((r) => r.what), ['bad start', 'z', 'trailing']);
+});
+
+test('attachComments stores the key once so a comment stays above its instant when the row below is replaced', () => {
+  const t = dt('2026-10-05T09:00');
+  const comment = U.makeRow({ type: 'comment', what: 'swap this one' });
+  const shift = U.makeRow({ type: 'shift', start: t + 1440, what: 'alice' });
+  const rows = U.attachComments([U.makeRow({ type: 'set', start: t, what: 'period=1w' }), comment, shift]);
+  assert.equal(comment.attachedStart, t + 1440);
+  assert.equal(comment.attachedOrder, U.ROW_TYPES.shift.order - 0.5);
+  const replacement = U.makeRow({ type: 'shift', start: t + 1440, what: 'bob' });
+  const resorted = U.sortRows([replacement, rows[0], comment]);
+  assert.deepEqual(resorted.map((r) => r.what), ['period=1w', 'swap this one', 'bob']);
+  const unresolved = U.makeRow({ type: 'comment', what: 'fresh' });
+  assert.deepEqual(U.sortRows([replacement, unresolved]).map((r) => r.what), ['bob', 'fresh']);
+});
+
 test('sortRows orders by start then type, stable, nulls last', () => {
   const t = dt('2026-10-05T09:00');
   const mk = (type, start, what) => U.makeRow({ type, start, what });
@@ -185,7 +235,6 @@ test('validateLedger accepts every item form and drops error rows', () => {
 test('validateLedger reports each stateless rule with row references', () => {
   const cases = [
     [R('', '2026-10-06T09:00', 'party', ''), /unknown type "party"/],
-    [R('', '2026-10-06T09:00', '', ''), /missing type/],
     [R('', '', 'shift', 'alice'), /missing start/],
     [R('', '2026-10-06 25:00', 'shift', 'alice'), /bad start/],
     [R('', '2026-10-06T09:00', 'shift', 'alice', 'soon'), /bad end "soon"/],

@@ -100,9 +100,12 @@ Reload the spreadsheet and continue with section 4.
    Tabs without the ledger header that already have content are left alone.
 2. Open `On-Call` (or rename it: the tab name is the rotation name). Row 2 is
    a `set` row listing every setting at its default, dated the most recent
-   Monday 09:00 with a bare `anchor`, so the first shift starts there. Adjust
-   `period`, `horizon`, `skip_weekends` and the rest as needed. Row 3 is a
-   `team` row with sample names: replace them with your members.
+   Monday 00:00 with a bare `anchor`, so the first shift starts there and
+   shifts change at midnight; change the time in `start` if the team hands
+   over during the day. Adjust `period`, `horizon`, `skip_weekends` and the
+   rest as needed. Row 3 is a `team` row with sample names: replace them with
+   your members. Rows with an empty `type` are comments: put notes anywhere in
+   the ledger, the script keeps them in place.
 3. More rotations: add a tab, name it, and choose **Rotalator > Template**
    with the tab active. The template only fills empty tabs. On `#Holidays` or
    `#Links` it writes the header row; on tabs the script writes it does
@@ -130,9 +133,11 @@ of a rotation tab (any columns; the whole rows are used) and run it:
 - Between dated rows, every uncovered grid boundary and every gap after a
   shift with an early `end` gets an empty `shift` row; the selection grows by
   the inserted rows. Dated rows are sorted; their other cells travel with them
-  and a missing `type` becomes `shift`.
-- Rows without `start` must be blank or contain only `type` = `shift`; any
-  other undated row stops the command with a toast naming it.
+  and a row with nothing but a `start` becomes a `shift`.
+- Rows without `start` are empty grid positions when blank or `type` =
+  `shift` only, or comments when `type` is empty and another cell has
+  content; comments travel with the next dated row below them. An undated row
+  with any other `type` stops the command with a toast naming it.
 - `end` and `duration` are never written. The grid comes from the tab's `set`
   rows and `#Holidays`, so it follows `period`, `anchor`, `grid`, and the
   skip flags of a counted grid.
@@ -186,8 +191,8 @@ text back, setting the ledger range to plain text format on every write. Run
 content. Clear the tab or add a new one.
 
 **Fill Shifts Grid says a row has content but no start.** An undated row has
-something other than `type` = `shift` in it. Date it or clear it, then run
-again.
+a `type` other than `shift`. Date it, clear its `type` to make it a comment,
+or clear the row, then run again.
 
 **Error row `first row must be a set row with period`.** The earliest row by
 `start` must be a `set` row containing `period=`. Typical causes: a shift or
@@ -250,11 +255,12 @@ as separator and keeping text as text):
 
 ```
 pin,start,type,what,end,duration,note
-,2026-06-01T09:00,set,"period=1w, horizon=12w, grid=calendar",,,
-,2026-06-01T09:00,team,"alice, bob, carol, dave",,,
+,2026-06-01T00:00,set,"period=1w, horizon=12w, grid=calendar",,,
+,2026-06-01T00:00,team,"alice, bob, carol, dave",,,
 ```
 
-Weekly shifts from Monday 2026-06-01 09:00 on the plain calendar grid, twelve
-weeks ahead, four members round robin. Add `skip_weekends=true`,
-`grid=counted` or other keys from the README settings table to the `set` row
-as needed.
+Weekly shifts from Monday 2026-06-01 00:00 on the plain calendar grid, twelve
+weeks ahead, four members round robin. Midnight is the default hand-over time
+of the templates; write `2026-06-01T09:00` instead for a 09:00 hand-over. Add
+`skip_weekends=true`, `grid=counted` or other keys from the README settings
+table to the `set` row as needed.

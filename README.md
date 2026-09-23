@@ -58,9 +58,9 @@ Every list in `what` uses one grammar: items separated by `,` or `;`, each
 item `name`, `name=value`, `name+=n` or `name-=n`. Member ids are any text
 without `,` `;` `=` `+`, matched verbatim. Nobody is an empty `what` on a
 `shift`, `-` or `none`. Rows are kept sorted by `start`; rows with equal
-`start` sort as `error`, `set`, `snapshot`, `team`, `join`, `leave`, `score`,
-`exclude`, `include`, `shift`, so state changes apply before the shift that
-starts at the same instant.
+`start` sort as comment, `error`, `set`, `snapshot`, `team`, `join`, `leave`,
+`score`, `exclude`, `include`, `shift`, so state changes apply before the
+shift that starts at the same instant.
 
 ## Row types
 
@@ -76,6 +76,7 @@ starts at the same instant.
 | `set` | `key`, `key=value` | | users | Settings from `start` onward. |
 | `snapshot` | `name=score` | | script | Replay boundary and score cache. One per rotation. |
 | `error` | message | | script | Diagnostic. Removed on every read. |
+| (empty) | free text | | users | Comment. Ignored by the script, kept in place. |
 
 Example rows, one per item form:
 
@@ -94,6 +95,11 @@ Example rows, one per item form:
 | | `2026-10-05T09:00` | `set` | `anchor, tolerance` | | | re-anchor, tolerance back to 0 |
 | | `2026-09-07T09:00` | `snapshot` | `alice=28.00, bob=28.00, carol=21.00` | | | |
 | | `2026-09-15T09:00` | `error` | `unknown type "vacation"` | | | |
+| | `2026-06-15T09:00` | | `carol swapped with bob this week` | | | |
+| | | | `todo: add the new hire in July` | | | |
+
+The examples above use a 09:00 shift start to show that any time of day works;
+the templates and `init` default to Monday 00:00.
 
 Details per type:
 
@@ -133,6 +139,15 @@ Details per type:
   (except `set` rows and intervals that extend past it). Delete it to force a
   full replay from the top.
 - **error.** See Errors below.
+- **comment.** Any row with an empty `type` and something in another cell.
+  Never validated, replayed or regenerated. A dated comment sorts at its
+  instant, first among the rows there. An undated comment stays directly
+  above the next dated row below it, at that row's instant: a note above a
+  generated shift stays above the shift at that instant run after run, even
+  though the shift itself is regenerated. Undated comments with nothing dated
+  below them stay at the end of the ledger. A `start` that does not parse
+  counts as undated and is reported as a warning in `#Status`. Comments work
+  in `#Links` too.
 
 ## Settings
 
@@ -188,15 +203,16 @@ them opens a dialog and none rewrites existing data.
   on `#` tabs. It is idempotent.
 - **Template** fills the active tab from its name: an empty rotation tab gets
   the header, a `set` row with every setting at its default (bare `anchor`,
-  dated the most recent Monday 09:00) and a sample `team` row; an empty
+  dated the most recent Monday 00:00) and a sample `team` row; an empty
   `#Holidays` or `#Links` tab gets its header. Non-empty tabs are refused.
 - **Fill Shifts Grid** fills the `start` of the selected rows of a rotation
   tab so they sit on the grid: empty rows above the first dated row are
   placed on the boundaries before it, empty rows below the last dated row on
-  the boundaries after it, and gaps between dated shifts are filled. Missing
-  `type` becomes `shift`; `what`, `end` and `duration` are never written.
-  Undated rows must be blank or `type` = `shift` only. Use it to lay out
-  history before typing the names.
+  the boundaries after it, and gaps between dated shifts are filled. A dated
+  row with only a `start` becomes a `shift`; `what`, `end` and `duration` are
+  never written. Undated rows must be blank, `type` = `shift` only, or
+  comments, which travel with the next dated row. Use it to lay out history
+  before typing the names.
 
 INSTALL.md has the step by step.
 
@@ -237,8 +253,9 @@ preview tab is created right after its rotation tab.
 ## #Status and #All shifts tabs
 
 `#Status` starts with the run instant and mode (`run` or `dry run`), then a
-`tabs` block: the rotations found, the number of holidays and link rows read,
-and the tabs ignored (a disabled `#<rotation>` appears there). For each
+`tabs` block: the rotations found, the rotations regenerated in this run, the
+number of holidays and link rows read, and the tabs ignored (a disabled
+`#<rotation>` appears there). For each
 rotation it shows `rotation`, `snapshot` and `horizon` rows, then one line per
 member: score at the snapshot, projected score at the horizon end, last shift
 (latest start at or before the snapshot), next shift (first start after it),
@@ -332,7 +349,8 @@ rotation, like a `#` tab, and other `.csv` files without the ledger header are
 ignored.
 
 ```
-bin/rotalator run DIR [--now YYYY-MM-DDTHH:MM] [--write] [--status]
+bin/rotalator run DIR [--now YYYY-MM-DDTHH:MM] [--rotation NAME]...
+                      [--write] [--status]
 bin/rotalator init DIR --rotation NAME [--start YYYY-MM-DDTHH:MM]
                                        [--history-from YYYY-MM-DD]
 bin/rotalator help
@@ -340,11 +358,15 @@ bin/rotalator help
 
 `run` regenerates the ledgers in `DIR`. Without `--write` they are printed as
 CSV and nothing is changed. `--status` appends the `#Status` and `#All shifts`
-tables as plain text. Errors go to stderr and set exit code 1.
+tables as plain text. `--rotation NAME`, repeatable, regenerates only the named
+rotations: the others are read so that links still see their shifts, but they
+are neither printed nor written, and the `tabs` block of the status shows
+which rotations were regenerated. An unknown name stops the run with nothing
+written. Errors go to stderr and set exit code 1.
 
 `init` creates `NAME.csv` from the rotation template, plus `holidays.csv` and
 `now.txt` when they are missing. `--start` dates the `set` and `team` rows
-(default: the most recent Monday 09:00 before `now`). `--history-from` adds
+(default: the most recent Monday 00:00 before `now`). `--history-from` adds
 empty `shift` rows on the grid from that date up to the start; the `set` and
 `team` rows are then dated at the first of those boundaries so the ledger
 validates. Fill in the names, then `run`.

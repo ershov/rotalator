@@ -23,7 +23,8 @@ function isKnownSystemTab(name) {
 }
 
 // order: same-instant sort (DESIGN 3.6). what: item grammar of the column (see validateWhat).
-// required: what must not be empty. extent: end/duration allowed.
+// required: what must not be empty. extent: end/duration allowed. A row with an empty type is a comment
+// (internal type 'comment', order -1): never validated, replayed or generated, only sorted.
 var ROW_TYPES = {
   error:    { order: 0, what: 'text',   required: true,  extent: false },
   set:      { order: 1, what: 'set',    required: true,  extent: false },
@@ -184,7 +185,7 @@ function rowFromArray(cells, rowIndex) {
     pinned: pin !== '',
     start: start,
     startText: startText,
-    type: cellText(cells[2]).toLowerCase(),
+    type: cellText(cells[2]).toLowerCase() || 'comment',
     what: cellText(cells[3]),
     end: end,
     endText: endText,
@@ -213,7 +214,7 @@ function rowToArray(row) {
   return [
     row.pin,
     row.start !== null ? formatDateTime(row.start) : row.startText,
-    row.type,
+    row.type === 'comment' ? '' : row.type,
     row.what,
     end,
     duration,
@@ -230,19 +231,71 @@ function isLedgerHeader(cells) {
 }
 
 function typeOrder(type) {
+  if (type === 'comment') return -1;
   return ROW_TYPES[type] ? ROW_TYPES[type].order : ROW_TYPES.shift.order + 1;
 }
 
-// Stable sort by start (nulls last), then DESIGN 3.6 type order.
+function rowsOfType(rows, type) {
+  return rows.filter(function (r) { return r.type === type; });
+}
+
+function firstOfType(rows, types) {
+  for (var i = 0; i < rows.length; i++) if (types.indexOf(rows[i].type) >= 0) return rows[i];
+  return null;
+}
+
+function isUndatedComment(row) {
+  return row.type === 'comment' && row.start === null;
+}
+
+var TRAILING_ORDER = ROW_TYPES.shift.order + 2;
+
+// Sort key per row. An undated comment takes the start of the next dated row below it and an order just
+// before it, so it sorts directly above that row whatever the array order; a stored key (attachComments)
+// wins. Trailing undated comments keep a null start and sort after everything.
+function sortKeys(rows) {
+  var keys = new Array(rows.length);
+  var pending = [];
+  rows.forEach(function (row, i) {
+    if (isUndatedComment(row)) {
+      if (row.attachedStart !== undefined) keys[i] = { start: row.attachedStart, order: row.attachedOrder };
+      else pending.push(i);
+      return;
+    }
+    keys[i] = { start: row.start, order: typeOrder(row.type) };
+    if (row.start === null) return;
+    var attached = { start: row.start, order: keys[i].order - 0.5 };
+    pending.forEach(function (j) { keys[j] = attached; });
+    pending = [];
+  });
+  pending.forEach(function (j) { keys[j] = { start: null, order: TRAILING_ORDER }; });
+  return keys;
+}
+
+// Resolves undated comments once, against the ledger as read, and stores the key on the row so later sorts
+// keep each comment above the instant it was written at even when the row below it is regenerated.
+function attachComments(rows) {
+  var keys = sortKeys(rows);
+  rows.forEach(function (row, i) {
+    if (isUndatedComment(row)) { row.attachedStart = keys[i].start; row.attachedOrder = keys[i].order; }
+  });
+  return rows;
+}
+
+// Stable sort by start (nulls last), then DESIGN 3.6 type order; comments per sortKeys.
 function sortRows(rows) {
-  return rows.slice().sort(function (a, b) {
+  var keys = sortKeys(rows);
+  var index = rows.map(function (_, i) { return i; });
+  index.sort(function (i, j) {
+    var a = keys[i], b = keys[j];
     if (a.start !== b.start) {
       if (a.start === null) return 1;
       if (b.start === null) return -1;
       return a.start - b.start;
     }
-    return typeOrder(a.type) - typeOrder(b.type);
+    return a.order - b.order;
   });
+  return index.map(function (i) { return rows[i]; });
 }
 
 // One item grammar (DESIGN 3.3): name, name=value, name+=n, name-=n. Which forms a type accepts:
@@ -305,12 +358,13 @@ function validateLedger(rows, rotationName) {
     var row = rows[i];
     if (row.type === 'error') continue;
     kept.push(row);
+    if (row.type === 'comment') continue;
     var message = validateRow(row);
     if (message === null && row.type === 'snapshot' && ++snapshots > 1) message = 'more than one snapshot row';
     if (message !== null) errors.push(rowError(row, message));
   }
-  var sorted = sortRows(kept);
-  var first = sorted[0];
+  var sorted = sortRows(attachComments(kept));
+  var first = firstOfType(sorted, Object.keys(ROW_TYPES));
   if (!first) {
     errors.push({ rowIndex: null, start: null, startText: '', message: rotationName + ': ledger is empty' });
   } else if (first.start !== null && !(first.type === 'set' && parseSetArg(first.what, first.start).values.period)) {

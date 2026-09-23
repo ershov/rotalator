@@ -1,9 +1,10 @@
 Rotalator  dry run  2026-09-08T10:00
 
 tabs
-rotations  alerts, tickets
-holidays   2
-links      1
+rotations    alerts, tickets
+regenerated  alerts, tickets
+holidays     2
+links        1
 ignored
 
 rotation  alerts

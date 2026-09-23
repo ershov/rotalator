@@ -5,13 +5,14 @@ const { load } = require('./load.js');
 const { CsvDirStorage } = require('./storage.js');
 
 const USAGE = `usage:
-  rotalator run DIR [--now YYYY-MM-DDTHH:MM] [--write] [--status]
+  rotalator run DIR [--now YYYY-MM-DDTHH:MM] [--rotation NAME]... [--write] [--status]
   rotalator init DIR --rotation NAME [--start YYYY-MM-DDTHH:MM] [--history-from YYYY-MM-DD] [--now YYYY-MM-DDTHH:MM]
   rotalator help
 
 run   regenerates the ledgers in DIR and prints them as CSV; --write saves them, --status appends the status tables.
+      --rotation limits regeneration to the named rotations; the others are read but left untouched.
 init  creates <NAME>.csv from the rotation template, plus holidays.csv and now.txt when missing.
-      --start dates the set and team rows (default: the most recent Monday 09:00 before now);
+      --start dates the set and team rows (default: the most recent Monday 00:00 before now);
       --history-from adds empty shift rows on the grid from that date up to --start.
 `;
 
@@ -105,11 +106,12 @@ function takeValue(argv, i, flag) {
 
 // "run DIR ..." or the older "--dir DIR ..." form.
 function parseRunArgs(argv) {
-  const args = { dir: null, now: null, write: false, status: false };
+  const args = { dir: null, now: null, rotations: [], write: false, status: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--dir') args.dir = takeValue(argv, i++, a);
     else if (a === '--now') args.now = takeValue(argv, i++, a);
+    else if (a === '--rotation') args.rotations.push(takeValue(argv, i++, a));
     else if (a === '--write') args.write = true;
     else if (a === '--status') args.status = true;
     else if (!a.startsWith('--') && args.dir === null) args.dir = a;
@@ -136,7 +138,7 @@ function parseInitArgs(argv) {
 
 function mainRun(argv) {
   const args = parseRunArgs(argv);
-  const result = runDir(args.dir, args.now, { write: args.write });
+  const result = runDir(args.dir, args.now, { write: args.write, rotations: args.rotations.length ? args.rotations : null });
   Object.keys(result.ledgers).forEach((name) => {
     process.stdout.write(`# ${name}\n` + ledgerCsv(result.ledgers[name]));
   });

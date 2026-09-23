@@ -12,16 +12,7 @@ function raiseTo(a, b) {
 }
 
 function ledgerRows(rows) {
-  return sortRows(rows.filter(function (r) { return r.type !== 'error' && r.start !== null; }));
-}
-
-function rowsOfType(rows, type) {
-  return rows.filter(function (r) { return r.type === type; });
-}
-
-function firstOfType(rows, types) {
-  for (var i = 0; i < rows.length; i++) if (types.indexOf(rows[i].type) >= 0) return rows[i];
-  return null;
+  return sortRows(rows.filter(function (r) { return r.type !== 'error' && r.type !== 'comment' && r.start !== null; }));
 }
 
 // An instant inside a skipped day of a counted grid moves to the next boundary, so S never lands there.
@@ -107,20 +98,28 @@ function resolvedExcludeEnds(rows) {
   return ends;
 }
 
-function prepareRotation(input, index, holidays) {
+// frozen (DESIGN 5, run scope): the rotation is swept as it stands so links see its shifts, but nothing is
+// pruned, no slot is filled and the snapshot stays where it is; it is not written.
+function prepareRotation(input, index, holidays, frozen) {
   var validated = validateLedger(input.rows, input.name);
-  var rot = { name: input.name, index: index, rows: validated.rows, errors: validated.errors.slice(), problems: [], warnings: [] };
+  var rot = { name: input.name, index: index, frozen: frozen, rows: validated.rows, errors: validated.errors.slice(), problems: [], warnings: [] };
   if (rot.errors.length) return rot;
   var rows = rot.rows;
+  rows.forEach(function (r) {
+    if (r.type === 'comment' && r.start === null && r.startText !== '') {
+      rot.warnings.push({ start: null, message: 'comment row ' + r.rowIndex + ': unparseable start, treated as undated' });
+    }
+  });
   var timeline = new SettingsTimeline(rowsOfType(rows, 'set'), holidays);
   var previous = firstOfType(rows, ['snapshot']);
-  var S = input.snapshotAt === null || input.snapshotAt === undefined ? advance(rows, null, holidays) : input.snapshotAt;
-  S = raiseTo(raiseTo(S, previous ? previous.start : null), onCountedDay(timeline, rows[0].start));
+  var S = frozen || input.snapshotAt === null || input.snapshotAt === undefined ? advance(rows, null, holidays) : input.snapshotAt;
+  var first = firstOfType(rows, ['set']);
+  S = raiseTo(raiseTo(S, previous ? previous.start : null), onCountedDay(timeline, first.start));
   rot.timeline = timeline;
   rot.previousAt = previous ? previous.start : null;
   rot.previousWhat = previous ? previous.what : '';
   rot.S = S;
-  rot.kept = rows.filter(function (r) { return r.type !== 'snapshot' && !(r.type === 'shift' && !r.pinned && r.start > S); });
+  rot.kept = rows.filter(function (r) { return r.type !== 'snapshot' && !(!frozen && r.type === 'shift' && !r.pinned && r.start > S); });
 
   var shifts = rowsOfType(rot.kept, 'shift');
   var changes = timeline.gridChanges();
@@ -136,9 +135,11 @@ function prepareRotation(input, index, holidays) {
   var entries = shifts.map(function (s) {
     return { start: s.start, slotEnd: null, end: null, who: shiftAssignee(s), slot: false, row: s };
   });
-  uncoveredSpans(regenStart, rot.horizonEnd, claims).forEach(function (span) {
-    splitSlots(span[0], span[1], timeline, changes, entries);
-  });
+  if (!frozen) {
+    uncoveredSpans(regenStart, rot.horizonEnd, claims).forEach(function (span) {
+      splitSlots(span[0], span[1], timeline, changes, entries);
+    });
+  }
   entries.sort(function (a, b) { return a.start - b.start; });
   entries.forEach(function (e, i) {
     e.end = e.slot ? e.slotEnd : scoredEnd(e.row, entries[i + 1] ? entries[i + 1].start : null, timeline.gridAt(e.start));
@@ -161,7 +162,7 @@ function rotationItems(rot) {
   rot.roster.fromSnapshotWhat(rot.previousWhat);
   rot.precredited = new Set();
   rot.kept.forEach(function (row) {
-    if (row.type === 'shift') return;
+    if (row.type === 'shift' || row.type === 'comment') return;
     if (row.type === 'set') {
       if (afterPrevious(row.start)) push(row.start, 'row', { row: row });
       else rot.settings.apply(row);
@@ -338,15 +339,20 @@ function collectErrors(rots, list) {
   return out;
 }
 
+function writable(rots) {
+  return rots.filter(function (rot) { return !rot.frozen; });
+}
+
 // DESIGN 6: rows unchanged plus an error row above each offending row.
 function errorOutput(rots, links) {
   var errors = collectErrors(rots, 'errors').concat(links.errors);
   return {
-    rotations: rots.map(function (rot) {
-      return { name: rot.name, rows: sortRows(rot.rows.concat(rot.errors.map(errorRow))) };
+    rotations: writable(rots).map(function (rot) {
+      return { name: rot.name, rows: sortRows(rot.errors.map(errorRow).concat(rot.rows)) };
     }),
     links: { rows: links.rows, errors: links.errors },
     errors: errors,
+    regenerated: false,
     status: buildStatus([], [], errors),
   };
 }
@@ -365,19 +371,22 @@ function prepareLinks(rows, rots) {
   return { rows: parsed.rows, errors: errors, links: parsed.links, byName: byName };
 }
 
+// Script rows go in front of the kept rows so undated comments still attach to the next kept row below them.
 function rotationOutput(rot) {
-  var rows = rot.kept.concat([makeRow({ type: 'snapshot', start: rot.S, what: rot.snapshotWhat })]);
+  var rows = [makeRow({ type: 'snapshot', start: rot.S, what: rot.snapshotWhat })];
   rot.entries.forEach(function (e) { if (e.generated) rows.push(e.generated); });
-  return { name: rot.name, rows: sortRows(rows.concat(rot.problems.map(errorRow))) };
+  return { name: rot.name, rows: sortRows(rows.concat(rot.problems.map(errorRow), rot.kept)) };
 }
 
 // Pure regeneration of DESIGN 5.3 to 5.8 and 7.
-// input: { rotations: [{ name, rows, snapshotAt }], holidays: [dayIndex], links: Links row objects, now }.
+// input: { rotations: [{ name, rows, snapshotAt }], holidays: [dayIndex], links: Links row objects, now, only }.
 // now is optional and only dates the effective settings in the status; the ledgers never depend on it.
+// only: optional list of rotation names to regenerate; the others are swept frozen and not returned.
 // Output: { rotations: [{ name, rows }], links: { rows, errors }, errors, status }.
 function regenerate(input) {
   var holidays = new Set(input.holidays || []);
-  var rots = input.rotations.map(function (r, i) { return prepareRotation(r, i, holidays); });
+  var only = input.only || null;
+  var rots = input.rotations.map(function (r, i) { return prepareRotation(r, i, holidays, only !== null && only.indexOf(r.name) < 0); });
   var links = prepareLinks(input.links, rots);
   var hasErrors = function () { return rots.some(function (rot) { return rot.errors.length > 0; }); };
   if (hasErrors()) return errorOutput(rots, links);
@@ -385,7 +394,8 @@ function regenerate(input) {
   if (hasErrors()) return errorOutput(rots, links);
   var warnings = collectErrors(rots, 'warnings').concat(collectErrors(rots, 'problems'));
   return {
-    rotations: rots.map(rotationOutput),
+    rotations: writable(rots).map(rotationOutput),
+    regenerated: true,
     links: { rows: links.rows, errors: links.errors },
     errors: collectErrors(rots, 'problems').concat(links.errors),
     status: buildStatus(rots, warnings, links.errors, input.now),

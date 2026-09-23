@@ -245,7 +245,8 @@ function isKnownSystemTab(name) {
 }
 
 // order: same-instant sort (DESIGN 3.6). what: item grammar of the column (see validateWhat).
-// required: what must not be empty. extent: end/duration allowed.
+// required: what must not be empty. extent: end/duration allowed. A row with an empty type is a comment
+// (internal type 'comment', order -1): never validated, replayed or generated, only sorted.
 var ROW_TYPES = {
   error:    { order: 0, what: 'text',   required: true,  extent: false },
   set:      { order: 1, what: 'set',    required: true,  extent: false },
@@ -406,7 +407,7 @@ function rowFromArray(cells, rowIndex) {
     pinned: pin !== '',
     start: start,
     startText: startText,
-    type: cellText(cells[2]).toLowerCase(),
+    type: cellText(cells[2]).toLowerCase() || 'comment',
     what: cellText(cells[3]),
     end: end,
     endText: endText,
@@ -435,7 +436,7 @@ function rowToArray(row) {
   return [
     row.pin,
     row.start !== null ? formatDateTime(row.start) : row.startText,
-    row.type,
+    row.type === 'comment' ? '' : row.type,
     row.what,
     end,
     duration,
@@ -452,19 +453,71 @@ function isLedgerHeader(cells) {
 }
 
 function typeOrder(type) {
+  if (type === 'comment') return -1;
   return ROW_TYPES[type] ? ROW_TYPES[type].order : ROW_TYPES.shift.order + 1;
 }
 
-// Stable sort by start (nulls last), then DESIGN 3.6 type order.
+function rowsOfType(rows, type) {
+  return rows.filter(function (r) { return r.type === type; });
+}
+
+function firstOfType(rows, types) {
+  for (var i = 0; i < rows.length; i++) if (types.indexOf(rows[i].type) >= 0) return rows[i];
+  return null;
+}
+
+function isUndatedComment(row) {
+  return row.type === 'comment' && row.start === null;
+}
+
+var TRAILING_ORDER = ROW_TYPES.shift.order + 2;
+
+// Sort key per row. An undated comment takes the start of the next dated row below it and an order just
+// before it, so it sorts directly above that row whatever the array order; a stored key (attachComments)
+// wins. Trailing undated comments keep a null start and sort after everything.
+function sortKeys(rows) {
+  var keys = new Array(rows.length);
+  var pending = [];
+  rows.forEach(function (row, i) {
+    if (isUndatedComment(row)) {
+      if (row.attachedStart !== undefined) keys[i] = { start: row.attachedStart, order: row.attachedOrder };
+      else pending.push(i);
+      return;
+    }
+    keys[i] = { start: row.start, order: typeOrder(row.type) };
+    if (row.start === null) return;
+    var attached = { start: row.start, order: keys[i].order - 0.5 };
+    pending.forEach(function (j) { keys[j] = attached; });
+    pending = [];
+  });
+  pending.forEach(function (j) { keys[j] = { start: null, order: TRAILING_ORDER }; });
+  return keys;
+}
+
+// Resolves undated comments once, against the ledger as read, and stores the key on the row so later sorts
+// keep each comment above the instant it was written at even when the row below it is regenerated.
+function attachComments(rows) {
+  var keys = sortKeys(rows);
+  rows.forEach(function (row, i) {
+    if (isUndatedComment(row)) { row.attachedStart = keys[i].start; row.attachedOrder = keys[i].order; }
+  });
+  return rows;
+}
+
+// Stable sort by start (nulls last), then DESIGN 3.6 type order; comments per sortKeys.
 function sortRows(rows) {
-  return rows.slice().sort(function (a, b) {
+  var keys = sortKeys(rows);
+  var index = rows.map(function (_, i) { return i; });
+  index.sort(function (i, j) {
+    var a = keys[i], b = keys[j];
     if (a.start !== b.start) {
       if (a.start === null) return 1;
       if (b.start === null) return -1;
       return a.start - b.start;
     }
-    return typeOrder(a.type) - typeOrder(b.type);
+    return a.order - b.order;
   });
+  return index.map(function (i) { return rows[i]; });
 }
 
 // One item grammar (DESIGN 3.3): name, name=value, name+=n, name-=n. Which forms a type accepts:
@@ -527,12 +580,13 @@ function validateLedger(rows, rotationName) {
     var row = rows[i];
     if (row.type === 'error') continue;
     kept.push(row);
+    if (row.type === 'comment') continue;
     var message = validateRow(row);
     if (message === null && row.type === 'snapshot' && ++snapshots > 1) message = 'more than one snapshot row';
     if (message !== null) errors.push(rowError(row, message));
   }
-  var sorted = sortRows(kept);
-  var first = sorted[0];
+  var sorted = sortRows(attachComments(kept));
+  var first = firstOfType(sorted, Object.keys(ROW_TYPES));
   if (!first) {
     errors.push({ rowIndex: null, start: null, startText: '', message: rotationName + ': ledger is empty' });
   } else if (first.start !== null && !(first.type === 'set' && parseSetArg(first.what, first.start).values.period)) {
@@ -931,16 +985,7 @@ function raiseTo(a, b) {
 }
 
 function ledgerRows(rows) {
-  return sortRows(rows.filter(function (r) { return r.type !== 'error' && r.start !== null; }));
-}
-
-function rowsOfType(rows, type) {
-  return rows.filter(function (r) { return r.type === type; });
-}
-
-function firstOfType(rows, types) {
-  for (var i = 0; i < rows.length; i++) if (types.indexOf(rows[i].type) >= 0) return rows[i];
-  return null;
+  return sortRows(rows.filter(function (r) { return r.type !== 'error' && r.type !== 'comment' && r.start !== null; }));
 }
 
 // An instant inside a skipped day of a counted grid moves to the next boundary, so S never lands there.
@@ -1026,20 +1071,28 @@ function resolvedExcludeEnds(rows) {
   return ends;
 }
 
-function prepareRotation(input, index, holidays) {
+// frozen (DESIGN 5, run scope): the rotation is swept as it stands so links see its shifts, but nothing is
+// pruned, no slot is filled and the snapshot stays where it is; it is not written.
+function prepareRotation(input, index, holidays, frozen) {
   var validated = validateLedger(input.rows, input.name);
-  var rot = { name: input.name, index: index, rows: validated.rows, errors: validated.errors.slice(), problems: [], warnings: [] };
+  var rot = { name: input.name, index: index, frozen: frozen, rows: validated.rows, errors: validated.errors.slice(), problems: [], warnings: [] };
   if (rot.errors.length) return rot;
   var rows = rot.rows;
+  rows.forEach(function (r) {
+    if (r.type === 'comment' && r.start === null && r.startText !== '') {
+      rot.warnings.push({ start: null, message: 'comment row ' + r.rowIndex + ': unparseable start, treated as undated' });
+    }
+  });
   var timeline = new SettingsTimeline(rowsOfType(rows, 'set'), holidays);
   var previous = firstOfType(rows, ['snapshot']);
-  var S = input.snapshotAt === null || input.snapshotAt === undefined ? advance(rows, null, holidays) : input.snapshotAt;
-  S = raiseTo(raiseTo(S, previous ? previous.start : null), onCountedDay(timeline, rows[0].start));
+  var S = frozen || input.snapshotAt === null || input.snapshotAt === undefined ? advance(rows, null, holidays) : input.snapshotAt;
+  var first = firstOfType(rows, ['set']);
+  S = raiseTo(raiseTo(S, previous ? previous.start : null), onCountedDay(timeline, first.start));
   rot.timeline = timeline;
   rot.previousAt = previous ? previous.start : null;
   rot.previousWhat = previous ? previous.what : '';
   rot.S = S;
-  rot.kept = rows.filter(function (r) { return r.type !== 'snapshot' && !(r.type === 'shift' && !r.pinned && r.start > S); });
+  rot.kept = rows.filter(function (r) { return r.type !== 'snapshot' && !(!frozen && r.type === 'shift' && !r.pinned && r.start > S); });
 
   var shifts = rowsOfType(rot.kept, 'shift');
   var changes = timeline.gridChanges();
@@ -1055,9 +1108,11 @@ function prepareRotation(input, index, holidays) {
   var entries = shifts.map(function (s) {
     return { start: s.start, slotEnd: null, end: null, who: shiftAssignee(s), slot: false, row: s };
   });
-  uncoveredSpans(regenStart, rot.horizonEnd, claims).forEach(function (span) {
-    splitSlots(span[0], span[1], timeline, changes, entries);
-  });
+  if (!frozen) {
+    uncoveredSpans(regenStart, rot.horizonEnd, claims).forEach(function (span) {
+      splitSlots(span[0], span[1], timeline, changes, entries);
+    });
+  }
   entries.sort(function (a, b) { return a.start - b.start; });
   entries.forEach(function (e, i) {
     e.end = e.slot ? e.slotEnd : scoredEnd(e.row, entries[i + 1] ? entries[i + 1].start : null, timeline.gridAt(e.start));
@@ -1080,7 +1135,7 @@ function rotationItems(rot) {
   rot.roster.fromSnapshotWhat(rot.previousWhat);
   rot.precredited = new Set();
   rot.kept.forEach(function (row) {
-    if (row.type === 'shift') return;
+    if (row.type === 'shift' || row.type === 'comment') return;
     if (row.type === 'set') {
       if (afterPrevious(row.start)) push(row.start, 'row', { row: row });
       else rot.settings.apply(row);
@@ -1257,15 +1312,20 @@ function collectErrors(rots, list) {
   return out;
 }
 
+function writable(rots) {
+  return rots.filter(function (rot) { return !rot.frozen; });
+}
+
 // DESIGN 6: rows unchanged plus an error row above each offending row.
 function errorOutput(rots, links) {
   var errors = collectErrors(rots, 'errors').concat(links.errors);
   return {
-    rotations: rots.map(function (rot) {
-      return { name: rot.name, rows: sortRows(rot.rows.concat(rot.errors.map(errorRow))) };
+    rotations: writable(rots).map(function (rot) {
+      return { name: rot.name, rows: sortRows(rot.errors.map(errorRow).concat(rot.rows)) };
     }),
     links: { rows: links.rows, errors: links.errors },
     errors: errors,
+    regenerated: false,
     status: buildStatus([], [], errors),
   };
 }
@@ -1284,19 +1344,22 @@ function prepareLinks(rows, rots) {
   return { rows: parsed.rows, errors: errors, links: parsed.links, byName: byName };
 }
 
+// Script rows go in front of the kept rows so undated comments still attach to the next kept row below them.
 function rotationOutput(rot) {
-  var rows = rot.kept.concat([makeRow({ type: 'snapshot', start: rot.S, what: rot.snapshotWhat })]);
+  var rows = [makeRow({ type: 'snapshot', start: rot.S, what: rot.snapshotWhat })];
   rot.entries.forEach(function (e) { if (e.generated) rows.push(e.generated); });
-  return { name: rot.name, rows: sortRows(rows.concat(rot.problems.map(errorRow))) };
+  return { name: rot.name, rows: sortRows(rows.concat(rot.problems.map(errorRow), rot.kept)) };
 }
 
 // Pure regeneration of DESIGN 5.3 to 5.8 and 7.
-// input: { rotations: [{ name, rows, snapshotAt }], holidays: [dayIndex], links: Links row objects, now }.
+// input: { rotations: [{ name, rows, snapshotAt }], holidays: [dayIndex], links: Links row objects, now, only }.
 // now is optional and only dates the effective settings in the status; the ledgers never depend on it.
+// only: optional list of rotation names to regenerate; the others are swept frozen and not returned.
 // Output: { rotations: [{ name, rows }], links: { rows, errors }, errors, status }.
 function regenerate(input) {
   var holidays = new Set(input.holidays || []);
-  var rots = input.rotations.map(function (r, i) { return prepareRotation(r, i, holidays); });
+  var only = input.only || null;
+  var rots = input.rotations.map(function (r, i) { return prepareRotation(r, i, holidays, only !== null && only.indexOf(r.name) < 0); });
   var links = prepareLinks(input.links, rots);
   var hasErrors = function () { return rots.some(function (rot) { return rot.errors.length > 0; }); };
   if (hasErrors()) return errorOutput(rots, links);
@@ -1304,7 +1367,8 @@ function regenerate(input) {
   if (hasErrors()) return errorOutput(rots, links);
   var warnings = collectErrors(rots, 'warnings').concat(collectErrors(rots, 'problems'));
   return {
-    rotations: rots.map(rotationOutput),
+    rotations: writable(rots).map(rotationOutput),
+    regenerated: true,
     links: { rows: links.rows, errors: links.errors },
     errors: collectErrors(rots, 'problems').concat(links.errors),
     status: buildStatus(rots, warnings, links.errors, input.now),
@@ -1417,6 +1481,7 @@ function statusRows(status) {
     push([]);
     push(['tabs']);
     push(['rotations', status.tabs.rotations.join(', ')]);
+    push(['regenerated', status.tabs.regenerated.join(', ')]);
     push(['holidays', String(status.tabs.holidays)]);
     push(['links', String(status.tabs.links)]);
     push(['ignored', status.tabs.ignored.join(', ')]);
@@ -1500,12 +1565,14 @@ function validateLinkRow(row, rotationNames) {
 }
 
 // rows: #Links row objects. Returns { links: [{ kind, rotations, from, to }], errors, rows } where rows are the
-// kept rows plus an error row above each rejected one. Rejected rows are ignored; unlink closes matching open links.
+// kept rows plus an error row above each rejected one. Rejected rows are ignored; unlink closes matching open
+// links. Comments are kept and otherwise ignored.
 function parseLinks(rows, rotationNames) {
   var errors = [];
   var links = [];
-  var kept = sortRows(rows.filter(function (r) { return r.type !== 'error'; }));
+  var kept = sortRows(attachComments(rows.filter(function (r) { return r.type !== 'error'; })));
   kept.forEach(function (row) {
+    if (row.type === 'comment') return;
     var message = validateLinkRow(row, rotationNames);
     if (message === null) {
       var parsed = parseLinkArg(row.what);
@@ -1521,7 +1588,7 @@ function parseLinks(rows, rotationNames) {
     }
     if (message !== null) errors.push(rowError(row, message));
   });
-  return { links: links, errors: errors, rows: sortRows(kept.concat(errors.map(errorRow))) };
+  return { links: links, errors: errors, rows: sortRows(errors.map(errorRow).concat(kept)) };
 }
 
 // Sweep order at equal starts: rotations in link list order first, then the rest in tab order.
@@ -1572,11 +1639,10 @@ var COLUMN_NOTES = {
   date: 'YYYY-MM-DD, one holiday per row. Counted by rotations with skip_holidays=true.',
 };
 
-// Most recent Monday 09:00 at or before t.
+// Most recent Monday 00:00 at or before t.
 function recentMonday(t) {
   var day = dayIndex(t);
-  var monday = dayStart(day - (weekdayOfDay(day) + 6) % 7) + 9 * MINUTES_PER_HOUR;
-  return monday <= t ? monday : monday - MINUTES_PER_WEEK;
+  return dayStart(day - (weekdayOfDay(day) + 6) % 7);
 }
 
 // Whole days as Nd, otherwise the short chained form.
@@ -1623,18 +1689,19 @@ function gridFor(timeline, t) {
 // row and nPost rows from the tail on. rows: dated row objects at or after the timeline's first set row.
 function gridRows(rows, nPre, nPost, timeline) {
   var sorted = sortRows(rows);
-  if (!sorted.length) return sorted;
+  var dated = sorted.filter(function (r) { return r.start !== null; });
+  if (!dated.length) return sorted;
   var changes = timeline.gridChanges();
   var shifts = rowsOfType(sorted, 'shift');
   var claims = shifts.map(function (s, i) {
     return [s.start, claimEnd(s, shifts[i + 1] ? shifts[i + 1].start : null, timeline.gridAt(s.start), changes)];
   });
-  var first = sorted[0].start;
-  var lastStart = sorted[sorted.length - 1].start;
+  var first = dated[0].start;
+  var lastStart = dated[dated.length - 1].start;
   var claimsEnd = claims.length ? claims[claims.length - 1][1] : first;
   var regionEnd = Math.max(claimsEnd, lastStart);
 
-  var out = sorted.slice();
+  var out = [];
   var slots = [];
   uncoveredSpans(first, regionEnd, claims).forEach(function (span) { splitSlots(span[0], span[1], timeline, changes, slots); });
   slots.forEach(function (slot) { out.push(emptyShiftRow(slot.start)); });
@@ -1650,17 +1717,25 @@ function gridRows(rows, nPre, nPost, timeline) {
     out.push(emptyShiftRow(t));
     t = timeline.gridAt(t).next(t);
   }
-  return sortRows(out);
+  // New rows go in front so undated comments keep attaching to the selected row below them.
+  return sortRows(out.concat(sorted));
 }
 
-// An undated selection row may only be blank or carry type=shift and nothing else.
+// An undated selection row counts as an empty grid position when it is blank or carries type=shift and
+// nothing else; any other undated row is a comment that travels with the next dated row.
 function isTemplateShiftRow(cells) {
   return cells.every(function (c, i) { return i === 2 ? cellText(c).toLowerCase() === 'shift' : cellText(c) === ''; });
 }
 
+// A dated row with nothing but its start (and pin) is a grid position, not a comment.
+function hasOnlyStart(cells) {
+  return cells.every(function (c, i) { return i === 0 || i === 1 || cellText(c) === ''; });
+}
+
 // Fill Shifts Grid over a selection. selectedCells: the ledger columns of the selected rows; tabCells: every
 // row of the tab below the header, for the settings timeline; holidayTexts: #Holidays column A.
-// Returns { rows: cell arrays } or { error: message }.
+// Returns { rows: cell arrays } or { error: message }. Dated comments stay in place; undated comments
+// attach to the next dated row, trailing ones stay at the end.
 function fillShiftsGridCells(selectedCells, tabCells, holidayTexts) {
   var holidays = new Set();
   (holidayTexts || []).forEach(function (text) { var day = parseDay(text ?? ''); if (day !== null) holidays.add(day); });
@@ -1669,26 +1744,29 @@ function fillShiftsGridCells(selectedCells, tabCells, holidayTexts) {
     return { error: 'the tab needs a set row with period before the grid can be filled' };
   }
   var dated = [];
+  var comments = [];
   var pre = 0, post = 0;
   for (var i = 0; i < selectedCells.length; i++) {
     var cells = selectedCells[i];
     var startText = cellText(cells[1]);
+    var row = rowFromArray(cells, i + 1);
+    row.cells = cells.slice();
     if (startText === '') {
-      if (!isBlankRow(cells) && !isTemplateShiftRow(cells)) return { error: 'selected row ' + (i + 1) + ' has content but no start' };
-      if (dated.length) post++; else pre++;
+      if (isBlankRow(cells) || isTemplateShiftRow(cells)) { if (dated.length) post++; else pre++; continue; }
+      if (row.type !== 'comment') return { error: 'selected row ' + (i + 1) + ' has content but no start' };
+      comments.push(row);
       continue;
     }
-    var row = rowFromArray(cells, i + 1);
     if (row.start === null) return { error: 'selected row ' + (i + 1) + ': bad start "' + startText + '"' };
     if (row.start < timeline.entries[0].start) return { error: 'selected row ' + (i + 1) + ' is dated before the first set row' };
-    if (row.type === '') row.type = 'shift';
-    row.cells = cells.slice();
-    row.cells[2] = row.type;
-    dated.push(row);
+    if (row.type === 'comment' && hasOnlyStart(cells)) row.type = 'shift';
+    if (row.type !== 'comment') row.cells[2] = row.type;
+    dated = dated.concat(comments, [row]);
+    comments = [];
     post = 0;
   }
   if (!dated.length) return { error: 'the selection has no dated row to start from' };
-  var out = gridRows(dated, pre, post, timeline);
+  var out = gridRows(dated, pre, post, timeline).concat(comments);
   if (out[0].start < timeline.entries[0].start) return { error: pre + ' empty row(s) above would fall before the first set row' };
   return { rows: out.map(function (r) { return r.cells || rowToArray(r); }) };
 }
@@ -1711,12 +1789,15 @@ function rowsFromCells(cells) {
 }
 
 // Read, advance, regenerate and optionally write back through a Storage (DESIGN 8).
-// Returns { ledgers, links, errors, status }; links is null when there is no #Links tab.
-// Bad now or holiday cells stop the run with the ledgers unchanged.
+// options: write, mode, rotations (names to regenerate; the others are read but not written).
+// Returns { ledgers, links, errors, status }; ledgers holds only the regenerated ones and links is null when
+// there is no #Links tab. A bad now, holiday cell or rotation name stops the run with nothing written.
 function runStorage(storage, nowText, options) {
   options = options || {};
   var errors = [];
   var ledgers = storage.readLedgers();
+  var only = options.rotations || null;
+  (only || []).forEach(function (name) { if (!(name in ledgers)) errors.push('unknown rotation "' + name + '"'); });
   var now = parseDateTime(nowText ?? '');
   if (now === null) errors.push('bad now "' + (nowText ?? '') + '"');
   var holidays = [];
@@ -1735,15 +1816,18 @@ function runStorage(storage, nowText, options) {
     return { name: name, rows: rows, snapshotAt: advance(rows, now, new Set(holidays)) };
   });
   var linkRows = rowsFromCells(linkCells);
-  var linkCount = linkRows.filter(function (r) { return r.type !== 'error'; }).length;
-  var result = regenerate({ rotations: rotations, holidays: holidays, links: linkRows, now: now });
+  var linkCount = linkRows.filter(function (r) { return r.type !== 'error' && r.type !== 'comment'; }).length;
+  var result = regenerate({ rotations: rotations, holidays: holidays, links: linkRows, now: now, only: only });
   var out = {};
   result.rotations.forEach(function (r) { out[r.name] = r.rows.map(rowToArray); });
   var links = linkCells.length ? result.links.rows.map(rowToArray) : null;
   result.errors.forEach(function (e) { errors.push(describeError(e)); });
   result.status.now = nowText;
   result.status.mode = options.mode || (options.write ? 'run' : 'dry run');
-  result.status.tabs = { rotations: Object.keys(ledgers), holidays: holidays.length, links: linkCount, ignored: ignored };
+  result.status.tabs = {
+    rotations: Object.keys(ledgers), regenerated: result.regenerated ? Object.keys(out) : [],
+    holidays: holidays.length, links: linkCount, ignored: ignored,
+  };
   if (options.write) {
     Object.keys(out).forEach(function (name) { storage.writeLedger(name, out[name]); });
     if (links) storage.writeLinks(links);
@@ -2015,7 +2099,7 @@ function ensureTab(ss, name, header) {
   return sheet;
 }
 
-// Rotation template into an empty tab: header, set row dated the most recent Monday 09:00, sample team.
+// Rotation template into an empty tab: header, set row dated the most recent Monday 00:00, sample team.
 function writeRotationTemplate(sheet, storage) {
   var rows = templateRows(recentMonday(parseDateTime(storage.nowText)));
   var range = sheet.getRange(1, 1, rows.length, LEDGER_HEADER.length);

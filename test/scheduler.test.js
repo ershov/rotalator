@@ -437,6 +437,105 @@ test('bare anchor realigns the grid at the set row start', () => {
   assert.deepEqual(cellsOf(run(cellsOf(out), '2026-10-05T10:00')), cellsOf(out));
 });
 
+test('comments are kept in place, ignored by replay and generation, and survive a second run', () => {
+  const out = run([
+    R('', '', '', 'header comment'),
+    SET, TEAM,
+    R('', '2026-10-07T00:00', '', 'dated comment'),
+    R('', '', '', 'above the exclude'),
+    R('', '2026-10-12T09:00', 'exclude', 'bob', '', '1w'),
+    R('', 'someday', '', 'bad start is undated'),
+    R('', '', '', 'trailing'),
+  ], '2026-10-05T10:00');
+  assert.deepEqual(plain(out.errors), []);
+  assert.deepEqual(shifts(out).map((s) => s[1]), ['alice', 'carol', 'bob', 'carol', 'alice']);
+  const cells = cellsOf(out);
+  assert.deepEqual(cells.map((c) => [c[1], c[2], c[3]]), [
+    ['', '', 'header comment'],
+    ['2026-10-05T09:00', 'set', 'period=1w, horizon=5w'],
+    ['2026-10-05T09:00', 'snapshot', ''],
+    ['2026-10-05T09:00', 'team', 'alice, bob, carol'],
+    ['2026-10-05T09:00', 'shift', 'alice'],
+    ['2026-10-07T00:00', '', 'dated comment'],
+    ['', '', 'above the exclude'],
+    ['2026-10-12T09:00', 'exclude', 'bob'],
+    ['2026-10-12T09:00', 'shift', 'carol'],
+    ['2026-10-19T09:00', 'shift', 'bob'],
+    ['2026-10-26T09:00', 'shift', 'carol'],
+    ['2026-11-02T09:00', 'shift', 'alice'],
+    ['someday', '', 'bad start is undated'],
+    ['', '', 'trailing'],
+  ]);
+  assert.deepEqual(cellsOf(run(cells, '2026-10-05T10:00')), cells);
+  assert.deepEqual(cellsOf(run(cells, '2026-10-13T10:00')).map((c) => c[3]).filter((w) => /comment|above|trailing|undated/.test(w)),
+    ['header comment', 'dated comment', 'above the exclude', 'bad start is undated', 'trailing']);
+  assert.deepEqual(cellsOf(run(cells, '2026-10-13T10:00')).slice(-2).map((c) => c[3]), ['bad start is undated', 'trailing']);
+  assert.deepEqual(plain(out.status.shifts.length), 5);
+  assert.deepEqual(plain(out.status.warnings.map((w) => w.message)), ['comment row 8: unparseable start, treated as undated']);
+});
+
+test('comment above a generated shift stays above that instant across runs; a comment-only ledger is empty', () => {
+  const first = run([SET, TEAM], '2026-10-05T10:00');
+  const cells = cellsOf(first);
+  const at = cells.findIndex((c) => c[1] === '2026-10-19T09:00');
+  cells.splice(at, 0, R('', '', '', 'swap this one'));
+  cells.push(R('x', '2026-11-02T09:00', 'shift', 'bob', '', '', 'pinned'));
+  cells.push(R('', '', '', 'last words'));
+  const out = run(cells, '2026-10-05T10:00');
+  const written = cellsOf(out);
+  // The 10-19 shift is pruned and regenerated at the same instant; the comment keeps its place above it.
+  const idx = written.findIndex((c) => c[3] === 'swap this one');
+  assert.deepEqual(written[idx + 1].slice(1, 3), ['2026-10-19T09:00', 'shift']);
+  assert.equal(written[written.length - 1][3], 'last words');
+  assert.deepEqual(cellsOf(run(written, '2026-10-05T10:00')), written);
+  const later = cellsOf(run(written, '2026-10-13T10:00'));
+  assert.deepEqual(later[later.findIndex((c) => c[3] === 'swap this one') + 1].slice(1, 3), ['2026-10-19T09:00', 'shift']);
+  // A comment above the snapshot row keeps that instant and slot, so it ends above the row that followed the snapshot.
+  const snapAt = written.findIndex((c) => c[2] === 'snapshot');
+  written.splice(snapAt, 0, R('', '', '', 'above the snapshot'));
+  const moved = cellsOf(run(written, '2026-10-13T10:00'));
+  const s = moved.findIndex((c) => c[3] === 'above the snapshot');
+  assert.deepEqual(moved[s + 1].slice(1, 4), ['2026-10-05T09:00', 'team', 'alice, bob, carol']);
+  assert.equal(moved.findIndex((c) => c[2] === 'snapshot') > s, true);
+  const empty = run([R('', '', '', 'nothing else')], '2026-10-05T10:00');
+  assert.deepEqual(plain(empty.errors.map((e) => e.message)), ['r: ledger is empty']);
+});
+
+test('only: unlisted rotations are swept frozen, not returned, and their shifts still constrain links', () => {
+  const primary = { name: 'primary', rows: rows([SET, TEAM,
+    R('', '2026-10-05T09:00', 'shift', 'alice'), R('', '2026-10-12T09:00', 'shift', 'alice'), R('', '2026-10-19T09:00', 'shift', 'alice'),
+  ]), snapshotAt: MON };
+  const secondary = { name: 'secondary', rows: rows([SET, TEAM]), snapshotAt: MON };
+  const link = rows([R('', '2026-10-05T09:00', 'link', 'distinct: primary, secondary')]);
+  const full = U.regenerate({ rotations: [primary, secondary], holidays: [], links: link });
+  assert.deepEqual(plain(full.rotations.map((r) => r.name)), ['primary', 'secondary']);
+  // A full run reassigns primary's unpinned future shifts (alice, bob, carol); a scoped run keeps alice on all three.
+  assert.deepEqual(shifts(full, 0).map((s) => s[1]), ['alice', 'bob', 'carol', 'alice', 'bob']);
+  const scoped = U.regenerate({ rotations: [primary, secondary], holidays: [], links: link, only: ['secondary'] });
+  assert.deepEqual(plain(scoped.errors), []);
+  assert.deepEqual(plain(scoped.rotations.map((r) => r.name)), ['secondary']);
+  // alice holds primary for three weeks (frozen, no slots beyond 10-19), so secondary avoids her until 10-26.
+  assert.deepEqual(shifts(scoped, 0).map((s) => s[1]), ['bob', 'carol', 'bob', 'alice', 'carol']);
+  assert.deepEqual(plain(scoped.status.rotations.map((r) => r.name)), ['primary', 'secondary']);
+  assert.equal(scoped.status.rotations[0].snapshotAt, MON);
+  assert.deepEqual(plain(scoped.status.shifts.filter((s) => s.rotation === 'primary').map((s) => s.what)), ['alice', 'alice', 'alice']);
+  const unscoped = U.regenerate({ rotations: [primary, secondary], holidays: [], links: link, only: ['primary', 'secondary'] });
+  assert.deepEqual(cellsOf(unscoped, 0), cellsOf(full, 0));
+});
+
+test('only: a frozen rotation keeps its snapshot and validation errors there still block the run', () => {
+  const first = run([SET, TEAM], '2026-10-05T10:00');
+  const frozenRows = rows(cellsOf(first));
+  const other = { name: 'b', rows: rows([SET, R('', '2026-10-05T09:00', 'team', 'dave')]), snapshotAt: dt('2026-10-12T09:00') };
+  const out = U.regenerate({ rotations: [{ name: 'a', rows: frozenRows, snapshotAt: dt('2026-10-12T09:00') }, other], holidays: [], links: [], only: ['b'] });
+  assert.equal(out.status.rotations[0].snapshotAt, MON);
+  assert.deepEqual(plain(out.rotations.map((r) => r.name)), ['b']);
+  const broken = U.regenerate({ rotations: [{ name: 'a', rows: rows([SET, TEAM, R('', '2026-10-12T09:00', 'join', 'alice')]), snapshotAt: MON }, other], holidays: [], links: [], only: ['b'] });
+  assert.deepEqual(plain(broken.errors.map((e) => [e.rotation, e.message])), [['a', 'join: "alice" is already a member']]);
+  assert.deepEqual(plain(broken.rotations.map((r) => r.name)), ['b']);
+  assert.deepEqual(cellsOf(broken, 0), [SET, R('', '2026-10-05T09:00', 'team', 'dave')]);
+});
+
 test('score rows and skip settings affect credit', () => {
   const out = run([
     R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w, skip_weekends=true, skip_holidays=true'),

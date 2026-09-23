@@ -1,9 +1,10 @@
 Rotalator  dry run  2026-09-08T10:00
 
 tabs
-rotations  primary, secondary
-holidays   2
-links      1
+rotations    primary, secondary
+regenerated  primary, secondary
+holidays     2
+links        1
 ignored
 
 rotation  primary
