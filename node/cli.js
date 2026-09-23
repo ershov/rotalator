@@ -39,7 +39,7 @@ function textTable(rows) {
 
 function statusText(status) {
   const U = load();
-  return textTable(U.statusRows(status)) + '\n' + textTable(U.shiftsRows(status.shifts));
+  return textTable(U.statusRows(status).rows) + '\n' + textTable(U.shiftsRows(status).rows);
 }
 
 function runDir(dir, nowText, options = {}) {

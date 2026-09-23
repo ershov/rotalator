@@ -344,7 +344,7 @@ function writable(rots) {
 }
 
 // DESIGN 6: rows unchanged plus an error row above each offending row.
-function errorOutput(rots, links) {
+function errorOutput(rots, links, now) {
   var errors = collectErrors(rots, 'errors').concat(links.errors);
   return {
     rotations: writable(rots).map(function (rot) {
@@ -353,7 +353,7 @@ function errorOutput(rots, links) {
     links: { rows: links.rows, errors: links.errors },
     errors: errors,
     regenerated: false,
-    status: buildStatus([], [], errors),
+    status: buildStatus([], [], errors, now),
   };
 }
 
@@ -389,9 +389,9 @@ function regenerate(input) {
   var rots = input.rotations.map(function (r, i) { return prepareRotation(r, i, holidays, only !== null && only.indexOf(r.name) < 0); });
   var links = prepareLinks(input.links, rots);
   var hasErrors = function () { return rots.some(function (rot) { return rot.errors.length > 0; }); };
-  if (hasErrors()) return errorOutput(rots, links);
+  if (hasErrors()) return errorOutput(rots, links, input.now);
   sweep(mergeItems(rots), rots, holidays, links);
-  if (hasErrors()) return errorOutput(rots, links);
+  if (hasErrors()) return errorOutput(rots, links, input.now);
   var warnings = collectErrors(rots, 'warnings').concat(collectErrors(rots, 'problems'));
   return {
     rotations: writable(rots).map(rotationOutput),

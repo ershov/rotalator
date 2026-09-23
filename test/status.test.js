@@ -6,6 +6,7 @@ const { runStorage, statusText } = require('../node/cli.js');
 const { MemoryStorage } = require('../node/storage.js');
 
 const dt = (s) => U.parseDateTime(s);
+const trim = (rows) => structuredClone(rows).map((r) => { while (r.length && r[r.length - 1] === '') r.pop(); return r; });
 const R = (pin, start, type, what, end, duration, note) => [pin, start, type, what, end ?? '', duration ?? '', note ?? ''];
 
 // Monday 2026-10-05: bob excluded for ten days from the snapshot, carol pins the third week, dave alone in secondary.
@@ -32,6 +33,9 @@ test('status: scores, last and next shift, active exclusions, instants', () => {
   const [primary, secondary] = status.rotations;
   assert.equal(primary.snapshotAt, dt('2026-10-05T09:00'));
   assert.equal(primary.horizonEnd, dt('2026-10-26T09:00'));
+  assert.deepEqual(primary.current, { who: 'alice', start: dt('2026-10-05T09:00'), end: dt('2026-10-12T09:00') });
+  assert.deepEqual(primary.next, { who: 'carol', start: dt('2026-10-12T09:00'), end: dt('2026-10-19T09:00') });
+  assert.equal(status.at, dt(NOW));
   assert.deepEqual(primary.roster, [
     { name: 'alice', score: null, projected: 7, lastShift: dt('2026-10-05T09:00'), nextShift: null, exclusions: [] },
     { name: 'bob', score: null, projected: 0, lastShift: null, nextShift: null, exclusions: [{ from: dt('2026-10-05T09:00'), to: dt('2026-10-15T09:00') }] },
@@ -46,7 +50,7 @@ test('status: scores, last and next shift, active exclusions, instants', () => {
 
 test('status: shifts view lists every shift by start then rotation order', () => {
   const { status } = runStorage(new MemoryStorage({ ledgers }), NOW);
-  assert.deepEqual(status.shifts.map((s) => [U.formatDateTime(s.start), U.formatDateTime(s.end), s.rotation, s.what, s.pinned, s.note]), [
+  assert.deepEqual(status.shifts.map((s) => [U.formatDateTime(s.start), U.formatDateTime(s.end), s.rotation, s.who, s.pinned, s.note]), [
     ['2026-10-05T09:00', '2026-10-12T09:00', 'primary', 'alice', false, ''],
     ['2026-10-05T09:00', '2026-10-12T09:00', 'secondary', 'dave', false, ''],
     ['2026-10-12T09:00', '2026-10-19T09:00', 'primary', 'carol', false, ''],
@@ -56,43 +60,64 @@ test('status: shifts view lists every shift by start then rotation order', () =>
   ]);
 });
 
-test('statusRows and shiftsRows: fixed width text tables', () => {
+test('statusRows and shiftsRows: rows, header and divider metadata', () => {
   const { status } = runStorage(new MemoryStorage({ ledgers, ignored: ['Notes', '#old'] }), NOW);
-  const rows = structuredClone(U.statusRows(status));
-  assert.ok(rows.every((r) => r.length === 6));
-  assert.deepEqual(rows[0], ['Rotalator', 'dry run', NOW, '', '', '']);
-  assert.deepEqual(rows.slice(1, 8), [
-    ['', '', '', '', '', ''],
-    ['tabs', '', '', '', '', ''],
-    ['rotations', 'primary, secondary', '', '', '', ''],
-    ['regenerated', 'primary, secondary', '', '', '', ''],
-    ['holidays', '0', '', '', '', ''],
-    ['links', '0', '', '', '', ''],
-    ['ignored', 'Notes, #old', '', '', '', ''],
+  const out = U.statusRows(status);
+  const rows = trim(out.rows);
+  assert.ok(structuredClone(out.rows).every((r) => r.length === 8));
+  assert.deepEqual(structuredClone(out.dividerRows), []);
+  assert.deepEqual(rows.slice(0, 8), [
+    ['Rotalator', 'dry run', NOW],
+    [],
+    ['tabs'],
+    ['rotations', 'primary, secondary'],
+    ['regenerated', 'primary, secondary'],
+    ['holidays', '0'],
+    ['links', '0'],
+    ['ignored', 'Notes, #old'],
   ]);
-  assert.deepEqual(rows.slice(8, 13), [
-    ['', '', '', '', '', ''],
-    ['rotation', 'primary', '', '', '', ''],
-    ['snapshot', '2026-10-05T09:00', '', '', '', ''],
-    ['horizon', '2026-10-26T09:00', '', '', '', ''],
-    ['', '', '', '', '', ''],
+  assert.deepEqual(rows.slice(8, 16), [
+    [],
+    ['rotation', 'primary'],
+    ['snapshot', '2026-10-05T09:00'],
+    ['horizon', '2026-10-26T09:00'],
+    ['current', 'alice', 'until 2026-10-12T09:00'],
+    ['next', 'carol', 'from 2026-10-12T09:00'],
+    [],
+    ['', 'member', 'current', 'score', 'projected', 'last shift', 'next shift', 'exclusions'],
   ]);
-  assert.deepEqual(rows[13], ['member', 'score', 'projected', 'last shift', 'next shift', 'exclusions']);
-  assert.deepEqual(rows[15], ['bob', '', '0.00', '', '', '2026-10-05T09:00 to 2026-10-15T09:00']);
-  assert.deepEqual(rows.slice(17, 21), [
-    ['', '', '', '', '', ''],
-    ['settings', 'as of 2026-10-05T10:00', '', '', '', ''],
-    ['period', '1w', '', '', '', ''],
-    ['anchor', '2026-10-05T09:00', '', '', '', ''],
+  assert.deepEqual(rows[16], ['', 'alice', 'x', '', '7.00', '2026-10-05T09:00']);
+  assert.deepEqual(rows[17], ['', 'bob', '', '', '0.00', '', '', '2026-10-05T09:00 to 2026-10-15T09:00']);
+  assert.deepEqual(rows.slice(19, 23), [
+    [],
+    ['', 'settings', 'as of 2026-10-05T10:00'],
+    ['', 'period', '1w'],
+    ['', 'anchor', '2026-10-05T09:00'],
   ]);
+  const headers = structuredClone(out.headerRows);
+  assert.deepEqual(headers.slice(0, 5), [0, 2, 9, 15, 20]);
+  assert.ok(headers.every((i) => rows[i].some((c) => c !== '')));
+  assert.equal(headers.length, 2 + 2 * 3);
   assert.ok(!rows.some((r) => r[0] === 'warnings'), 'no warnings block without warnings');
   assert.ok(!rows.some((r) => r[0] === 'errors'), 'no errors block without errors');
   assert.equal(U.formatExclusions([{ from: dt('2026-10-05T09:00'), to: null }]), '2026-10-05T09:00 to open');
-  const shifts = structuredClone(U.shiftsRows(status.shifts));
-  assert.deepEqual(shifts[0], ['start', 'end', 'rotation', 'what', 'pinned', 'note']);
-  assert.deepEqual(shifts[5], ['2026-10-19T09:00', '2026-10-26T09:00', 'primary', 'carol', 'yes', 'volunteered']);
-  assert.equal(shifts.length, 7);
+
+  const shifts = U.shiftsRows(status);
+  const srows = structuredClone(shifts.rows);
+  assert.deepEqual(srows[0], ['pin', 'start', 'end', 'rotation', 'who', 'note']);
+  assert.deepEqual(srows[1], ['', '2026-10-05T09:00', '2026-10-12T09:00', 'primary', 'alice', '']);
+  assert.deepEqual(srows[3], ['', NOW, '', 'now', '', '']);
+  assert.deepEqual(srows[6], ['x', '2026-10-19T09:00', '2026-10-26T09:00', 'primary', 'carol', 'volunteered']);
+  assert.equal(srows.length, 8);
+  assert.deepEqual(structuredClone(shifts.headerRows), [0]);
+  assert.deepEqual(structuredClone(shifts.dividerRows), [3]);
   assert.match(statusText(status), /^Rotalator {2}dry run +2026-10-05T10:00\n/);
+
+  const noNow = U.regenerate({ rotations: [{ name: 'p', rows: U.rowsFromCells(ledgers.primary), snapshotAt: null }], holidays: [], links: [] });
+  assert.equal(noNow.status.at, null);
+  const bare = U.shiftsRows(noNow.status);
+  assert.deepEqual(structuredClone(bare.dividerRows), []);
+  assert.equal(structuredClone(bare.rows).length, 4);
 });
 
 test('status: effective settings at now, every key, note on a later set row', () => {
@@ -115,8 +140,8 @@ test('status: effective settings at now, every key, note on a later set row', ()
     { key: 'baseline', value: 'median' },
     { key: 'precredit', value: 'auto' },
   ]);
-  const rows = structuredClone(U.statusRows(runStorage(new MemoryStorage({ ledgers: withLater }), NOW).status));
-  assert.deepEqual(rows.find((r) => r[0] === 'note'), ['note', 'a set row at 2026-10-19T09:00 changes these values', '', '', '', '']);
+  const rows = trim(U.statusRows(runStorage(new MemoryStorage({ ledgers: withLater }), NOW).status).rows);
+  assert.deepEqual(rows.find((r) => r[1] === 'note'), ['', 'note', 'a set row at 2026-10-19T09:00 changes these values']);
 
   const after = runStorage(new MemoryStorage({ ledgers: withLater }), '2026-10-20T10:00').status.rotations[0].settings;
   assert.equal(after.nextSetAt, null);
@@ -139,10 +164,12 @@ test('status: warnings block only when there are warnings', () => {
   ] };
   const { status } = runStorage(new MemoryStorage({ ledgers: crowded }), NOW);
   assert.ok(status.warnings.length > 0);
-  const rows = structuredClone(U.statusRows(status));
+  const out = U.statusRows(status);
+  const rows = trim(out.rows);
   const i = rows.findIndex((r) => r[0] === 'warnings');
-  assert.deepEqual(rows[i - 1], ['', '', '', '', '', '']);
-  assert.deepEqual(rows[i + 1], ['rotation', 'start', 'message', '', '', '']);
+  assert.deepEqual(rows[i - 1], []);
+  assert.deepEqual(rows[i + 1], ['rotation', 'start', 'message']);
+  assert.ok(structuredClone(out.headerRows).includes(i) && structuredClone(out.headerRows).includes(i + 1));
   assert.deepEqual(rows[i + 2].slice(0, 3), ['primary', '2026-10-19T09:00', 'min_distance relaxed to 1']);
 });
 
@@ -155,11 +182,11 @@ test('status on validation error: errors block, no rotations, no shifts', () => 
   assert.deepEqual(status.rotations, []);
   assert.deepEqual(status.shifts, []);
   assert.deepEqual(status.errors.map((e) => [e.rotation, e.rowIndex, e.message]), [['primary', 6, 'unknown type "holiday"']]);
-  const rows = structuredClone(U.statusRows(status));
+  const rows = trim(U.statusRows(status).rows);
   assert.deepEqual(rows.slice(-3), [
-    ['errors', '', '', '', '', ''],
-    ['rotation', 'where', 'message', '', '', ''],
-    ['primary', 'row 6', 'unknown type "holiday"', '', '', ''],
+    ['errors'],
+    ['rotation', 'where', 'message'],
+    ['primary', 'row 6', 'unknown type "holiday"'],
   ]);
-  assert.deepEqual(structuredClone(U.shiftsRows(status.shifts)), [['start', 'end', 'rotation', 'what', 'pinned', 'note']]);
+  assert.deepEqual(structuredClone(U.shiftsRows(status).rows), [['pin', 'start', 'end', 'rotation', 'who', 'note'], ['', NOW, '', 'now', '', '']]);
 });

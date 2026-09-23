@@ -518,7 +518,7 @@ test('only: unlisted rotations are swept frozen, not returned, and their shifts 
   assert.deepEqual(shifts(scoped, 0).map((s) => s[1]), ['bob', 'carol', 'bob', 'alice', 'carol']);
   assert.deepEqual(plain(scoped.status.rotations.map((r) => r.name)), ['primary', 'secondary']);
   assert.equal(scoped.status.rotations[0].snapshotAt, MON);
-  assert.deepEqual(plain(scoped.status.shifts.filter((s) => s.rotation === 'primary').map((s) => s.what)), ['alice', 'alice', 'alice']);
+  assert.deepEqual(plain(scoped.status.shifts.filter((s) => s.rotation === 'primary').map((s) => s.who)), ['alice', 'alice', 'alice']);
   const unscoped = U.regenerate({ rotations: [primary, secondary], holidays: [], links: link, only: ['primary', 'secondary'] });
   assert.deepEqual(cellsOf(unscoped, 0), cellsOf(full, 0));
 });

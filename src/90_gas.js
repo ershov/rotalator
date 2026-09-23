@@ -9,7 +9,7 @@ var TAB_COLOR_EDITABLE = '#4285f4';
 var DEFAULT_ROTATION_TAB = 'On-Call';
 var LEDGER_COLUMN_WIDTHS = { pin: 40, start: 150, type: 80, what: 320, end: 150, duration: 80, note: 320 };
 var HOLIDAYS_COLUMN_WIDTHS = { date: 110, note: 320 };
-var SHIFTS_COLUMN_WIDTHS = { start: 150, end: 150, rotation: 120, what: 120, pinned: 60, note: 320 };
+var SHIFTS_COLUMN_WIDTHS = { pin: 40, start: 150, end: 150, rotation: 120, who: 120, note: 320 };
 
 // Storage interface of DESIGN 8 over the active spreadsheet. With preview set, ledgers are written to
 // '#Preview <rotation>' tabs instead of the ledger tabs. Ledgers are written as plain text only.
@@ -137,8 +137,8 @@ class SheetsStorage {
 
   // #Status and #All shifts tabs, rewritten in full from the status data (DESIGN 5.8).
   writeStatus(data) {
-    this.writeTable(STATUS_TAB, statusRows(data));
-    this.writeTable(ALL_SHIFTS_TAB, shiftsRows(data.shifts));
+    this.writeTable(STATUS_TAB, statusRows(data).rows);
+    this.writeTable(ALL_SHIFTS_TAB, shiftsRows(data).rows);
   }
 }
 

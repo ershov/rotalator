@@ -403,16 +403,27 @@ rotations. Each rotation also carries its effective settings at `now`: every
 key of 3.5 with its value from the settings timeline (`anchor` as a datetime,
 durations in short form, booleans as `true`/`false`, defaults for keys never
 set) and the start of the next `set` row after `now`, if any, since later
-rows change the values from there. `now` reaches `regenerate` as an optional
-input used only for this block; the ledgers never depend on it. The `#Status`
-tab is this data as text: a title line, the tabs block, then per rotation
-`rotation`, `snapshot` and `horizon` key/value rows, the member table, and a
-`settings` block of `key | value` rows with a `note` row when a later `set`
-row exists. A warnings table follows only when there are warnings, an errors
-table only when there are errors. The `#All shifts` tab lists every shift of
-every rotation with `start`, `end` (scored end), rotation, `what`, pinned and
-note, sorted by `start` then rotation order. Both tabs are rewritten in full
-on every run, including dry runs.
+rows change the values from there, plus the current shift (the entry covering
+`now`) and the next one (first start after `now`). `now` reaches
+`regenerate` as an optional input used only for status; the ledgers never
+depend on it, and `S` stands in when it is absent. The `#Status` tab is this
+data as text: a title line, the tabs block, then per rotation `rotation`,
+`snapshot`, `horizon`, `current | <member> | until <end>` and `next |
+<member> | from <start>` key/value rows in column A, the member table
+indented to column B (`member`, `current` with `x` for the member on call,
+`score`, `projected`, `last shift`, `next shift`, `exclusions`), and an
+indented `settings` block of `key | value` rows with a `note` row when a
+later `set` row exists. A warnings table follows only when there are
+warnings, an errors table only when there are errors. The `#All shifts` tab
+has the columns `pin | start | end | rotation | who | note`: `x` in `pin` for
+pinned shifts, `end` the scored end, every shift of every rotation sorted by
+`start` then rotation order, and a divider row between past and future
+shifts with `start` = `now` and `now` in the rotation cell (omitted when
+`now` is unknown). `statusRows` and `shiftsRows` return `{ rows, headerRows,
+dividerRows }`: the row indexes of the title, block and table header rows
+and of the divider, so adapters format them without knowing the layout while
+the CLI prints rows only. Both tabs are rewritten in full on every run,
+including dry runs.
 
 ### 5.9 Properties
 
