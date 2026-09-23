@@ -40,7 +40,7 @@ function runStorage(storage, nowText, options) {
   });
   var linkRows = rowsFromCells(linkCells);
   var linkCount = linkRows.filter(function (r) { return r.type !== 'error'; }).length;
-  var result = regenerate({ rotations: rotations, holidays: holidays, links: linkRows });
+  var result = regenerate({ rotations: rotations, holidays: holidays, links: linkRows, now: now });
   var out = {};
   result.rotations.forEach(function (r) { out[r.name] = r.rows.map(rowToArray); });
   var links = linkCells.length ? result.links.rows.map(rowToArray) : null;

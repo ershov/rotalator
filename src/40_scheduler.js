@@ -372,7 +372,8 @@ function rotationOutput(rot) {
 }
 
 // Pure regeneration of DESIGN 5.3 to 5.8 and 7.
-// input: { rotations: [{ name, rows, snapshotAt }], holidays: [dayIndex], links: Links row objects }.
+// input: { rotations: [{ name, rows, snapshotAt }], holidays: [dayIndex], links: Links row objects, now }.
+// now is optional and only dates the effective settings in the status; the ledgers never depend on it.
 // Output: { rotations: [{ name, rows }], links: { rows, errors }, errors, status }.
 function regenerate(input) {
   var holidays = new Set(input.holidays || []);
@@ -387,6 +388,6 @@ function regenerate(input) {
     rotations: rots.map(rotationOutput),
     links: { rows: links.rows, errors: links.errors },
     errors: collectErrors(rots, 'problems').concat(links.errors),
-    status: buildStatus(rots, warnings, links.errors),
+    status: buildStatus(rots, warnings, links.errors, input.now),
   };
 }

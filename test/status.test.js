@@ -69,17 +69,79 @@ test('statusRows and shiftsRows: fixed width text tables', () => {
     ['links', '0', '', '', '', ''],
     ['ignored', 'Notes, #old', '', '', '', ''],
   ]);
-  assert.deepEqual(rows[8], ['rotation', 'primary', 'snapshot', '2026-10-05T09:00', 'horizon', '2026-10-26T09:00']);
-  assert.deepEqual(rows[9], ['member', 'score', 'projected', 'last shift', 'next shift', 'exclusions']);
-  assert.deepEqual(rows[11], ['bob', '', '0.00', '', '', '2026-10-05T09:00 to 2026-10-15T09:00']);
-  assert.deepEqual(rows[rows.length - 2], ['warnings', '', '', '', '', '']);
-  assert.deepEqual(rows[rows.length - 1], ['rotation', 'start', 'message', '', '', '']);
+  assert.deepEqual(rows.slice(8, 12), [
+    ['rotation', 'primary', '', '', '', ''],
+    ['snapshot', '2026-10-05T09:00', '', '', '', ''],
+    ['horizon', '2026-10-26T09:00', '', '', '', ''],
+    ['', '', '', '', '', ''],
+  ]);
+  assert.deepEqual(rows[12], ['member', 'score', 'projected', 'last shift', 'next shift', 'exclusions']);
+  assert.deepEqual(rows[14], ['bob', '', '0.00', '', '', '2026-10-05T09:00 to 2026-10-15T09:00']);
+  assert.deepEqual(rows.slice(16, 20), [
+    ['', '', '', '', '', ''],
+    ['settings', 'as of 2026-10-05T10:00', '', '', '', ''],
+    ['period', '1w', '', '', '', ''],
+    ['anchor', '2026-10-05T09:00', '', '', '', ''],
+  ]);
+  assert.ok(!rows.some((r) => r[0] === 'warnings'), 'no warnings block without warnings');
+  assert.ok(!rows.some((r) => r[0] === 'errors'), 'no errors block without errors');
   assert.equal(U.formatExclusions([{ from: dt('2026-10-05T09:00'), to: null }]), '2026-10-05T09:00 to open');
   const shifts = structuredClone(U.shiftsRows(status.shifts));
   assert.deepEqual(shifts[0], ['start', 'end', 'rotation', 'what', 'pinned', 'note']);
   assert.deepEqual(shifts[5], ['2026-10-19T09:00', '2026-10-26T09:00', 'primary', 'carol', 'yes', 'volunteered']);
   assert.equal(shifts.length, 7);
   assert.match(statusText(status), /^Rotalator {2}dry run +2026-10-05T10:00\n/);
+});
+
+test('status: effective settings at now, every key, note on a later set row', () => {
+  const withLater = structuredClone(ledgers);
+  withLater.primary.push(R('', '2026-10-19T09:00', 'set', 'tolerance=7, skip_weekends=true, anchor'));
+  const before = runStorage(new MemoryStorage({ ledgers: withLater }), NOW).status.rotations[0].settings;
+  assert.equal(before.at, dt(NOW));
+  assert.equal(before.nextSetAt, dt('2026-10-19T09:00'));
+  assert.deepEqual(before.values, [
+    { key: 'period', value: '1w' },
+    { key: 'anchor', value: '2026-10-05T09:00' },
+    { key: 'grid', value: 'calendar' },
+    { key: 'horizon', value: '3w' },
+    { key: 'skip_weekends', value: 'false' },
+    { key: 'skip_holidays', value: 'false' },
+    { key: 'tolerance', value: '0' },
+    { key: 'min_distance', value: '0' },
+    { key: 'tiebreak', value: 'order' },
+    { key: 'seed', value: '0' },
+    { key: 'baseline', value: 'median' },
+    { key: 'precredit', value: 'auto' },
+  ]);
+  const rows = structuredClone(U.statusRows(runStorage(new MemoryStorage({ ledgers: withLater }), NOW).status));
+  assert.deepEqual(rows.find((r) => r[0] === 'note'), ['note', 'a set row at 2026-10-19T09:00 changes these values', '', '', '', '']);
+
+  const after = runStorage(new MemoryStorage({ ledgers: withLater }), '2026-10-20T10:00').status.rotations[0].settings;
+  assert.equal(after.nextSetAt, null);
+  const value = (key) => after.values.find((v) => v.key === key).value;
+  assert.equal(value('tolerance'), '7');
+  assert.equal(value('skip_weekends'), 'true');
+  assert.equal(value('anchor'), '2026-10-19T09:00');
+  assert.equal(value('period'), '1w');
+  assert.deepEqual(after.values.map((v) => v.key), Object.keys(U.SETTINGS));
+
+  // Without now, regenerate dates the block at the snapshot.
+  const rowsAtS = U.regenerate({ rotations: [{ name: 'p', rows: U.rowsFromCells(withLater.primary), snapshotAt: null }], holidays: [], links: [] });
+  assert.equal(rowsAtS.status.rotations[0].settings.at, dt('2026-10-05T09:00'));
+});
+
+test('status: warnings block only when there are warnings', () => {
+  const crowded = { primary: [
+    R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w, min_distance=2'),
+    R('', '2026-10-05T09:00', 'team', 'alice, bob'),
+  ] };
+  const { status } = runStorage(new MemoryStorage({ ledgers: crowded }), NOW);
+  assert.ok(status.warnings.length > 0);
+  const rows = structuredClone(U.statusRows(status));
+  const i = rows.findIndex((r) => r[0] === 'warnings');
+  assert.deepEqual(rows[i - 1], ['', '', '', '', '', '']);
+  assert.deepEqual(rows[i + 1], ['rotation', 'start', 'message', '', '', '']);
+  assert.deepEqual(rows[i + 2].slice(0, 3), ['primary', '2026-10-19T09:00', 'min_distance relaxed to 1']);
 });
 
 test('status on validation error: errors block, no rotations, no shifts', () => {

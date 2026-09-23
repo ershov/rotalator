@@ -6,14 +6,28 @@ holidays   2
 links      1
 ignored    #secondary, Notes
 
-rotation  primary  snapshot   2026-09-07T09:00  horizon           2026-10-19T09:00
-member    score    projected  last shift        next shift        exclusions
-alice     35.00    49.00      2026-08-24T09:00  2026-09-14T09:00
-bob       35.00    49.00      2026-08-31T09:00  2026-09-21T09:00
-carol     28.00    42.00      2026-09-07T09:00  2026-09-28T09:00
+rotation  primary
+snapshot  2026-09-07T09:00
+horizon   2026-10-19T09:00
 
-warnings
-rotation  start  message
+member  score  projected  last shift        next shift        exclusions
+alice   35.00  49.00      2026-08-24T09:00  2026-09-14T09:00
+bob     35.00  49.00      2026-08-31T09:00  2026-09-21T09:00
+carol   28.00  42.00      2026-09-07T09:00  2026-09-28T09:00
+
+settings       as of 2026-09-08T10:00
+period         1w
+anchor         2026-06-01T09:00
+grid           calendar
+horizon        6w
+skip_weekends  false
+skip_holidays  false
+tolerance      0
+min_distance   0
+tiebreak       order
+seed           0
+baseline       median
+precredit      auto
 
 errors
 rotation  where  message

@@ -215,11 +215,14 @@ preview tab is created right after its rotation tab.
 `#Status` starts with the run instant and mode (`run` or `dry run`), then a
 `tabs` block: the rotations found, the number of holidays and link rows read,
 and the tabs ignored (a disabled `#<rotation>` appears there). For each
-rotation it shows the snapshot instant and the horizon end, then one line per
+rotation it shows `rotation`, `snapshot` and `horizon` rows, then one line per
 member: score at the snapshot, projected score at the horizon end, last shift
 (latest start at or before the snapshot), next shift (first start after it),
-and exclusions active at the snapshot with their end or `open`. A warnings
-table follows with relaxed `min_distance` and unassignable slots. After a
+and exclusions active at the snapshot with their end or `open`. A `settings`
+block lists every setting with its value in effect at the run instant,
+including defaults for keys never set; when a later `set` row exists, a `note`
+row names its start, since the values change from there. A warnings table
+appears when `min_distance` was relaxed or a slot was unassignable. After a
 validation error the tab lists the errors instead of rotations.
 
 `#All shifts` is one table of every shift of every rotation, sorted by start:

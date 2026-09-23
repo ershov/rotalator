@@ -365,12 +365,20 @@ member the score at `S`, the projected score at `horizonEnd`, the last shift
 (latest start at or before `S`), the next shift (first start after `S`) and
 the exclusions active at `S`; plus the warnings of the sweep (relaxations and
 unassignable slots). On a validation error the data carries the errors and no
-rotations. The `#Status` tab is this data as text: a title line, the tabs
-block, per rotation a header line and a member table, then a warnings table
-and, if any, an errors table. The `#All shifts` tab lists every shift of every
-rotation with `start`, `end` (scored end), rotation, `what`, pinned and note,
-sorted by `start` then rotation order. Both tabs are rewritten in full on
-every run, including dry runs.
+rotations. Each rotation also carries its effective settings at `now`: every
+key of 3.5 with its value from the settings timeline (`anchor` as a datetime,
+durations in short form, booleans as `true`/`false`, defaults for keys never
+set) and the start of the next `set` row after `now`, if any, since later
+rows change the values from there. `now` reaches `regenerate` as an optional
+input used only for this block; the ledgers never depend on it. The `#Status`
+tab is this data as text: a title line, the tabs block, then per rotation
+`rotation`, `snapshot` and `horizon` key/value rows, the member table, and a
+`settings` block of `key | value` rows with a `note` row when a later `set`
+row exists. A warnings table follows only when there are warnings, an errors
+table only when there are errors. The `#All shifts` tab lists every shift of
+every rotation with `start`, `end` (scored end), rotation, `what`, pinned and
+note, sorted by `start` then rotation order. Both tabs are rewritten in full
+on every run, including dry runs.
 
 ### 5.9 Properties
 

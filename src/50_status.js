@@ -7,14 +7,35 @@ function statusInstant(min) {
   return min === null || min === undefined ? '' : formatDateTime(min);
 }
 
-// rot: swept rotation internals from 40_scheduler.js (roster, scoresAtS, entries, S, horizonEnd).
-function rotationStatus(rot) {
+function formatSettingValue(key, value) {
+  if (value === null || value === undefined) return '';
+  if (key === 'anchor') return formatDateTime(value);
+  if (key === 'period' || key === 'horizon') return formatDuration(value);
+  return String(value);
+}
+
+// Every SETTINGS key with its effective value at `at`, plus the start of the next set row after `at`.
+function effectiveSettings(timeline, at) {
+  var values = timeline.at(at).values;
+  var next = null;
+  timeline.entries.forEach(function (e) { if (e.start > at && next === null) next = e.start; });
+  return {
+    at: at,
+    values: Object.keys(SETTINGS).map(function (key) { return { key: key, value: formatSettingValue(key, values[key]) }; }),
+    nextSetAt: next,
+  };
+}
+
+// rot: swept rotation internals from 40_scheduler.js (roster, scoresAtS, entries, S, horizonEnd, timeline).
+// now: run instant for the settings block; S when absent.
+function rotationStatus(rot, now) {
   var projected = rot.roster.scores();
   var S = rot.S;
   return {
     name: rot.name,
     snapshotAt: S,
     horizonEnd: rot.horizonEnd,
+    settings: effectiveSettings(rot.timeline, now === null || now === undefined ? S : now),
     roster: rot.roster.members.map(function (m) {
       var last = null, next = null;
       rot.entries.forEach(function (e) {
@@ -53,10 +74,10 @@ function shiftsView(rots) {
   return out.sort(function (a, b) { return a.start - b.start; });
 }
 
-// rots: swept rotations, or [] when a validation error stopped the run.
-function buildStatus(rots, warnings, errors) {
+// rots: swept rotations, or [] when a validation error stopped the run. now: optional run instant.
+function buildStatus(rots, warnings, errors, now) {
   return {
-    rotations: rots.map(rotationStatus),
+    rotations: rots.map(function (rot) { return rotationStatus(rot, now); }),
     warnings: warnings,
     errors: errors,
     shifts: shiftsView(rots),
@@ -88,17 +109,26 @@ function statusRows(status) {
   }
   status.rotations.forEach(function (rot) {
     push([]);
-    push(['rotation', rot.name, 'snapshot', statusInstant(rot.snapshotAt), 'horizon', statusInstant(rot.horizonEnd)]);
+    push(['rotation', rot.name]);
+    push(['snapshot', statusInstant(rot.snapshotAt)]);
+    push(['horizon', statusInstant(rot.horizonEnd)]);
+    push([]);
     push(['member', 'score', 'projected', 'last shift', 'next shift', 'exclusions']);
     rot.roster.forEach(function (m) {
       push([m.name, m.score === null ? '' : formatScore(m.score), formatScore(m.projected),
         statusInstant(m.lastShift), statusInstant(m.nextShift), formatExclusions(m.exclusions)]);
     });
+    push([]);
+    push(['settings', 'as of ' + statusInstant(rot.settings.at)]);
+    rot.settings.values.forEach(function (s) { push([s.key, s.value]); });
+    if (rot.settings.nextSetAt !== null) push(['note', 'a set row at ' + statusInstant(rot.settings.nextSetAt) + ' changes these values']);
   });
-  push([]);
-  push(['warnings']);
-  push(['rotation', 'start', 'message']);
-  status.warnings.forEach(function (w) { push([w.rotation, statusInstant(w.start), w.message]); });
+  if (status.warnings.length) {
+    push([]);
+    push(['warnings']);
+    push(['rotation', 'start', 'message']);
+    status.warnings.forEach(function (w) { push([w.rotation, statusInstant(w.start), w.message]); });
+  }
   if (status.errors.length) {
     push([]);
     push(['errors']);
