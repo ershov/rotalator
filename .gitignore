@@ -1,4 +1,4 @@
 .PLAN.md.reject
-dist/
+dist/.clasp.json
 .tmp/
 node_modules/

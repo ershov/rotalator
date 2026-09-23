@@ -477,7 +477,7 @@ bin/
 test/
   *.test.js           unit tests
   fixtures/<case>/    golden scenarios
-dist/                 build output, not committed
+dist/                 built bundle and manifest, committed; must match src/
 README.md             features from the user's point of view
 INSTALL.md            spreadsheet setup, clasp and manual deployment
 DESIGN.md             this document
@@ -542,8 +542,9 @@ writes cells; the row logic of the tools lives in `70_tools.js`.
 
 Two paths, both in INSTALL.md.
 
-- `clasp`: `build.sh` then `clasp push` from `dist/`. `clasp` is an external
-  tool, not a project dependency.
+- `clasp`: `clasp push` from the committed `dist/`. `build.sh` regenerates it
+  after changes to `src/`; `test/dist.test.js` fails when the two diverge.
+  `clasp` is an external tool, not a project dependency.
 - Manual: create an Apps Script project bound to the spreadsheet, paste
   `dist/Code.js` and `appsscript.json`, run `onOpen` once to authorise, use the
   menu to install the nightly trigger.

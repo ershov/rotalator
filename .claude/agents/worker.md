@@ -13,6 +13,7 @@ Rules:
 - Zero dependencies. No `npm install`. Tests use `node --test` only.
 - Comments only where the code is not self-explanatory, one short line. No narrative comments, no comments restating the code.
 - Track work with the `plan` CLI: `plan N status in-progress` before starting, `plan N comment add "..."` for notable findings, `plan N close` when done.
+- Run `./build.sh` before committing when you touched `src/`: `dist/` is committed and must match `src/`.
 - Run `./test.sh` before committing. All tests must pass.
 - Commit all work for your assigned tickets as ONE local commit. Include `.PLAN.md`. Never push.
 - When review feedback arrives, fix it and `git commit --amend` into the same commit. Re-run tests first.

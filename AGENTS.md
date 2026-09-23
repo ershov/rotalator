@@ -8,8 +8,9 @@
 - Zero dependencies, runtime or dev. No `package.json`, no `npm install`.
   Tests use `node --test` (Node 24). Any new dependency needs the owner's
   explicit approval.
-- `./test.sh` must pass before every commit. `./build.sh` bundles `src/` into
-  `dist/Code.js`; `dist/` is not committed.
+- `./test.sh` must pass before every commit. Run `./build.sh` before every
+  commit that touches `src/`: `dist/` is committed and must match `src/`,
+  and `./test.sh` checks this.
 - Comments: brief, only where code is not self-explanatory. No narrative.
 - Temporary files go in `./.tmp/`, never committed. Never push.
 

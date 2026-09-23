@@ -1,17 +1,15 @@
 # Installing Rotalator
 
-Three parts: build the script, deploy it into a Google Spreadsheet, then let
-the **Rotalator** menu set the spreadsheet up. Hand-made templates are in the
-appendix for people who prefer to type everything themselves.
+Three parts: take the built script, deploy it into a Google Spreadsheet, then
+let the **Rotalator** menu set the spreadsheet up. Hand-made templates are in
+the appendix for people who prefer to type everything themselves.
 
-## 1. Build
+## 1. The bundle
 
-```
-./build.sh
-```
-
-This concatenates `src/*.js` into `dist/Code.js` and copies
-`src/appsscript.json` to `dist/`. The manifest is:
+`dist/Code.js` and `dist/appsscript.json` are committed and ready to deploy.
+They are produced by `./build.sh`, which concatenates `src/*.js` and copies
+`src/appsscript.json`; run it only after changing `src/` (the tests check
+that `dist/` matches `src/`). The manifest is:
 
 ```json
 {
@@ -37,7 +35,6 @@ enable the Apps Script API once at https://script.google.com/home/usersettings.
 
 ```
 clasp login
-./build.sh
 cd dist
 ```
 
@@ -51,13 +48,13 @@ clasp create --type sheets --parentId <spreadsheetId>
 
 Or, if the spreadsheet already has a script project (**Extensions > Apps
 Script**, then **Project Settings > Script ID**), attach to it. `clone`
-downloads the project's current files into `dist/`; run `build.sh` again so
-`Code.js` and `appsscript.json` are the built ones, and delete any other
-downloaded file.
+downloads the project's current files into `dist/`; restore the committed
+`Code.js` and `appsscript.json` afterwards and delete any other downloaded
+file.
 
 ```
 clasp clone <scriptId>
-cd .. && ./build.sh && cd dist
+git checkout -- Code.js appsscript.json
 ```
 
 Push the bundle. `-f` accepts the manifest change without a prompt.
@@ -66,8 +63,8 @@ Push the bundle. `-f` accepts the manifest change without a prompt.
 clasp push -f
 ```
 
-`.clasp.json` stays in `dist/` between builds because `build.sh` only rewrites
-`Code.js` and `appsscript.json`. `dist/` is not committed.
+`dist/.clasp.json` is ignored by git and stays in place between builds
+because `build.sh` only rewrites `Code.js` and `appsscript.json`.
 
 Reload the spreadsheet and continue with section 4.
 
