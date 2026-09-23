@@ -80,6 +80,7 @@ function shiftsView(rots) {
         start: e.start, end: e.end, rotation: rot.name,
         who: e.who === null ? '' : e.who,
         pinned: Boolean(row && row.pinned),
+        pin: row ? row.pin : '',
         note: row ? row.note : '',
       });
     });
@@ -159,27 +160,40 @@ function statusRows(status) {
       push([e.rotation, where, e.message]);
     });
   }
-  return { rows: rows, headerRows: headerRows, dividerRows: [] };
+  return { rows: rows, headerRows: headerRows, dividerRows: [], currentRows: [] };
 }
 
-// Rows of the #All shifts tab: header, shifts by start, and a divider row at the run instant between past
-// and future shifts (omitted when status.at is unknown).
+// Rows of the #All shifts tab: header, shifts by start with the ledger's own pin marker, and a divider row at
+// the run instant between past and future shifts. currentRows marks each rotation's shift covering now;
+// both are empty when status.at is unknown.
+// A ticked checkbox arrives as the text "true"; shown as x, other markers verbatim.
+function pinMarker(text) {
+  return text.toLowerCase() === 'true' ? 'x' : text;
+}
+
 function shiftsRows(status) {
   var rows = [SHIFTS_HEADER.slice()];
   var dividerRows = [];
+  var currentRows = [];
   var at = status.at;
-  var placed = at === null || at === undefined;
+  var known = at !== null && at !== undefined;
+  var current = new Set();
+  if (known) {
+    status.rotations.forEach(function (rot) { if (rot.current) current.add(rot.name + '|' + rot.current.start); });
+  }
+  var placed = !known;
   status.shifts.forEach(function (s) {
     if (!placed && s.start > at) {
       dividerRows.push(rows.length);
       rows.push(['', statusInstant(at), '', 'now', '', '']);
       placed = true;
     }
-    rows.push([s.pinned ? 'x' : '', statusInstant(s.start), statusInstant(s.end), s.rotation, s.who, s.note]);
+    if (current.has(s.rotation + '|' + s.start)) currentRows.push(rows.length);
+    rows.push([pinMarker(s.pin), statusInstant(s.start), statusInstant(s.end), s.rotation, s.who, s.note]);
   });
   if (!placed) {
     dividerRows.push(rows.length);
     rows.push(['', statusInstant(at), '', 'now', '', '']);
   }
-  return { rows: rows, headerRows: [0], dividerRows: dividerRows };
+  return { rows: rows, headerRows: [0], dividerRows: dividerRows, currentRows: currentRows };
 }

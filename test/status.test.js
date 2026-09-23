@@ -190,3 +190,33 @@ test('status on validation error: errors block, no rotations, no shifts', () => 
   ]);
   assert.deepEqual(structuredClone(U.shiftsRows(status).rows), [['pin', 'start', 'end', 'rotation', 'who', 'note'], ['', NOW, '', 'now', '', '']]);
 });
+
+test('All shifts: original pin text and current rows per rotation', () => {
+  const mixed = {
+    weekly: [
+      R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=2w'),
+      R('', '2026-10-05T09:00', 'team', 'alice, bob'),
+      R('keep', '2026-10-12T09:00', 'shift', 'bob', '', '', 'pinned with a word'),
+      R('TRUE', '2026-10-19T09:00', 'shift', 'alice', '', '', 'ticked checkbox'),
+    ],
+    daily: [
+      R('', '2026-10-05T09:00', 'set', 'period=1d, horizon=3d'),
+      R('', '2026-10-05T09:00', 'team', 'carol'),
+    ],
+  };
+  const { status } = runStorage(new MemoryStorage({ ledgers: mixed }), NOW);
+  assert.deepEqual(status.shifts.filter((s) => s.pinned).map((s) => s.pin), ['keep', 'TRUE']);
+  const out = U.shiftsRows(status);
+  const rows = structuredClone(out.rows);
+  assert.deepEqual(rows.find((r) => r[0] === 'keep'), ['keep', '2026-10-12T09:00', '2026-10-19T09:00', 'weekly', 'bob', 'pinned with a word']);
+  assert.deepEqual(rows.find((r) => r[5] === 'ticked checkbox').slice(0, 2), ['x', '2026-10-19T09:00']);
+  assert.equal(U.pinMarker('true'), 'x');
+  const current = structuredClone(out.currentRows).map((i) => rows[i]);
+  assert.deepEqual(current, [
+    ['', '2026-10-05T09:00', '2026-10-12T09:00', 'weekly', 'alice', ''],
+    ['', '2026-10-05T09:00', '2026-10-06T09:00', 'daily', 'carol', ''],
+  ]);
+  assert.deepEqual(structuredClone(U.statusRows(status).currentRows), []);
+  const noNow = U.regenerate({ rotations: [{ name: 'w', rows: U.rowsFromCells(mixed.weekly), snapshotAt: null }], holidays: [], links: [] });
+  assert.deepEqual(structuredClone(U.shiftsRows(noNow.status).currentRows), []);
+});

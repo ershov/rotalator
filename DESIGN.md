@@ -415,15 +415,16 @@ indented to column B (`member`, `current` with `x` for the member on call,
 indented `settings` block of `key | value` rows with a `note` row when a
 later `set` row exists. A warnings table follows only when there are
 warnings, an errors table only when there are errors. The `#All shifts` tab
-has the columns `pin | start | end | rotation | who | note`: `x` in `pin` for
-pinned shifts, `end` the scored end, every shift of every rotation sorted by
-`start` then rotation order, and a divider row between past and future
-shifts with `start` = `now` and `now` in the rotation cell (omitted when
-`now` is unknown). `statusRows` and `shiftsRows` return `{ rows, headerRows,
-dividerRows }`: the row indexes of the title, block and table header rows
-and of the divider, so adapters format them without knowing the layout while
-the CLI prints rows only. Both tabs are rewritten in full on every run,
-including dry runs.
+has the columns `pin | start | end | rotation | who | note`: `pin` the
+ledger row's own pin text, `end` the scored end, every shift of every
+rotation sorted by `start` then rotation order, and a divider row between
+past and future shifts with `start` = `now` and `now` in the rotation cell
+(omitted when `now` is unknown). `statusRows` and `shiftsRows` return
+`{ rows, headerRows, dividerRows, currentRows }`: the row indexes of the
+title, block and table header rows, of the divider and of each rotation's
+current shift (empty when `now` is unknown), so adapters format them without
+knowing the layout while the CLI prints rows only. Both tabs are rewritten in
+full on every run, including dry runs.
 
 ### 5.9 Properties
 
@@ -564,7 +565,7 @@ bad `now`, with nothing written. The CLI exposes it as `rotalator run DIR
 spreadsheet time zone as `YYYY-MM-DDTHH:MM` text and converts date cells to
 that form before handing them over.
 
-Apps Script menu: `Run All`, `Run All - dry run` (writes `#Preview
+Apps Script menu: `Run`, `Run - dry run` (writes `#Preview
 <rotation>` tabs), `Run for current rotation`, `Run for current rotation -
 dry run` (the active tab only, through the runner's `rotations` option; a
 dry run then writes that rotation's preview, `#Preview Links` when a `#Links`
@@ -635,12 +636,14 @@ content, `=AND($C1="", COUNTA($A1:$G1)>0)`) light yellow, `shift` no colour.
 `#Links`: `link` light green, `unlink` light grey, `error` light red,
 comments light yellow. Generated tabs (`#Status`, `#All shifts`, previews)
 are cleared with their formats and rewritten on every run; the adapter then
-applies bold and the light grey background to the `headerRows` and light
-green to the `dividerRows` reported with the rows (5.8).
+applies bold and the light grey background to the `headerRows`, light green
+to the `dividerRows` and light orange to the `currentRows` reported with the
+rows (5.8).
 
 Palette: header `#eeeeee`, error `#f4c7c3`, settings `#c9daf8`, roster
-`#d0e0e3`, snapshot and link and divider `#d9ead3`, comment `#fff2cc`,
-unlink `#efefef`; tab colours generated `#4285f4`, editable `#9e9e9e`.
+`#d0e0e3`, snapshot and link and divider `#d9ead3`, current shift `#fce5cd`,
+comment `#fff2cc`, unlink `#efefef`; tab colours generated `#4285f4`,
+editable `#9e9e9e`.
 
 ### 10.2 Set Up Tab
 

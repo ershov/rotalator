@@ -14,6 +14,7 @@ var SHIFTS_COLUMN_WIDTHS = { pin: 40, start: 150, end: 150, rotation: 120, who: 
 // Pastel palette (DESIGN 10.1).
 var COLOR_HEADER = '#eeeeee';
 var COLOR_DIVIDER = '#d9ead3';
+var COLOR_CURRENT = '#fce5cd';
 var COLOR_ERROR = '#f4c7c3';
 var COLOR_SETTINGS = '#c9daf8';
 var COLOR_ROSTER = '#d0e0e3';
@@ -133,14 +134,16 @@ class SheetsStorage {
     range.setValues(rows);
   }
 
-  // Bold grey header rows and a green divider, from the row indexes the status module reports.
-  formatTableRows(sheet, width, headerRows, dividerRows) {
-    headerRows.forEach(function (i) {
-      sheet.getRange(i + 1, 1, 1, width).setFontWeight('bold').setBackground(COLOR_HEADER);
-    });
-    dividerRows.forEach(function (i) {
-      sheet.getRange(i + 1, 1, 1, width).setBackground(COLOR_DIVIDER);
-    });
+  // Bold grey header rows, a green divider and orange current shifts, from the row indexes the status
+  // module reports in table { headerRows, dividerRows, currentRows }.
+  formatTableRows(sheet, width, table) {
+    var paint = function (indexes, color) {
+      (indexes || []).forEach(function (i) { sheet.getRange(i + 1, 1, 1, width).setBackground(color); });
+    };
+    (table.headerRows || []).forEach(function (i) { sheet.getRange(i + 1, 1, 1, width).setFontWeight('bold'); });
+    paint(table.headerRows, COLOR_HEADER);
+    paint(table.dividerRows, COLOR_DIVIDER);
+    paint(table.currentRows, COLOR_CURRENT);
   }
 
   // Rows below the header of a ledger-shaped tab; previews go to '#Preview <name>' with a fresh header.
@@ -150,7 +153,7 @@ class SheetsStorage {
       sheet = this.previewSheet(name);
       sheet.clear();
       this.writeTextRows(sheet, 1, [LEDGER_HEADER]);
-      this.formatTableRows(sheet, LEDGER_HEADER.length, [0], []);
+      this.formatTableRows(sheet, LEDGER_HEADER.length, { headerRows: [0] });
     } else {
       sheet = this.ss.getSheetByName(name);
       if (!sheet) return;
@@ -168,12 +171,12 @@ class SheetsStorage {
     this.writeLedgerRows(LINKS_TAB, rows);
   }
 
-  // Generated tabs are cleared with their formats and rewritten; table: { rows, headerRows, dividerRows }.
+  // Generated tabs are cleared with their formats and rewritten; table: { rows, headerRows, dividerRows, currentRows }.
   writeTable(name, table) {
     var sheet = this.sheetNamed(name);
     sheet.clear();
     this.writeTextRows(sheet, 1, table.rows);
-    if (table.rows.length) this.formatTableRows(sheet, table.rows[0].length, table.headerRows, table.dividerRows);
+    if (table.rows.length) this.formatTableRows(sheet, table.rows[0].length, table);
   }
 
   // #Status and #All shifts tabs, rewritten in full from the status data (DESIGN 5.8).
@@ -185,8 +188,8 @@ class SheetsStorage {
 
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('Rotalator')
-    .addItem('Run All', 'run')
-    .addItem('Run All - dry run', 'dryRun')
+    .addItem('Run', 'run')
+    .addItem('Run - dry run', 'dryRun')
     .addItem('Run for current rotation', 'runCurrent')
     .addItem('Run for current rotation - dry run', 'dryRunCurrent')
     .addSeparator()

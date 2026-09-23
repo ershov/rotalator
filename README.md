@@ -222,15 +222,15 @@ them opens a dialog and none rewrites existing data.
 
 ## Running
 
-- **Run All** regenerates every rotation and rewrites `#Status` and
+- **Run** regenerates every rotation and rewrites `#Status` and
   `#All shifts`. This is what the nightly trigger runs.
-- **Run All - dry run** writes `#Preview <rotation>` tabs instead of the
-  ledgers, plus the status tabs.
+- **Run - dry run** writes `#Preview <rotation>` tabs instead of the ledgers,
+  plus the status tabs.
 - **Run for current rotation** and its dry run variant do the same for the
   active tab only; the other rotations are read but not written. The dry run
   writes that rotation's preview, `#Preview Links` when a `#Links` tab
   exists, and the status tabs. The active tab must be a rotation tab.
-- **Install nightly trigger** schedules Run All daily; **Remove trigger**
+- **Install nightly trigger** schedules Run daily; **Remove trigger**
   deletes it.
 
 INSTALL.md has the step by step.
@@ -265,7 +265,7 @@ delete the `snapshot` row to replay everything from the top.
 **Pause a rotation.** Rename its tab to `#<rotation>`. It is skipped until
 renamed back.
 
-**Preview.** Use `Rotalator > Run All - dry run` or `Run for current rotation
+**Preview.** Use `Rotalator > Run - dry run` or `Run for current rotation
 - dry run`. They write `#Preview <rotation>` tabs, `#Status` and `#All
 shifts` and leave the ledgers untouched. A missing
 preview tab is created right after its rotation tab.
@@ -289,9 +289,11 @@ appears when `min_distance` was relaxed or a slot was unassignable. After a
 validation error the tab lists the errors instead of rotations.
 
 `#All shifts` is one table of every shift of every rotation, sorted by start:
-pin (`x` when pinned), start, end, rotation, who, note. The end is the scored
-end of the shift. A divider row marked `now` separates past shifts from
-future ones. Both tabs are rewritten by every run, including dry runs.
+pin (the ledger's own pin text; a ticked checkbox shows as `x`), start, end,
+rotation, who, note. The end is the scored end of the shift. A divider row
+marked `now` separates past shifts from future ones, and each rotation's
+current shift is highlighted. Both tabs are rewritten by every run, including
+dry runs.
 
 ## Links between rotations
 

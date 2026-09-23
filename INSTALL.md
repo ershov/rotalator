@@ -151,16 +151,16 @@ history rows; leave future rows to the script.
 
 ## 6. First run and nightly trigger
 
-1. **Rotalator > Run All - dry run** writes `#Preview <rotation>` tabs
+1. **Rotalator > Run - dry run** writes `#Preview <rotation>` tabs
    (created right after each rotation tab on the first dry run), `#Status`
    and `#All shifts`, and leaves the ledgers untouched. Check the preview and
    the `tabs` block at the top of `#Status`, which lists the rotations found
    and the tabs ignored.
-2. **Rotalator > Run All** writes the ledgers: the `snapshot` row and the
+2. **Rotalator > Run** writes the ledgers: the `snapshot` row and the
    generated shifts appear. **Run for current rotation** and **Run for
    current rotation - dry run** do the same for the active tab only; the
    other rotations are read but left as they are.
-3. **Rotalator > Install nightly trigger** schedules Run All every day between
+3. **Rotalator > Install nightly trigger** schedules Run every day between
    02:00 and 03:00 in the spreadsheet time zone. Installing again replaces the
    existing trigger. **Remove trigger** deletes it. Triggers belong to the
    account that installed them and are listed in the Apps Script editor under
