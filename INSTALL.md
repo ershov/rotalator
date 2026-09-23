@@ -83,19 +83,24 @@ Reload the spreadsheet and continue with section 4.
 
 ## 4. Set up the spreadsheet from the menu
 
-1. **Rotalator > Set up**. Authorise when asked (see Troubleshooting). The
-   command is idempotent and never rewrites existing data. It:
+1. **Rotalator > Set Up Spreadsheet**. Authorise when asked (see
+   Troubleshooting). The command is idempotent and never rewrites existing
+   data. It:
    - creates the missing system tabs `#Holidays`, `#Links`, `#Status` and
      `#All shifts` with their headers;
    - creates a first rotation tab `On-Call` from the template when the
      spreadsheet has no rotation yet;
    - on every rotation, `#Holidays`, `#Links` and `#All shifts` tab: Roboto
      Mono font, plain text format on the whole ledger columns (`A:G`), which
-     should carry over to rows added later (to be confirmed on a live sheet,
-     see the appendix), bold frozen header, column widths, a note on each
-     header cell explaining the column, spare empty columns beyond the last
-     one removed;
-   - colours the `#` tabs: one colour for tabs the script writes, another for
+     should carry over to rows added later (to be confirmed on a live
+     spreadsheet, see the appendix), bold grey frozen header, column widths,
+     a note on each header cell explaining the column, spare empty columns
+     beyond the last one removed;
+   - on rotation tabs and `#Links`: conditional row colours by `type`
+     (errors red, `set` and `score` blue, roster changes teal, `snapshot`
+     green, comment rows yellow; in `#Links` `link` green and `unlink` grey).
+     The tab's existing conditional format rules are replaced;
+   - colours the `#` tabs: blue for tabs the script writes, grey for
      `#Holidays` and `#Links`, which you edit.
    Tabs without the ledger header that already have content are left alone.
 2. Open `On-Call` (or rename it: the tab name is the rotation name). Row 2 is
@@ -106,10 +111,9 @@ Reload the spreadsheet and continue with section 4.
    rest as needed. Row 3 is a `team` row with sample names: replace them with
    your members. Rows with an empty `type` are comments: put notes anywhere in
    the ledger, the script keeps them in place.
-3. More rotations: add a tab, name it, and choose **Rotalator > Template**
-   with the tab active. The template only fills empty tabs. On `#Holidays` or
-   `#Links` it writes the header row; on tabs the script writes it does
-   nothing.
+3. More rotations: add a tab, name it, and choose **Rotalator > Set Up Tab**
+   with the tab active. It only fills empty tabs. On `#Holidays` or `#Links`
+   it writes the header row; on tabs the script writes it does nothing.
 4. Existing history, optional: type the past shifts as `shift` rows with
    `start` and the member in `what`, or let **Fill Shifts Grid** lay out the
    dates for you (section 5) and fill in the names. A shift row without `end`
@@ -147,13 +151,16 @@ history rows; leave future rows to the script.
 
 ## 6. First run and nightly trigger
 
-1. **Rotalator > Dry run** writes `#Preview <rotation>` tabs (created right
-   after each rotation tab on the first dry run), `#Status` and `#All shifts`,
-   and leaves the ledgers untouched. Check the preview and the `tabs` block at
-   the top of `#Status`, which lists the rotations found and the tabs ignored.
-2. **Rotalator > Run now** writes the ledgers: the `snapshot` row and the
-   generated shifts appear.
-3. **Rotalator > Install nightly trigger** schedules `run` every day between
+1. **Rotalator > Run All - dry run** writes `#Preview <rotation>` tabs
+   (created right after each rotation tab on the first dry run), `#Status`
+   and `#All shifts`, and leaves the ledgers untouched. Check the preview and
+   the `tabs` block at the top of `#Status`, which lists the rotations found
+   and the tabs ignored.
+2. **Rotalator > Run All** writes the ledgers: the `snapshot` row and the
+   generated shifts appear. **Run for current rotation** and **Run for
+   current rotation - dry run** do the same for the active tab only; the
+   other rotations are read but left as they are.
+3. **Rotalator > Install nightly trigger** schedules Run All every day between
    02:00 and 03:00 in the spreadsheet time zone. Installing again replaces the
    existing trigger. **Remove trigger** deletes it. Triggers belong to the
    account that installed them and are listed in the Apps Script editor under
@@ -180,15 +187,24 @@ prompt and choose the menu item again.
 you typed.** Date cells are converted using the spreadsheet's time zone in
 **File > Settings**; check it is the zone the team means, and make sure the
 `start` and `end` columns are plain text so no conversion happens at all.
-**Set up** applies plain text to the whole ledger columns.
+**Set Up Spreadsheet** applies plain text to the whole ledger columns.
 
 **A `start` cell shows as `6/1/2026 9:00:00` and right-aligns.** Sheets
 converted the text into a date cell. The script reads it correctly and writes
 text back, setting the ledger range to plain text format on every write. Run
-**Set up** once so the whole columns are plain text before typing.
+**Set Up Spreadsheet** once so the whole columns are plain text before
+typing.
 
-**Template says the tab is not empty.** The template never overwrites
-content. Clear the tab or add a new one.
+**Set Up Tab says the tab is not empty.** It never overwrites content. Clear
+the tab or add a new one.
+
+**Run for current rotation says the tab is not a rotation tab.** The active
+tab must have the ledger header and a name without `#`. Switch to the
+rotation tab and run again.
+
+**My conditional formatting disappeared.** Set Up Spreadsheet and Set Up Tab
+replace the conditional format rules of rotation tabs and `#Links` with the
+script's set. Keep custom rules on other tabs.
 
 **Fill Shifts Grid says a row has content but no start.** An undated row has
 a `type` other than `shift`. Date it, clear its `type` to make it a comment,
@@ -224,7 +240,7 @@ that account lost access to the spreadsheet, reinstall from another account.
 
 ## Appendix: hand-made template
 
-Everything **Set up** and **Template** do can be typed by hand.
+Everything **Set Up Spreadsheet** and **Set Up Tab** do can be typed by hand.
 
 1. Rename a tab to the rotation name. Tab names starting with `#` are reserved
    for the script's tabs and for disabled rotations.
@@ -237,7 +253,8 @@ Everything **Set up** and **Template** do can be typed by hand.
 3. Select columns A to G and set **Format > Number > Plain text** before
    entering any dates, so Sheets does not convert typed values into date
    cells. Whether rows added later inherit the column format the way the
-   script's **Set up** relies on is to be confirmed on a live sheet; if a new
+   script's **Set Up Spreadsheet** relies on is to be confirmed on a live
+   spreadsheet; if a new
    row shows a converted date, reapply plain text to the column.
 4. Row 2: a `set` row with at least `period`, dated at the intended start of
    the first shift so it becomes the grid anchor. Row 3: a `team` row with

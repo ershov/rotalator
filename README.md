@@ -8,14 +8,15 @@ future so that on-call load stays fair.
 
 - Fairness is measured in fractional days over the whole history.
 - The schedule is generated up to a horizon (default 90 days).
-- Runs are deterministic and idempotent: the same sheet gives the same result,
-  and a second run changes nothing.
+- Runs are deterministic and idempotent: the same spreadsheet gives the same
+  result, and a second run changes nothing.
 - No UI beyond the spreadsheet. No runtime dependencies.
 
 Rotalator stays a periodic, idempotent script that edits a spreadsheet: no
-app, no UI beyond the sheet and its menu. Pragmatic spreadsheet conventions (a
-column, a row type, a tab name prefix) are preferred over new components, and
-nothing is added as a dependency without the owner's approval.
+app, no UI beyond the spreadsheet and its menu. Pragmatic spreadsheet
+conventions (a column, a row type, a tab name prefix) are preferred over new
+components, and nothing is added as a dependency without the owner's
+approval.
 
 Setup and deployment are in [INSTALL.md](INSTALL.md). The design is in
 [DESIGN.md](DESIGN.md).
@@ -196,15 +197,20 @@ A week is 7 days, or 5 with `skip_weekends`. Partial shifts credit fractions.
 The **Rotalator** menu has three tools that prepare the spreadsheet; none of
 them opens a dialog and none rewrites existing data.
 
-- **Set up** creates the missing system tabs, a first rotation `On-Call` from
-  the template when there is none, and formats every rotation and system tab:
-  monospace font, plain text on the ledger columns, bold frozen header with a
-  note on each header cell, column widths, spare columns removed, tab colours
-  on `#` tabs. It is idempotent.
-- **Template** fills the active tab from its name: an empty rotation tab gets
-  the header, a `set` row with every setting at its default (bare `anchor`,
-  dated the most recent Monday 00:00) and a sample `team` row; an empty
-  `#Holidays` or `#Links` tab gets its header. Non-empty tabs are refused.
+- **Set Up Spreadsheet** creates the missing system tabs, a first rotation
+  `On-Call` from the template when there is none, and formats every rotation
+  and system tab: monospace font, plain text on the ledger columns, bold grey
+  frozen header with a note on each header cell, column widths, spare columns
+  removed, tab colours on `#` tabs (blue for tabs the script writes, grey for
+  `#Holidays` and `#Links`). Rotation tabs and `#Links` get conditional row
+  colours by `type` (errors red, settings blue, roster changes teal, snapshot
+  green, comment rows yellow, links green, unlinks grey); the tab's existing
+  conditional rules are replaced. It is idempotent.
+- **Set Up Tab** fills the active tab from its name: an empty rotation tab
+  gets the header, a `set` row with every setting at its default (bare
+  `anchor`, dated the most recent Monday 00:00) and a sample `team` row; an
+  empty `#Holidays` or `#Links` tab gets its header. Non-empty tabs are
+  refused.
 - **Fill Shifts Grid** fills the `start` of the selected rows of a rotation
   tab so they sit on the grid: empty rows above the first dated row are
   placed on the boundaries before it, empty rows below the last dated row on
@@ -213,6 +219,19 @@ them opens a dialog and none rewrites existing data.
   never written. Undated rows must be blank, `type` = `shift` only, or
   comments, which travel with the next dated row. Use it to lay out history
   before typing the names.
+
+## Running
+
+- **Run All** regenerates every rotation and rewrites `#Status` and
+  `#All shifts`. This is what the nightly trigger runs.
+- **Run All - dry run** writes `#Preview <rotation>` tabs instead of the
+  ledgers, plus the status tabs.
+- **Run for current rotation** and its dry run variant do the same for the
+  active tab only; the other rotations are read but not written. The dry run
+  writes that rotation's preview, `#Preview Links` when a `#Links` tab
+  exists, and the status tabs. The active tab must be a rotation tab.
+- **Install nightly trigger** schedules Run All daily; **Remove trigger**
+  deletes it.
 
 INSTALL.md has the step by step.
 
@@ -246,8 +265,9 @@ delete the `snapshot` row to replay everything from the top.
 **Pause a rotation.** Rename its tab to `#<rotation>`. It is skipped until
 renamed back.
 
-**Preview.** Use `Rotalator > Dry run`. It writes `#Preview <rotation>` tabs,
-`#Status` and `#All shifts` and leaves the ledgers untouched. A missing
+**Preview.** Use `Rotalator > Run All - dry run` or `Run for current rotation
+- dry run`. They write `#Preview <rotation>` tabs, `#Status` and `#All
+shifts` and leave the ledgers untouched. A missing
 preview tab is created right after its rotation tab.
 
 ## #Status and #All shifts tabs

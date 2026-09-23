@@ -1878,12 +1878,39 @@ var CELL_DATETIME_FORMAT = "yyyy-MM-dd'T'HH:mm";
 var CELL_DATE_FORMAT = 'yyyy-MM-dd';
 var TRIGGER_HANDLER = 'run';
 var FONT_FAMILY = 'Roboto Mono';
-var TAB_COLOR_GENERATED = '#9e9e9e';
-var TAB_COLOR_EDITABLE = '#4285f4';
+var TAB_COLOR_GENERATED = '#4285f4';
+var TAB_COLOR_EDITABLE = '#9e9e9e';
 var DEFAULT_ROTATION_TAB = 'On-Call';
-var LEDGER_COLUMN_WIDTHS = { pin: 40, start: 150, type: 80, what: 320, end: 150, duration: 80, note: 320 };
-var HOLIDAYS_COLUMN_WIDTHS = { date: 110, note: 320 };
-var SHIFTS_COLUMN_WIDTHS = { pin: 40, start: 150, end: 150, rotation: 120, who: 120, note: 320 };
+var LEDGER_COLUMN_WIDTHS = { pin: 40, start: 150, type: 80, what: 320, end: 150, duration: 80, note: 640 };
+var HOLIDAYS_COLUMN_WIDTHS = { date: 110, note: 640 };
+var SHIFTS_COLUMN_WIDTHS = { pin: 40, start: 150, end: 150, rotation: 120, who: 120, note: 640 };
+
+// Pastel palette (DESIGN 10.1).
+var COLOR_HEADER = '#eeeeee';
+var COLOR_DIVIDER = '#d9ead3';
+var COLOR_ERROR = '#f4c7c3';
+var COLOR_SETTINGS = '#c9daf8';
+var COLOR_ROSTER = '#d0e0e3';
+var COLOR_SNAPSHOT = '#d9ead3';
+var COLOR_COMMENT = '#fff2cc';
+var COLOR_LINK = '#d9ead3';
+var COLOR_UNLINK = '#efefef';
+
+// Conditional formatting over A:G, keyed on the type cell; comment rows have content but no type.
+var COMMENT_FORMULA = '=AND($C1="", COUNTA($A1:$G1)>0)';
+var LEDGER_FORMAT_RULES = [
+  { formula: '=$C1="error"', color: COLOR_ERROR },
+  { formula: '=OR($C1="set", $C1="score")', color: COLOR_SETTINGS },
+  { formula: '=OR($C1="team", $C1="join", $C1="leave", $C1="include", $C1="exclude")', color: COLOR_ROSTER },
+  { formula: '=$C1="snapshot"', color: COLOR_SNAPSHOT },
+  { formula: COMMENT_FORMULA, color: COLOR_COMMENT },
+];
+var LINKS_FORMAT_RULES = [
+  { formula: '=$C1="error"', color: COLOR_ERROR },
+  { formula: '=$C1="link"', color: COLOR_LINK },
+  { formula: '=$C1="unlink"', color: COLOR_UNLINK },
+  { formula: COMMENT_FORMULA, color: COLOR_COMMENT },
+];
 
 // Storage interface of DESIGN 8 over the active spreadsheet. With preview set, ledgers are written to
 // '#Preview <rotation>' tabs instead of the ledger tabs. Ledgers are written as plain text only.
@@ -1976,7 +2003,18 @@ class SheetsStorage {
     var width = rows[0].length;
     var range = sheet.getRange(row, 1, rows.length, width);
     range.setNumberFormat('@');
+    range.setFontFamily(FONT_FAMILY);
     range.setValues(rows);
+  }
+
+  // Bold grey header rows and a green divider, from the row indexes the status module reports.
+  formatTableRows(sheet, width, headerRows, dividerRows) {
+    headerRows.forEach(function (i) {
+      sheet.getRange(i + 1, 1, 1, width).setFontWeight('bold').setBackground(COLOR_HEADER);
+    });
+    dividerRows.forEach(function (i) {
+      sheet.getRange(i + 1, 1, 1, width).setBackground(COLOR_DIVIDER);
+    });
   }
 
   // Rows below the header of a ledger-shaped tab; previews go to '#Preview <name>' with a fresh header.
@@ -1984,8 +2022,9 @@ class SheetsStorage {
     var sheet;
     if (this.preview) {
       sheet = this.previewSheet(name);
-      sheet.clearContents();
+      sheet.clear();
       this.writeTextRows(sheet, 1, [LEDGER_HEADER]);
+      this.formatTableRows(sheet, LEDGER_HEADER.length, [0], []);
     } else {
       sheet = this.ss.getSheetByName(name);
       if (!sheet) return;
@@ -2003,26 +2042,30 @@ class SheetsStorage {
     this.writeLedgerRows(LINKS_TAB, rows);
   }
 
-  writeTable(name, rows) {
+  // Generated tabs are cleared with their formats and rewritten; table: { rows, headerRows, dividerRows }.
+  writeTable(name, table) {
     var sheet = this.sheetNamed(name);
-    sheet.clearContents();
-    this.writeTextRows(sheet, 1, rows);
+    sheet.clear();
+    this.writeTextRows(sheet, 1, table.rows);
+    if (table.rows.length) this.formatTableRows(sheet, table.rows[0].length, table.headerRows, table.dividerRows);
   }
 
   // #Status and #All shifts tabs, rewritten in full from the status data (DESIGN 5.8).
   writeStatus(data) {
-    this.writeTable(STATUS_TAB, statusRows(data).rows);
-    this.writeTable(ALL_SHIFTS_TAB, shiftsRows(data).rows);
+    this.writeTable(STATUS_TAB, statusRows(data));
+    this.writeTable(ALL_SHIFTS_TAB, shiftsRows(data));
   }
 }
 
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('Rotalator')
-    .addItem('Run now', 'run')
-    .addItem('Dry run', 'dryRun')
+    .addItem('Run All', 'run')
+    .addItem('Run All - dry run', 'dryRun')
+    .addItem('Run for current rotation', 'runCurrent')
+    .addItem('Run for current rotation - dry run', 'dryRunCurrent')
     .addSeparator()
-    .addItem('Set up', 'setup')
-    .addItem('Template', 'template')
+    .addItem('Set Up Spreadsheet', 'setupSpreadsheet')
+    .addItem('Set Up Tab', 'setupTab')
     .addItem('Fill Shifts Grid', 'fillShiftsGrid')
     .addSeparator()
     .addItem('Install nightly trigger', 'installTrigger')
@@ -2031,26 +2074,50 @@ function onOpen() {
 }
 
 // On errors the ledgers are still written: rows unchanged plus error rows (DESIGN 6).
-function runWith(preview) {
+// rotations: names to regenerate, or null for all.
+function runWith(preview, rotations) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var storage = new SheetsStorage(ss, { preview: preview });
-  var result = runStorage(storage, storage.nowText, { write: true, mode: preview ? 'dry run' : 'run' });
+  var options = { write: true, mode: preview ? 'dry run' : 'run' };
+  if (rotations) options.rotations = rotations;
+  var result = runStorage(storage, storage.nowText, options);
   var title = preview ? 'Rotalator dry run' : 'Rotalator';
-  var count = Object.keys(result.ledgers).length;
+  var what = rotations ? rotations.join(', ') : Object.keys(result.ledgers).length + ' rotation(s)';
   var message = result.errors.length
     ? result.errors.length + ' error(s): ' + result.errors[0]
-    : count + ' rotation(s) ' + (preview ? 'previewed' : 'updated') + ' at ' + storage.nowText;
+    : what + ' ' + (preview ? 'previewed' : 'updated') + ' at ' + storage.nowText;
   result.errors.forEach(function (e) { console.log(e); });
   ss.toast(message, title, 10);
   return result;
 }
 
 function run() {
-  return runWith(false);
+  return runWith(false, null);
 }
 
 function dryRun() {
-  return runWith(true);
+  return runWith(true, null);
+}
+
+// The active tab must be a rotation tab.
+function currentRotation() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var name = sheet.getName();
+  if (isSystemTab(name) || !isLedgerHeader(sheet.getRange(1, 1, 1, LEDGER_HEADER.length).getValues()[0])) {
+    toast('"' + name + '" is not a rotation tab');
+    return null;
+  }
+  return name;
+}
+
+function runCurrent() {
+  var name = currentRotation();
+  return name === null ? null : runWith(false, [name]);
+}
+
+function dryRunCurrent() {
+  var name = currentRotation();
+  return name === null ? null : runWith(true, [name]);
 }
 
 function deleteTriggers() {
@@ -2097,9 +2164,17 @@ function tabLayout(sheet) {
   return { header: LEDGER_HEADER, widths: LEDGER_COLUMN_WIDTHS, notes: true, freeze: true };
 }
 
-// Idempotent formatting: fonts, plain text on the whole ledger columns (A:G), bold frozen header, widths,
-// notes and spare columns removed on tabs that have their header, tab colour on system tabs. Never touches
-// cell values.
+// Replaces the tab's conditional format rules with the script's set, one rule per formula over A:G.
+function setConditionalRules(sheet, rules, width) {
+  var range = sheet.getRange('A:' + String.fromCharCode(64 + width));
+  sheet.setConditionalFormatRules(rules.map(function (r) {
+    return SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(r.formula).setBackground(r.color).setRanges([range]).build();
+  }));
+}
+
+// Idempotent formatting: fonts, plain text on the whole ledger columns (A:G), bold grey frozen header,
+// widths, notes and spare columns removed on tabs that have their header, conditional row colours on
+// rotation tabs and #Links, tab colour on system tabs. Never touches cell values.
 function formatTab(sheet) {
   var name = sheet.getName();
   var layout = tabLayout(sheet);
@@ -2109,7 +2184,7 @@ function formatTab(sheet) {
   sheet.getRange('A:' + String.fromCharCode(64 + width)).setNumberFormat('@');
   if (layout.header && !isEmptySheet(sheet)) {
     var header = sheet.getRange(1, 1, 1, width);
-    header.setFontWeight('bold');
+    header.setFontWeight('bold').setBackground(COLOR_HEADER);
     if (layout.freeze) sheet.setFrozenRows(1);
     layout.header.forEach(function (column, i) {
       sheet.setColumnWidth(i + 1, layout.widths[column]);
@@ -2117,6 +2192,8 @@ function formatTab(sheet) {
     });
     if (sheet.getMaxColumns() > width && sheet.getLastColumn() <= width) sheet.deleteColumns(width + 1, sheet.getMaxColumns() - width);
   }
+  if (!isSystemTab(name)) setConditionalRules(sheet, LEDGER_FORMAT_RULES, LEDGER_HEADER.length);
+  if (name === LINKS_TAB) setConditionalRules(sheet, LINKS_FORMAT_RULES, LEDGER_HEADER.length);
   if (isSystemTab(name)) {
     var editable = name === HOLIDAYS_TAB || name === LINKS_TAB;
     sheet.setTabColor(editable ? TAB_COLOR_EDITABLE : TAB_COLOR_GENERATED);
@@ -2142,8 +2219,9 @@ function writeRotationTemplate(sheet, storage) {
   range.setValues(rows);
 }
 
-// Menu: Set up. Creates missing system tabs, a first rotation when there is none, and formats every tab.
-function setup() {
+// Menu: Set Up Spreadsheet. Creates missing system tabs, a first rotation when there is none, and formats
+// every tab.
+function setupSpreadsheet() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var storage = new SheetsStorage(ss);
   if (!Object.keys(storage.readLedgers()).length) {
@@ -2158,19 +2236,19 @@ function setup() {
   toast('Tabs and formatting are in place');
 }
 
-// Menu: Template. Fills the active tab according to its name; never overwrites content.
-function template() {
+// Menu: Set Up Tab. Fills the active tab according to its name; never overwrites content.
+function setupTab() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getActiveSheet();
   var name = sheet.getName();
   if (isSystemTab(name) && !isKnownSystemTab(name)) { toast('"' + name + '" starts with # and is not a system tab; rename it to use it as a rotation'); return; }
   if (name === STATUS_TAB || name === ALL_SHIFTS_TAB || name.indexOf(PREVIEW_TAB_PREFIX) === 0) { toast('"' + name + '" is written by the script; nothing to fill in'); return; }
-  if (!isEmptySheet(sheet)) { toast('"' + name + '" is not empty; the template only fills empty tabs'); return; }
+  if (!isEmptySheet(sheet)) { toast('"' + name + '" is not empty; Set Up Tab only fills empty tabs'); return; }
   var layout = tabLayout(sheet);
   if (isSystemTab(name)) writeHeaderRow(sheet, layout.header);
   else writeRotationTemplate(sheet, new SheetsStorage(ss));
   formatTab(sheet);
-  toast('"' + name + '" filled from the template');
+  toast('"' + name + '" set up from the template');
 }
 
 // Menu: Fill Shifts Grid over the selected rows of a rotation tab (DESIGN 10).

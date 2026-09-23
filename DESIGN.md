@@ -22,7 +22,7 @@ fair. There is no UI beyond the spreadsheet itself.
 - Concurrency is not handled in v1. The scheduled run happens at night.
 
 Design principles: Rotalator stays a periodic, idempotent script that edits a
-spreadsheet. There is no app and no UI beyond the sheet and its menu.
+spreadsheet. There is no app and no UI beyond the spreadsheet and its menu.
 Pragmatic spreadsheet conventions (a column, a row type, a tab name prefix) are
 preferred over new components, and the code has zero dependencies unless the
 owner explicitly approves one.
@@ -33,7 +33,7 @@ owner explicitly approves one.
 |---|---|
 | rotation | One on-call role, one ledger tab. |
 | ledger | Time-sorted rows of a rotation: shifts and events. |
-| member | A person, identified by the verbatim string used in the sheet. |
+| member | A person, identified by the verbatim string used in the spreadsheet. |
 | roster | Ordered list of current members and their scores. |
 | score | Fractional days a member has been on call, plus baseline adjustments. |
 | units | Days credited for an interval, honouring `skip_weekends` and `skip_holidays`. |
@@ -271,8 +271,8 @@ One run processes all rotations together. Input: the ledgers, `#Holidays`,
 `#Links`, `now`, and optionally the names of the rotations to regenerate.
 Output: new ledgers, status data, and a list of errors. `now` is consumed by
 step 5.2 only. Everything from 5.3 on depends on the ledger alone, so
-`regenerate(ledgers, holidays, links, only)` is a pure function of the sheet
-content and can be tested without a clock.
+`regenerate(ledgers, holidays, links, only)` is a pure function of the
+spreadsheet content and can be tested without a clock.
 
 Run scope: with `only`, rotations not listed are frozen. They are read,
 validated and swept with all their rows kept as they stand (no prune, no
@@ -430,7 +430,7 @@ including dry runs.
 - Deterministic: no clock in regeneration, no randomness, hash-based shuffle.
 - Idempotent: generated rows are deleted and recreated from the same state.
   Running twice with the same `now`, or any `now` inside the same current
-  shift, yields the same sheet.
+  shift, yields the same spreadsheet.
 - Settings changes apply from their `set` row forward. Editing a `set` row in
   the past rescores history, which is intended.
 - Pinned rows, rows before the snapshot, and the current shift are never
@@ -439,8 +439,8 @@ including dry runs.
 
 ## 6. Errors and warnings
 
-The script writes diagnostics into the sheet as `error` rows. They are removed
-on the next read, so fixing the cause and rerunning clears them.
+The script writes diagnostics into the ledger tabs as `error` rows. They are
+removed on the next read, so fixing the cause and rerunning clears them.
 
 - Validation errors: the run writes every tab back with its rows unchanged,
   with an `error` row for each offending row using the same `start`, so it
@@ -564,10 +564,14 @@ bad `now`, with nothing written. The CLI exposes it as `rotalator run DIR
 spreadsheet time zone as `YYYY-MM-DDTHH:MM` text and converts date cells to
 that form before handing them over.
 
-Apps Script menu: `Run now`, `Dry run` (writes `#Preview <rotation>` tabs),
-`Set up`, `Template`, `Fill Shifts Grid` (section 10), `Install nightly
-trigger`, `Remove trigger`. `90_gas.js` reads cells, calls the core and
-writes cells; the row logic of the tools lives in `70_tools.js`.
+Apps Script menu: `Run All`, `Run All - dry run` (writes `#Preview
+<rotation>` tabs), `Run for current rotation`, `Run for current rotation -
+dry run` (the active tab only, through the runner's `rotations` option; a
+dry run then writes that rotation's preview, `#Preview Links` when a `#Links`
+tab exists, and the status tabs), `Set Up Spreadsheet`, `Set Up Tab`, `Fill
+Shifts Grid` (section 10), `Install nightly trigger`, `Remove trigger`. The
+nightly trigger always runs all rotations. `90_gas.js` reads cells, calls the
+core and writes cells; the row logic of the tools lives in `70_tools.js`.
 
 ## 9. Testing
 
@@ -577,12 +581,12 @@ writes cells; the row logic of the tools lives in `70_tools.js`.
   optional `links.csv`, one `<rotation>.csv` per ledger, and
   `expected/<rotation>.csv`. The test runs the core and compares. A second run
   on the output must reproduce it exactly.
-- Scenarios: fresh sheet bootstrap; steady state; pin a future shift; swap two
-  assignees; vacation exclusion; join with each baseline; leave and rejoin;
-  team row diff; partial substitution with fill shift; stale run resumes at
-  the current grid boundary; tolerance and min_distance interplay; shuffle
-  determinism across runs; period change via `set`; validation errors produce
-  error rows and no other change; unassignable slot; snapshot deletion
+- Scenarios: fresh spreadsheet bootstrap; steady state; pin a future shift;
+  swap two assignees; vacation exclusion; join with each baseline; leave and
+  rejoin; team row diff; partial substitution with fill shift; stale run
+  resumes at the current grid boundary; tolerance and min_distance interplay;
+  shuffle determinism across runs; period change via `set`; validation errors
+  produce error rows and no other change; unassignable slot; snapshot deletion
   triggers full replay; `distinct` and `joined` links between two rotations;
   a rotation disabled by a `#` prefix with a link that dangles; comment rows
   dated, attached and trailing.
@@ -602,26 +606,46 @@ INSTALL.md also provides the hand-made spreadsheet template as an appendix:
 header row, ledger columns formatted as plain text, initial `set` and `team`
 rows, `#Holidays` tab. The menu tools below do the same without typing.
 
-### 10.1 Set up
+### 10.1 Set Up Spreadsheet
 
-`setup()` is idempotent and never rewrites existing data. It creates the
-missing `#Holidays`, `#Links`, `#Status` and `#All shifts` tabs with their
-headers, creates `On-Call` from the rotation template when no rotation
-exists, and formats every rotation tab, `#Holidays`, `#Links`, `#All shifts`
-and empty non-`#` tabs: Roboto Mono on the whole sheet, plain text number
-format on the whole ledger columns (`A:G`), which is expected to carry over to
-rows added later the way a select-all format does in the UI (to be confirmed
-on a live sheet), and on tabs that have their header a bold frozen header
-row, column widths per column, a note on each header cell explaining the
-column and empty columns beyond the last one deleted; plus a tab colour on
-`#` tabs (one for generated tabs, another for the editable `#Holidays` and
-`#Links`). Tabs with content but no ledger header are left alone. The runner
-keeps applying plain text to the ranges it writes. Preview tabs are created
-right after the tab they preview and never moved.
+`setupSpreadsheet()` is idempotent and never rewrites existing data. It
+creates the missing `#Holidays`, `#Links`, `#Status` and `#All shifts` tabs
+with their headers, creates `On-Call` from the rotation template when no
+rotation exists, and formats every rotation tab, `#Holidays`, `#Links`,
+`#All shifts` and empty non-`#` tabs: Roboto Mono on the whole tab, plain
+text number format on the whole ledger columns (`A:G`), which is expected to
+carry over to rows added later the way a select-all format does in the UI
+(to be confirmed on a live spreadsheet), and on tabs that have their header
+a bold header row on a light grey background, frozen, column widths per
+column (`note` twice as wide as `what`), a note on each header cell
+explaining the column and empty columns beyond the last one deleted; plus a
+tab colour on `#` tabs (blue for the generated `#Status`, `#All shifts` and
+previews, grey for the editable `#Holidays` and `#Links`). Tabs with content
+but no ledger header are left alone. The runner keeps applying plain text to
+the ranges it writes. Preview tabs are created right after the tab they
+preview and never moved.
 
-### 10.2 Template
+Rotation tabs and `#Links` also get conditional formatting: the tab's rules
+are replaced (not appended to) by the script's set, so a user rule on these
+tabs does not survive Set Up. Each rule is a custom formula over the whole
+columns `A:G` keyed on the `type` cell. Rotation tabs: `error` light red,
+`set` and `score` light blue, `team`, `join`, `leave`, `include` and
+`exclude` light teal, `snapshot` light green, comment rows (empty type with
+content, `=AND($C1="", COUNTA($A1:$G1)>0)`) light yellow, `shift` no colour.
+`#Links`: `link` light green, `unlink` light grey, `error` light red,
+comments light yellow. Generated tabs (`#Status`, `#All shifts`, previews)
+are cleared with their formats and rewritten on every run; the adapter then
+applies bold and the light grey background to the `headerRows` and light
+green to the `dividerRows` reported with the rows (5.8).
 
-`template()` fills the active tab according to its name. A non-`#` tab must
+Palette: header `#eeeeee`, error `#f4c7c3`, settings `#c9daf8`, roster
+`#d0e0e3`, snapshot and link and divider `#d9ead3`, comment `#fff2cc`,
+unlink `#efefef`; tab colours generated `#4285f4`, editable `#9e9e9e`.
+
+### 10.2 Set Up Tab
+
+`setupTab()` fills the active tab according to its name and formats it like
+10.1. A non-`#` tab must
 be empty, otherwise the command refuses with a toast; it gets the header, a
 `set` row listing every setting explicitly at its default (`period=1w`, bare
 `anchor`, `horizon=90d`, ...) dated the most recent Monday 00:00, and a
