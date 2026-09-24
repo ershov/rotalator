@@ -90,10 +90,12 @@ are kept sorted by `start`; the script re-sorts on every write.
 
 ### 3.3 Value formats
 
-- Datetime: `YYYY-MM-DDTHH:MM`. On read the script also accepts a space
-  instead of `T`, a missing time (`00:00`), and real date cells, which it
-  converts using the spreadsheet time zone. It always writes the canonical
-  form. Text sorts correctly as a string and survives CSV round trips.
+- Datetime: `YYYY-MM-DD` for midnight, `YYYY-MM-DDTHH:MM` otherwise. On read
+  the script also accepts a space instead of `T`, an explicit `T00:00`, and
+  real date cells, which it converts using the spreadsheet time zone. It
+  always writes the canonical form, so a midnight instant comes back as the
+  bare date. Text sorts correctly as a string (the date is a prefix of the
+  timed form and the script re-sorts anyway) and survives CSV round trips.
 - Duration and period: an integer followed by `w`, `d`, `h` or `m`, optionally
   chained: `1w`, `3d`, `12h`, `1d12h`. Period accepts only `w` and `d`.
 - Items: every list-taking `what` uses one grammar. Items are separated by
@@ -463,18 +465,19 @@ header of all three. The CLI `--status` prints the same data vertically: the
 three groups of each rotation one after another, tables indented by one
 cell, as `statusRowsVertical` arranges them from the shared group builder. A
 warnings table follows only when there are warnings, an errors table only
-when there are errors. The `#All shifts` tab
-has the columns `pin | start | end | rotation | who | note`: `pin` the
-ledger row's own pin text, `end` the scored end, every shift of every
-rotation sorted by `start` then rotation order, and a divider row between
-past and future shifts with `start` = `now` and `now` in the rotation cell
-(omitted when `now` is unknown). `statusRows` and `shiftsRows` return
-`{ rows, headerRows, dividerRows, currentRows }`: the row indexes of the
-title, `Tabs` and `Relations` headers, each rotation block's first row, the
-warnings and errors headers and the `#All shifts` header, of the divider and
-of each rotation's current shift (empty when `now` is unknown), so adapters
-format them without knowing the layout while the CLI prints rows only. Both
-tabs are rewritten in full on every run, including dry runs.
+when there are errors. The `#All shifts` tab is a grid: header `start |
+<rotation> | ...` in tab order, one row per distinct shift start across all
+rotations, sorted; a rotation's cell holds the assignee of the shift starting
+at that instant, `-` for a nobody shift, and stays empty when that rotation
+does not change then. Comments are not shifts and do not appear. A now row
+with `start` = `now` and `--now--` in every rotation column separates past
+from future, placed after any row with the same start (omitted when `now` is
+unknown). `statusRows` and `shiftsRows` return `{ rows, headerRows,
+dividerRows }`: the row indexes of the title, `Tabs` and `Relations` headers,
+each rotation block's first row, the warnings and errors headers and the
+`#All shifts` header, and of the now row, so adapters format them without
+knowing the layout while the CLI prints rows only. Both tabs are rewritten in
+full on every run, including dry runs.
 
 ### 5.9 Properties
 
@@ -736,14 +739,13 @@ green, `detach` light grey, comment rows (empty type with content,
 (`#Status`,
 `#All shifts`, previews) are cleared with their formats and rewritten on every
 run; the adapter then
-applies bold and the light grey background to the `headerRows`, light green
-to the `dividerRows` and light orange to the `currentRows` reported with the
-rows (5.8).
+applies bold and the light grey background to the `headerRows` and light
+green to the `dividerRows` reported with the rows (5.8). `#All shifts` gets
+its column widths on every run: 150 for `start`, 120 per rotation column.
 
 Palette: header `#eeeeee`, error `#f4c7c3`, settings `#c9daf8`, roster
-`#d0e0e3`, snapshot and relation and divider `#d9ead3`, current shift
-`#fce5cd`, comment `#fff2cc`, detach `#efefef`; tab colours generated `#4285f4`,
-editable `#9e9e9e`.
+`#d0e0e3`, snapshot and relation and divider `#d9ead3`, comment `#fff2cc`,
+detach `#efefef`; tab colours generated `#4285f4`, editable `#9e9e9e`.
 
 ### 10.2 Set Up Tab
 

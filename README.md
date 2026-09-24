@@ -48,10 +48,10 @@ pin | start | type | what | end | duration | note
 | Column | Meaning |
 |---|---|
 | `pin` | Any non-empty value (`x`, or a ticked checkbox). Pinned rows are never modified or deleted by the script. |
-| `start` | `YYYY-MM-DDTHH:MM` in the spreadsheet time zone. Mandatory. A space instead of `T`, a date without time (`00:00`) and real date cells are accepted on read; the script always writes the canonical form. |
+| `start` | `YYYY-MM-DD` for midnight, `YYYY-MM-DDTHH:MM` otherwise, in the spreadsheet time zone. Mandatory. A space instead of `T`, an explicit `T00:00` and real date cells are accepted on read; the script always writes the canonical form. |
 | `type` | Row type, see below. Case-insensitive. |
 | `what` | The row's payload: a member, a list of items, settings or a message, depending on `type`. |
-| `end` | `YYYY-MM-DDTHH:MM`. Optional. Cannot be combined with `duration`. |
+| `end` | Same format as `start`. Optional. Cannot be combined with `duration`. |
 | `duration` | Integer plus unit, chained from large to small: `1w`, `3d`, `12h`, `1d12h`, `90m`. Optional. |
 | `note` | Free text. Kept on user rows, written by the script on generated rows. |
 
@@ -90,8 +90,8 @@ Example rows, one per item form:
 | | `2026-06-29T09:00` | `shift` | `-` | | | nobody on call |
 | | `2026-09-14T09:00` | `join` | `frank=min, gina` | | | |
 | | `2026-07-13T09:00` | `leave` | `bob` | | | |
-| | `2026-09-21T00:00` | `exclude` | `bob, carol` | | `3w` | offsite |
-| | `2026-09-28T00:00` | `include` | `bob` | | | back early |
+| | `2026-09-21` | `exclude` | `bob, carol` | | `3w` | offsite |
+| | `2026-09-28` | `include` | `bob` | | | back early |
 | | `2026-06-01T09:00` | `score` | `alice=10, bob+=2, carol-=1, dave=mean` | | | pre-history |
 | | `2026-10-05T09:00` | `set` | `anchor, tolerance` | | | re-anchor, tolerance back to 0 |
 | | `2026-09-07T09:00` | `snapshot` | `alice=28, bob=28, carol=21` | | | |
@@ -100,7 +100,8 @@ Example rows, one per item form:
 | | | | `todo: add the new hire in July` | | | |
 
 The examples above use a 09:00 shift start to show that any time of day works;
-the templates and `init` default to Monday 00:00.
+the templates and `init` default to Monday midnight, written as the bare date
+(`2026-06-01`).
 
 Details per type:
 
@@ -305,12 +306,11 @@ since the values change from there. A warnings table appears when
 `min_distance` or a `repel` was relaxed or a slot was unassignable. After a
 validation error the tab lists the errors instead of rotations.
 
-`#All shifts` is one table of every shift of every rotation, sorted by start:
-pin (the ledger's own pin text; a ticked checkbox shows as `x`), start, end,
-rotation, who, note. The end is the scored end of the shift. A divider row
-marked `now` separates past shifts from future ones, and each rotation's
-current shift is highlighted. Both tabs are rewritten by every run, including
-dry runs.
+`#All shifts` is a grid with one column per rotation and one row per instant
+at which any rotation changes hands: the cell holds who starts then, `-` for
+a shift with nobody, and stays empty for rotations that do not change at that
+instant. A `--now--` row separates past from future. Both tabs are rewritten
+by every run, including dry runs.
 
 ## Global defaults and relations between rotations
 

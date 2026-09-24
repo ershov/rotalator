@@ -18,9 +18,9 @@ test('init: template ledger, holidays and now; start defaults to the recent Mond
   const dir = fresh('plain');
   const out = initDir(dir, { rotation: 'primary', now: '2026-10-07T12:00' });
   assert.deepEqual(out.files.map((f) => path.basename(f)), ['primary.csv', 'holidays.csv', 'now.txt']);
-  assert.equal(out.start, '2026-10-05T00:00');
+  assert.equal(out.start, '2026-10-05');
   const rows = U.parseCsv(fs.readFileSync(path.join(dir, 'primary.csv'), 'utf8'));
-  assert.deepEqual(structuredClone(rows), structuredClone(U.templateRows(U.parseDateTime('2026-10-05T00:00'))));
+  assert.deepEqual(structuredClone(rows), structuredClone(U.templateRows(U.parseDateTime('2026-10-05'))));
   assert.equal(fs.readFileSync(path.join(dir, 'holidays.csv'), 'utf8'), 'date,note\n');
   assert.equal(fs.readFileSync(path.join(dir, 'now.txt'), 'utf8'), '2026-10-07T12:00\n');
   const result = runDir(dir);

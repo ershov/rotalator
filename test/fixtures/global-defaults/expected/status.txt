@@ -59,45 +59,25 @@ next      dave              from 2026-09-14T09:00
   baseline       median                  default
   precredit      auto                    default
 
-pin  start             end               rotation   who    note
-     2026-06-01T09:00  2026-06-08T09:00  primary    alice
-     2026-06-01T09:00  2026-06-08T09:00  secondary  alice
-     2026-06-08T09:00  2026-06-15T09:00  primary    bob
-     2026-06-08T09:00  2026-06-15T09:00  secondary  bob
-     2026-06-15T09:00  2026-06-22T09:00  primary    carol
-     2026-06-15T09:00  2026-06-22T09:00  secondary  carol
-     2026-06-22T09:00  2026-06-29T09:00  primary    dave
-     2026-06-22T09:00  2026-06-29T09:00  secondary  dave
-     2026-06-29T09:00  2026-07-06T09:00  primary    alice
-     2026-06-29T09:00  2026-07-06T09:00  secondary  alice
-     2026-07-06T09:00  2026-07-13T09:00  primary    bob
-     2026-07-06T09:00  2026-07-13T09:00  secondary  bob
-     2026-07-13T09:00  2026-07-20T09:00  primary    carol
-     2026-07-13T09:00  2026-07-20T09:00  secondary  carol
-     2026-07-20T09:00  2026-07-27T09:00  primary    dave
-     2026-07-20T09:00  2026-07-27T09:00  secondary  dave
-     2026-07-27T09:00  2026-08-03T09:00  primary    alice
-     2026-07-27T09:00  2026-08-03T09:00  secondary  alice
-     2026-08-03T09:00  2026-08-10T09:00  primary    bob
-     2026-08-03T09:00  2026-08-10T09:00  secondary  bob
-     2026-08-10T09:00  2026-08-17T09:00  primary    carol
-     2026-08-10T09:00  2026-08-17T09:00  secondary  carol
-     2026-08-17T09:00  2026-08-24T09:00  primary    dave
-     2026-08-17T09:00  2026-08-24T09:00  secondary  dave
-     2026-08-24T09:00  2026-08-31T09:00  primary    alice
-     2026-08-24T09:00  2026-08-31T09:00  secondary  alice
-     2026-08-31T09:00  2026-09-07T09:00  primary    bob
-     2026-08-31T09:00  2026-09-07T09:00  secondary  bob
-     2026-09-07T09:00  2026-09-14T09:00  primary    carol
-     2026-09-07T09:00  2026-09-14T09:00  secondary  carol
-     2026-09-08T10:00                    now
-     2026-09-14T09:00  2026-09-21T09:00  primary    dave
-     2026-09-14T09:00  2026-09-21T09:00  secondary  dave
-     2026-09-21T09:00  2026-09-28T09:00  primary    bob
-     2026-09-21T09:00  2026-09-28T09:00  secondary  bob
-     2026-09-28T09:00  2026-10-05T09:00  primary    carol
-     2026-09-28T09:00  2026-10-05T09:00  secondary  carol
-     2026-10-05T09:00  2026-10-12T09:00  primary    dave
-     2026-10-05T09:00  2026-10-12T09:00  secondary  dave
-     2026-10-12T09:00  2026-10-19T09:00  primary    bob
-     2026-10-12T09:00  2026-10-19T09:00  secondary  bob
+start             primary  secondary
+2026-06-01T09:00  alice    alice
+2026-06-08T09:00  bob      bob
+2026-06-15T09:00  carol    carol
+2026-06-22T09:00  dave     dave
+2026-06-29T09:00  alice    alice
+2026-07-06T09:00  bob      bob
+2026-07-13T09:00  carol    carol
+2026-07-20T09:00  dave     dave
+2026-07-27T09:00  alice    alice
+2026-08-03T09:00  bob      bob
+2026-08-10T09:00  carol    carol
+2026-08-17T09:00  dave     dave
+2026-08-24T09:00  alice    alice
+2026-08-31T09:00  bob      bob
+2026-09-07T09:00  carol    carol
+2026-09-08T10:00  --now--  --now--
+2026-09-14T09:00  dave     dave
+2026-09-21T09:00  bob      bob
+2026-09-28T09:00  carol    carol
+2026-10-05T09:00  dave     dave
+2026-10-12T09:00  bob      bob

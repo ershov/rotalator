@@ -11,10 +11,10 @@ const shifts = (rows) => plain(rows.map((r) => [U.formatDateTime(r.start), r.typ
 const timelineOf = (cells) => new U.SettingsTimeline(U.rowsOfType(U.rowsFromCells(cells), 'set'), new Set());
 
 test('recentMonday: most recent Monday 00:00 at or before t', () => {
-  assert.equal(U.formatDateTime(U.recentMonday(dt('2026-10-07T12:00'))), '2026-10-05T00:00');
-  assert.equal(U.formatDateTime(U.recentMonday(dt('2026-10-05T00:00'))), '2026-10-05T00:00');
-  assert.equal(U.formatDateTime(U.recentMonday(dt('2026-10-04T23:59'))), '2026-09-28T00:00');
-  assert.equal(U.formatDateTime(U.recentMonday(dt('2026-10-11T23:00'))), '2026-10-05T00:00');
+  assert.equal(U.formatDateTime(U.recentMonday(dt('2026-10-07T12:00'))), '2026-10-05');
+  assert.equal(U.formatDateTime(U.recentMonday(dt('2026-10-05'))), '2026-10-05');
+  assert.equal(U.formatDateTime(U.recentMonday(dt('2026-10-04T23:59'))), '2026-09-28');
+  assert.equal(U.formatDateTime(U.recentMonday(dt('2026-10-11T23:00'))), '2026-10-05');
 });
 
 test('templateRows: header, every setting at its default, sample team', () => {

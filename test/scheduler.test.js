@@ -49,9 +49,9 @@ test('advance: grid floor when no shift covers now', () => {
 test('advance: raised to anchor', () => {
   const ledger = rows([SET, TEAM]);
   assert.equal(U.advance(ledger, dt('2026-09-30T12:00')), MON);
-  const realigned = rows([R('', '2026-09-01T00:00', 'set', 'period=1w'), R('', '2026-09-01T00:00', 'team', 'alice'), R('', '2026-10-05T09:00', 'set', 'anchor')]);
+  const realigned = rows([R('', '2026-09-01', 'set', 'period=1w'), R('', '2026-09-01', 'team', 'alice'), R('', '2026-10-05T09:00', 'set', 'anchor')]);
   assert.equal(U.advance(realigned, dt('2026-10-07T12:00')), MON);
-  assert.equal(U.advance(realigned, dt('2026-09-15T12:00')), dt('2026-09-15T00:00'));
+  assert.equal(U.advance(realigned, dt('2026-09-15T12:00')), dt('2026-09-15'));
 });
 
 test('advance: raised to the first team or join row', () => {
@@ -217,8 +217,8 @@ test('a pinned shift beyond the horizon does not extend the last generated shift
 
 test('exclusion is honoured and closed by include', () => {
   const out = run([SET, TEAM,
-    R('', '2026-10-10T00:00', 'exclude', 'bob'),
-    R('', '2026-10-25T00:00', 'include', 'bob'),
+    R('', '2026-10-10', 'exclude', 'bob'),
+    R('', '2026-10-25', 'include', 'bob'),
   ], '2026-10-05T10:00');
   assert.deepEqual(shifts(out).map((s) => s[1]), ['alice', 'carol', 'alice', 'bob', 'carol']);
   const bounded = run([SET, TEAM, R('', '2026-10-12T09:00', 'exclude', 'bob', '2026-10-19T09:00')], '2026-10-05T10:00');
@@ -226,11 +226,11 @@ test('exclusion is honoured and closed by include', () => {
 });
 
 test('exclusion older than the snapshot is clipped and still applies', () => {
-  const first = run([SET, TEAM, R('', '2026-10-06T00:00', 'exclude', 'carol', '2026-10-30T00:00')], '2026-10-05T10:00');
+  const first = run([SET, TEAM, R('', '2026-10-06', 'exclude', 'carol', '2026-10-30')], '2026-10-05T10:00');
   assert.deepEqual(shifts(first).map((s) => s[1]), ['alice', 'bob', 'alice', 'bob', 'carol']);
   const out = run(cellsOf(first), '2026-10-13T10:00');
   assert.deepEqual(shifts(out).map((s) => s[1]), ['alice', 'bob', 'alice', 'bob', 'carol', 'carol']);
-  const gone = run(cellsOf(first).concat([R('', '2026-10-11T00:00', 'leave', 'carol')]), '2026-10-13T10:00');
+  const gone = run(cellsOf(first).concat([R('', '2026-10-11', 'leave', 'carol')]), '2026-10-13T10:00');
   assert.deepEqual(plain(gone.errors), []);
   assert.deepEqual(shifts(gone).map((s) => s[1]), ['alice', 'bob', 'alice', 'bob', 'alice', 'bob']);
 });
@@ -419,8 +419,8 @@ test('list rows: join, leave, exclude and include with several names; score with
 
 test('exclude with several names older than the snapshot keeps only the names still excluded', () => {
   const first = run([SET, TEAM,
-    R('', '2026-10-06T00:00', 'exclude', 'bob, carol', '2026-10-30T00:00'),
-    R('', '2026-10-10T00:00', 'include', 'carol'),
+    R('', '2026-10-06', 'exclude', 'bob, carol', '2026-10-30'),
+    R('', '2026-10-10', 'include', 'carol'),
   ], '2026-10-05T10:00');
   assert.deepEqual(shifts(first).map((s) => s[1]), ['alice', 'carol', 'alice', 'carol', 'bob']);
   const out = run(cellsOf(first), '2026-10-13T10:00');
@@ -441,7 +441,7 @@ test('comments are kept in place, ignored by replay and generation, and survive 
   const out = run([
     R('', '', '', 'header comment'),
     SET, TEAM,
-    R('', '2026-10-07T00:00', '', 'dated comment'),
+    R('', '2026-10-07', '', 'dated comment'),
     R('', '', '', 'above the exclude'),
     R('', '2026-10-12T09:00', 'exclude', 'bob', '', '1w'),
     R('', 'someday', '', 'bad start is undated'),
@@ -456,7 +456,7 @@ test('comments are kept in place, ignored by replay and generation, and survive 
     ['2026-10-05T09:00', 'snapshot', ''],
     ['2026-10-05T09:00', 'team', 'alice, bob, carol'],
     ['2026-10-05T09:00', 'shift', 'alice'],
-    ['2026-10-07T00:00', '', 'dated comment'],
+    ['2026-10-07', '', 'dated comment'],
     ['', '', 'above the exclude'],
     ['2026-10-12T09:00', 'exclude', 'bob'],
     ['2026-10-12T09:00', 'shift', 'carol'],

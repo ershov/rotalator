@@ -280,12 +280,13 @@ as separator and keeping text as text):
 
 ```
 pin,start,type,what,end,duration,note
-,2026-06-01T00:00,set,"period=1w, horizon=12w, grid=calendar",,,
-,2026-06-01T00:00,team,"alice, bob, carol, dave",,,
+,2026-06-01,set,"period=1w, horizon=12w, grid=calendar",,,
+,2026-06-01,team,"alice, bob, carol, dave",,,
 ```
 
-Weekly shifts from Monday 2026-06-01 00:00 on the plain calendar grid, twelve
-weeks ahead, four members round robin. Midnight is the default hand-over time
-of the templates; write `2026-06-01T09:00` instead for a 09:00 hand-over. Add
+Weekly shifts from Monday 2026-06-01 at midnight on the plain calendar grid,
+twelve weeks ahead, four members round robin. Midnight is the default
+hand-over time of the templates and is written as the bare date; write
+`2026-06-01T09:00` instead for a 09:00 hand-over. Add
 `skip_weekends=true`, `grid=counted` or other keys from the README settings
 table to the `set` row as needed.

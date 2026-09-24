@@ -126,7 +126,7 @@ test('relationOrder: readers after their targets, mutual rows add no edges, tab 
   assert.deepEqual(plain(edgesOf(ended).map((e) => [e.from, e.to])), [['a', 'b']]);
   const superseded = [entry('repel', '2025-01-06T09:00', ['b'], 'a'), entry('repel', '2026-10-05T09:00', ['a'], 'b')];
   assert.deepEqual(plain(edgesOf(superseded).map((e) => [e.from, e.to])), [['a', 'b']]);
-  assert.deepEqual(plain(edgesOf(superseded, dt('2025-03-01T00:00')).map((e) => [e.from, e.to])), [['b', 'a'], ['a', 'b']]);
+  assert.deepEqual(plain(edgesOf(superseded, dt('2025-03-01')).map((e) => [e.from, e.to])), [['b', 'a'], ['a', 'b']]);
 });
 
 test('repel in #Global: the same member never holds overlapping shifts in both rotations', () => {
@@ -333,7 +333,7 @@ test('runner: #Global rows are written back with error rows and reported; absent
 });
 
 test('global set rows layer under rotations: shared tolerance, local override and bare reset', () => {
-  const globalRows = [R('', '2026-09-01T00:00', 'set', 'tolerance=7')];
+  const globalRows = [R('', '2026-09-01', 'set', 'tolerance=7')];
   const ledger = (extra) => ({ name: 'primary', rows: rows([R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=5w'), R('', '2026-10-05T09:00', 'team', ABC), R('', '2026-10-05T09:00', 'score', 'alice+=20'), ...extra]), snapshotAt: MON });
   assert.deepEqual(whoOf(regen([ledger([])], globalRows), 'primary'), ['bob', 'carol', 'bob', 'carol', 'alice']);
   const overriding = regen([ledger([R('', '2026-10-05T09:00', 'set', 'tolerance=0')])], globalRows);

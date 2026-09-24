@@ -13,7 +13,7 @@ test('parseDateTime accepts canonical, space and date-only forms', () => {
   assert.equal(U.parseDateTime('2026-10-01 09:00'), T0);
   assert.equal(U.parseDateTime('2026-10-01'), T0 - 9 * 60);
   assert.equal(U.parseDateTime(' 2026-10-01T09:00 '), T0);
-  assert.equal(U.parseDateTime('1970-01-01T00:00'), 0);
+  assert.equal(U.parseDateTime('1970-01-01'), 0);
   assert.equal(U.parseDateTime('2024-02-29'), U.parseDateTime('2024-02-28') + 1440);
 });
 
@@ -27,7 +27,9 @@ test('parseDateTime rejects malformed and out-of-range input', () => {
 
 test('formatDateTime round-trips and pads', () => {
   assert.equal(U.formatDateTime(T0), '2026-10-01T09:00');
-  assert.equal(U.formatDateTime(0), '1970-01-01T00:00');
+  assert.equal(U.formatDateTime(0), '1970-01-01');
+  assert.equal(U.formatDateTime(U.parseDateTime('0100-03-04T05:06')), '0100-03-04T05:06');
+  assert.equal(U.parseDateTime(U.formatDateTime(U.parseDateTime('0999-12-31'))), U.parseDateTime('0999-12-31'));
   assert.equal(U.formatDateTime(U.parseDateTime('2026-01-05T07:03')), '2026-01-05T07:03');
 });
 

@@ -40,7 +40,7 @@ test('counted daily grid with skipped weekends: Friday runs to Monday, skipped i
   assert.equal(fmt(g.step(at('2026-10-12T09:00'), -1)), '2026-10-09T09:00');
   assert.equal(fmt(g.step(at('2026-10-09T09:00'), 2)), '2026-10-13T09:00');
   assert.equal(fmt(g.step(at('2026-10-09T09:00'), 0)), '2026-10-09T09:00');
-  assert.equal(fmt(g.step(at('2026-10-10T12:00'), 1)), '2026-10-13T00:00');
+  assert.equal(fmt(g.step(at('2026-10-10T12:00'), 1)), '2026-10-13');
 });
 
 test('counted grid with a holiday mid-week: Tuesday runs to Thursday', () => {
@@ -55,12 +55,12 @@ test('counted grid with a holiday mid-week: Tuesday runs to Thursday', () => {
 
 test('counted grid anchored inside a skipped day projects onto the boundary between counted days', () => {
   const g = new U.Grid(counted({ anchor: at('2026-10-10T09:00') }), new Set());
-  assert.equal(fmt(g.floor(at('2026-10-10T09:00'))), '2026-10-12T00:00');
-  assert.equal(fmt(g.ceil(at('2026-10-10T09:00'))), '2026-10-12T00:00');
-  assert.equal(fmt(g.next(at('2026-10-10T09:00'))), '2026-10-13T00:00');
-  assert.equal(fmt(g.floor(at('2026-10-09T12:00'))), '2026-10-09T00:00');
-  assert.equal(fmt(g.next(at('2026-10-09T12:00'))), '2026-10-12T00:00');
-  assert.equal(fmt(g.floor(at('2026-10-12T00:00'))), '2026-10-12T00:00');
+  assert.equal(fmt(g.floor(at('2026-10-10T09:00'))), '2026-10-12');
+  assert.equal(fmt(g.ceil(at('2026-10-10T09:00'))), '2026-10-12');
+  assert.equal(fmt(g.next(at('2026-10-10T09:00'))), '2026-10-13');
+  assert.equal(fmt(g.floor(at('2026-10-09T12:00'))), '2026-10-09');
+  assert.equal(fmt(g.next(at('2026-10-09T12:00'))), '2026-10-12');
+  assert.equal(fmt(g.floor(at('2026-10-12'))), '2026-10-12');
 });
 
 test('1w in counted mode is seven counted days and drifts across weekdays', () => {
@@ -107,8 +107,8 @@ test('counted daily rotation: no weekend shifts, Friday credits 1.0 through Mond
     ['2026-10-05T09:00', 'alice', ''], ['2026-10-06T09:00', 'bob', ''], ['2026-10-07T09:00', 'carol', ''],
     ['2026-10-08T09:00', 'alice', ''], ['2026-10-09T09:00', 'bob', ''],
   ]);
-  const friday = out.status.shifts.find((s) => s.start === at('2026-10-09T09:00'));
-  assert.equal(fmt(friday.end), '2026-10-12T09:00');
+  // Friday's shift is the last one and runs through the skipped weekend to the horizon boundary on Monday.
+  assert.equal(fmt(out.status.shifts[out.status.shifts.length - 1].start), '2026-10-09T09:00');
   assert.deepEqual(plain(out.status.rotations[0].roster.map((m) => [m.name, m.projected])), [['alice', 2], ['bob', 2], ['carol', 1]]);
   assert.equal(out.status.rotations[0].horizonEnd, at('2026-10-12T09:00'));
   assert.deepEqual(cellsOf(run(cellsOf(out), '2026-10-05T10:00')), cellsOf(out));
@@ -129,8 +129,8 @@ test('a Saturday anchor or roster row never leaves the snapshot inside skipped d
     R('', '2026-10-10T09:00', 'team', 'alice, bob'),
   ];
   const early = run(sat, '2026-10-09T12:00');
-  assert.equal(fmt(ofType(early, 'snapshot')[0].start), '2026-10-12T00:00');
-  assert.equal(shifts(early)[0][0], '2026-10-12T00:00');
+  assert.equal(fmt(ofType(early, 'snapshot')[0].start), '2026-10-12');
+  assert.equal(shifts(early)[0][0], '2026-10-12');
   assert.deepEqual(cellsOf(run(sat, '2026-10-10T12:00')), cellsOf(early));
   const lateTeam = run([SET, R('', '2026-10-10T12:00', 'team', 'alice, bob')], '2026-10-06T10:00');
   assert.equal(fmt(ofType(lateTeam, 'snapshot')[0].start), '2026-10-12T09:00');
@@ -144,7 +144,7 @@ test('the Grid of a timeline entry is reused and a long counted horizon is fast'
   assert.equal(timeline.gridAt(MON), timeline.gridAt(MON + 30 * D));
   const g = timeline.gridAt(MON);
   assert.equal(g.countedDay(7), g.countedDay(7));
-  assert.equal(fmt(U.dayStart(g.countedDay(-3))), '2026-09-30T00:00');
+  assert.equal(fmt(U.dayStart(g.countedDay(-3))), '2026-09-30');
   const started = Date.now();
   const out = run([
     R('', '2020-01-06T09:00', 'set', 'period=1d, horizon=104w, grid=counted, skip_weekends=true'),
@@ -160,8 +160,8 @@ test('counted daily rotation with a holiday: Tuesday runs to Thursday and credit
   assert.deepEqual(shifts(out).map((s) => [s[0], s[1]]), [
     ['2026-10-05T09:00', 'alice'], ['2026-10-06T09:00', 'bob'], ['2026-10-08T09:00', 'carol'], ['2026-10-09T09:00', 'alice'],
   ]);
-  const tuesday = out.status.shifts.find((s) => s.start === at('2026-10-06T09:00'));
-  assert.equal(fmt(tuesday.end), '2026-10-08T09:00');
+  const afterTuesday = out.status.shifts.find((s) => s.start > at('2026-10-06T09:00'));
+  assert.equal(fmt(afterTuesday.start), '2026-10-08T09:00');
   assert.deepEqual(plain(out.status.rotations[0].roster.map((m) => m.projected)), [2, 1, 1]);
 });
 

@@ -24,7 +24,7 @@ test('SettingsTimeline: period change sets anchor, bare anchor re-anchors, grid 
     setRow('2026-10-21T09:00', 'period=2d'),
     setRow('2026-11-02T09:00', 'period=1w, anchor'),
     setRow('2026-12-07T09:00', 'anchor'),
-    setRow('2027-01-01T00:00', 'tolerance, skip_weekends'),
+    setRow('2027-01-01', 'tolerance, skip_weekends'),
   ]);
   assert.deepEqual(plain(tl.entries.map((e) => e.gridChanged)), [true, false, true, true, true, true, false]);
   assert.equal(tl.at(MON).get('period'), W);
@@ -38,7 +38,7 @@ test('SettingsTimeline: period change sets anchor, bare anchor re-anchors, grid 
   const grid = tl.gridAt(dt('2026-12-07T09:00'));
   assert.equal(grid.period, W);
   assert.equal(grid.anchor, dt('2026-12-07T09:00'));
-  const late = tl.at(dt('2027-01-01T00:00'));
+  const late = tl.at(dt('2027-01-01'));
   assert.equal(late.get('tolerance'), 0);
   assert.equal(late.get('skip_weekends'), false);
   assert.deepEqual(plain(tl.at(dt('2026-10-07T09:00')).unitsOptions(new Set([1]))), { skip_weekends: true, skip_holidays: false, holidays: new Set([1]) });
@@ -56,7 +56,7 @@ test('Settings precredit auto resolves from roster size', () => {
 
 test('SettingsTimeline: global set rows layer under the rotation; bare keys return to the global value', () => {
   const global = [
-    setRow('2026-09-01T00:00', 'tolerance=7, seed=3'),
+    setRow('2026-09-01', 'tolerance=7, seed=3'),
     setRow('2026-10-19T09:00', 'tolerance=2'),
   ];
   const tl = new U.SettingsTimeline([
@@ -66,11 +66,11 @@ test('SettingsTimeline: global set rows layer under the rotation; bare keys retu
   ], new Set(), global);
   const at = (s) => tl.at(dt(s));
   const src = (s, key) => tl.sourcesAt(dt(s))[key];
-  assert.equal(at('2026-08-01T00:00').get('tolerance'), 0);
-  assert.equal(src('2026-08-01T00:00', 'tolerance'), 'default');
-  assert.equal(at('2026-09-15T00:00').get('tolerance'), 7);
-  assert.equal(src('2026-09-15T00:00', 'tolerance'), 'global');
-  assert.equal(at('2026-09-15T00:00').get('period'), null);
+  assert.equal(at('2026-08-01').get('tolerance'), 0);
+  assert.equal(src('2026-08-01', 'tolerance'), 'default');
+  assert.equal(at('2026-09-15').get('tolerance'), 7);
+  assert.equal(src('2026-09-15', 'tolerance'), 'global');
+  assert.equal(at('2026-09-15').get('period'), null);
   assert.equal(at('2026-10-05T09:00').get('tolerance'), 7);
   assert.equal(src('2026-10-05T09:00', 'period'), 'rotation');
   assert.equal(at('2026-10-12T09:00').get('tolerance'), 0);
@@ -83,7 +83,7 @@ test('SettingsTimeline: global set rows layer under the rotation; bare keys retu
   assert.equal(src('2026-10-26T09:00', 'seed'), 'global');
   assert.equal(src('2026-10-26T09:00', 'baseline'), 'default');
   assert.deepEqual(plain(tl.entries.map((e) => U.formatDateTime(e.start))), [
-    '2026-09-01T00:00', '2026-10-05T09:00', '2026-10-12T09:00', '2026-10-19T09:00', '2026-10-26T09:00',
+    '2026-09-01', '2026-10-05T09:00', '2026-10-12T09:00', '2026-10-19T09:00', '2026-10-26T09:00',
   ]);
 });
 
@@ -101,7 +101,7 @@ test('SettingsTimeline: global period and anchor, local period change, grid chan
   assert.deepEqual(plain(tl.gridChanges()), [MON, dt('2026-10-21T09:00')]);
   const globalOnly = new U.SettingsTimeline([], new Set(), global);
   assert.deepEqual(plain(globalOnly.gridChanges()), [MON, dt('2026-11-02T09:00')]);
-  assert.equal(globalOnly.gridAt(dt('2026-11-03T00:00')).anchor, dt('2026-11-02T09:00'));
+  assert.equal(globalOnly.gridAt(dt('2026-11-03')).anchor, dt('2026-11-02T09:00'));
 });
 
 test('SettingsTimeline: an empty first set row follows global re-anchoring; a bare local anchor pins it', () => {
@@ -116,7 +116,7 @@ test('SettingsTimeline: an empty first set row follows global re-anchoring; a ba
   assert.equal(pinned.sourcesAt(MON).anchor, 'rotation');
   assert.equal(pinned.at(dt('2026-10-21T09:00')).get('anchor'), MON);
   assert.equal(pinned.at(dt('2026-10-21T09:00')).get('period'), 2 * D);
-  assert.equal(U.formatDateTime(pinned.gridAt(dt('2026-10-21T09:00')).floor(dt('2026-10-22T00:00'))), '2026-10-21T09:00');
+  assert.equal(U.formatDateTime(pinned.gridAt(dt('2026-10-21T09:00')).floor(dt('2026-10-22'))), '2026-10-21T09:00');
   assert.equal(U.formatDateTime(pinned.gridAt(dt('2026-10-23T09:00')).next(dt('2026-10-23T09:00'))), '2026-10-25T09:00');
 });
 

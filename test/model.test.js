@@ -84,7 +84,7 @@ test('rowToArray writes canonical forms and keeps the user\'s end/duration choic
   assert.deepEqual(plain(U.rowToArray(U.rowFromArray(broken, 1))), ['', 'nope', 'shift', 'bob', 'later', '3x', '']);
   const both = ['', '2026-10-05T09:00', 'shift', 'bob', '2026-10-07 09:00', '1d', ''];
   assert.deepEqual(plain(U.rowToArray(U.rowFromArray(both, 1))), ['', '2026-10-05T09:00', 'shift', 'bob', '2026-10-07T09:00', '1d', '']);
-  assert.deepEqual(plain(U.rowToArray(U.makeRow({ start: 0, type: 'shift', what: 'a', duration: 60 }))), ['', '1970-01-01T00:00', 'shift', 'a', '', '1h', '']);
+  assert.deepEqual(plain(U.rowToArray(U.makeRow({ start: 0, type: 'shift', what: 'a', duration: 60 }))), ['', '1970-01-01', 'shift', 'a', '', '1h', '']);
 });
 
 test('makeRow fills defaults and derives end from duration', () => {
@@ -93,7 +93,7 @@ test('makeRow fills defaults and derives end from duration', () => {
   assert.equal(row.pinned, false);
   assert.equal(row.note, '');
   assert.equal(U.makeRow({ start: 0, type: 'shift', pin: 'x' }).pinned, true);
-  assert.deepEqual(plain(U.rowToArray(U.makeRow({ start: 0, type: 'error', what: 'msg' }))), ['', '1970-01-01T00:00', 'error', 'msg', '', '', '']);
+  assert.deepEqual(plain(U.rowToArray(U.makeRow({ start: 0, type: 'error', what: 'msg' }))), ['', '1970-01-01', 'error', 'msg', '', '', '']);
 });
 
 test('isNobody, shiftAssignee, whatItems and whatNames', () => {
@@ -215,7 +215,7 @@ test('validateLedger accepts every item form and drops error rows', () => {
     R('', '2026-10-05T09:00', 'error', 'stale'),
     R('', '2026-10-05T09:00', 'shift', 'alice', '', '', 'gen'),
     R('x', '2026-10-12T09:00', 'shift', 'bob', '', '1w'),
-    R('', '2026-10-14T00:00', 'exclude', 'alice, bob', '2026-10-20T00:00', '', 'offsite'),
+    R('', '2026-10-14', 'exclude', 'alice, bob', '2026-10-20', '', 'offsite'),
     R('', '2026-10-15T09:00', 'join', 'carol=min; dave'),
     R('', '2026-10-16T09:00', 'join', 'erin=12'),
     R('', '2026-10-17T09:00', 'leave', 'bob, dave'),
@@ -291,7 +291,7 @@ test('validateLedger rotation-level rules', () => {
   assert.match(messagesOf([TEAM, SET.with(1, '2026-10-06T09:00')])[0], /r: first row must be a set row \(period own or from #Global\)/);
   assert.match(messagesOf([R('', '2026-10-05T09:00', 'set', 'tolerance=1'), TEAM])[0], /first row must be a set row \(period own or from #Global\)/);
   assert.match(messagesOf([R('', '2026-10-05T09:00', 'set', ''), TEAM])[0], /first row must be a set row \(period own or from #Global\)/);
-  const globalPeriod = [U.makeRow({ type: 'set', start: dt('2026-09-01T00:00'), what: 'period=1w' })];
+  const globalPeriod = [U.makeRow({ type: 'set', start: dt('2026-09-01'), what: 'period=1w' })];
   const emptyFirst = [R('', '2026-10-05T09:00', 'set', ''), TEAM].map((cells, i) => U.rowFromArray(cells, i + 2));
   assert.deepEqual(plain(U.validateLedger(emptyFirst, 'r', globalPeriod).errors), []);
   assert.deepEqual(messagesOf([SET, TEAM, R('', '2026-10-06T09:00', 'set', '')]), []);

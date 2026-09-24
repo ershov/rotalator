@@ -46,14 +46,16 @@ function pad2(n) {
   return n < 10 ? '0' + n : String(n);
 }
 
+// Canonical text; midnight is written as the bare date (DESIGN 3.3).
 function formatDateTime(min) {
   var d = new Date(min * 60000);
-  return d.getUTCFullYear() + '-' + pad2(d.getUTCMonth() + 1) + '-' + pad2(d.getUTCDate()) +
-    'T' + pad2(d.getUTCHours()) + ':' + pad2(d.getUTCMinutes());
+  var date = String(d.getUTCFullYear()).padStart(4, '0') + '-' + pad2(d.getUTCMonth() + 1) + '-' + pad2(d.getUTCDate());
+  var time = pad2(d.getUTCHours()) + ':' + pad2(d.getUTCMinutes());
+  return time === '00:00' ? date : date + 'T' + time;
 }
 
 function formatDay(day) {
-  return formatDateTime(day * MINUTES_PER_DAY).slice(0, 10);
+  return formatDateTime(day * MINUTES_PER_DAY);
 }
 
 function dayIndex(min) {
@@ -1476,7 +1478,8 @@ var STATUS_WIDTH = 17;
 var STATUS_GAP = 2;
 var STATUS_KEYS_WIDTH = 3;
 var STATUS_SETTINGS_WIDTH = 3;
-var SHIFTS_HEADER = ['pin', 'start', 'end', 'rotation', 'who', 'note'];
+var SHIFTS_HEADER = ['start'];
+var NOW_MARK = '--now--';
 var MEMBER_HEADER = ['member', 'current', 'score', 'projected', 'last shift', 'next shift', 'exclusions'];
 
 function statusInstant(min) {
@@ -1549,19 +1552,12 @@ function rotationStatus(rot, now) {
   };
 }
 
-// Every shift of every rotation, by start then rotation order.
+// Every shift of every rotation, by start then rotation order. who is '' for a nobody shift.
 function shiftsView(rots) {
   var out = [];
   rots.forEach(function (rot) {
     rot.entries.forEach(function (e) {
-      var row = e.row || e.generated;
-      out.push({
-        start: e.start, end: e.end, rotation: rot.name,
-        who: e.who === null ? '' : e.who,
-        pinned: Boolean(row && row.pinned),
-        pin: row ? row.pin : '',
-        note: row ? row.note : '',
-      });
+      out.push({ start: e.start, rotation: rot.name, who: e.who === null ? '' : e.who });
     });
   });
   return out.sort(function (a, b) { return a.start - b.start; });
@@ -1720,7 +1716,7 @@ function statusRowsWith(status, block) {
       push([e.rotation, where, e.message]);
     });
   }
-  return { rows: rows, headerRows: headerRows, dividerRows: [], currentRows: [] };
+  return { rows: rows, headerRows: headerRows, dividerRows: [] };
 }
 
 function statusRows(status) {
@@ -1731,39 +1727,30 @@ function statusRowsVertical(status) {
   return statusRowsWith(status, verticalBlock);
 }
 
-// Rows of the #All shifts tab: header, shifts by start with the ledger's own pin marker, and a divider row at
-// the run instant between past and future shifts. currentRows marks each rotation's shift covering now;
-// both are empty when status.at is unknown.
-// A ticked checkbox arrives as the text "true"; shown as x, other markers verbatim.
-function pinMarker(text) {
-  return text.toLowerCase() === 'true' ? 'x' : text;
-}
-
+// Rows of the #All shifts grid: header start | <rotation> ..., one row per distinct shift start with the
+// assignee starting then in each rotation's column ('-' for nobody), and a now row marked in every rotation
+// column after any row with the same start (omitted when status.at is unknown).
 function shiftsRows(status) {
-  var rows = [SHIFTS_HEADER.slice()];
+  var names = status.rotations.map(function (r) { return r.name; });
+  var rows = [SHIFTS_HEADER.concat(names)];
   var dividerRows = [];
-  var currentRows = [];
   var at = status.at;
   var known = at !== null && at !== undefined;
-  var current = new Set();
-  if (known) {
-    status.rotations.forEach(function (rot) { if (rot.current) current.add(rot.name + '|' + rot.current.start); });
-  }
-  var placed = !known;
+  var starts = [];
+  var byStart = new Map();
   status.shifts.forEach(function (s) {
-    if (!placed && s.start > at) {
-      dividerRows.push(rows.length);
-      rows.push(['', statusInstant(at), '', 'now', '', '']);
-      placed = true;
-    }
-    if (current.has(s.rotation + '|' + s.start)) currentRows.push(rows.length);
-    rows.push([pinMarker(s.pin), statusInstant(s.start), statusInstant(s.end), s.rotation, s.who, s.note]);
+    if (!byStart.has(s.start)) { byStart.set(s.start, {}); starts.push(s.start); }
+    byStart.get(s.start)[s.rotation] = s.who === '' ? '-' : s.who;
   });
-  if (!placed) {
-    dividerRows.push(rows.length);
-    rows.push(['', statusInstant(at), '', 'now', '', '']);
-  }
-  return { rows: rows, headerRows: [0], dividerRows: dividerRows, currentRows: currentRows };
+  var nowRow = [statusInstant(at)].concat(names.map(function () { return NOW_MARK; }));
+  var placed = !known;
+  starts.forEach(function (start) {
+    if (!placed && start > at) { dividerRows.push(rows.length); rows.push(nowRow); placed = true; }
+    var cells = byStart.get(start);
+    rows.push([statusInstant(start)].concat(names.map(function (n) { return cells[n] || ''; })));
+  });
+  if (!placed) { dividerRows.push(rows.length); rows.push(nowRow); }
+  return { rows: rows, headerRows: [0], dividerRows: dividerRows };
 }
 
 // ---- 60_relations.js ----
@@ -2209,7 +2196,8 @@ var TAB_COLOR_EDITABLE = '#9e9e9e';
 var DEFAULT_ROTATION_TAB = 'On-Call';
 var LEDGER_COLUMN_WIDTHS = { pin: 40, start: 150, type: 80, what: 320, end: 150, duration: 80, note: 640 };
 var HOLIDAYS_COLUMN_WIDTHS = { date: 110, note: 640 };
-var SHIFTS_COLUMN_WIDTHS = { pin: 40, start: 150, end: 150, rotation: 120, who: 120, note: 640 };
+var SHIFTS_START_WIDTH = 150;
+var SHIFTS_ROTATION_WIDTH = 120;
 // #Status: keys | names or dates | dates | gap | gap | member | mark | score | projected | last | next |
 // exclusions | gap | gap | setting | value | source.
 var STATUS_COLUMN_WIDTHS = [100, 150, 150, 60, 60, 120, 60, 100, 100, 150, 150, 150, 60, 60, 100, 150, 100];
@@ -2217,7 +2205,6 @@ var STATUS_COLUMN_WIDTHS = [100, 150, 150, 60, 60, 120, 60, 100, 100, 150, 150, 
 // Pastel palette (DESIGN 10.1).
 var COLOR_HEADER = '#eeeeee';
 var COLOR_DIVIDER = '#d9ead3';
-var COLOR_CURRENT = '#fce5cd';
 var COLOR_ERROR = '#f4c7c3';
 var COLOR_SETTINGS = '#c9daf8';
 var COLOR_ROSTER = '#d0e0e3';
@@ -2340,8 +2327,8 @@ class SheetsStorage {
     range.setValues(rows);
   }
 
-  // Bold grey header rows, a green divider and orange current shifts, from the row indexes the status
-  // module reports in table { headerRows, dividerRows, currentRows }.
+  // Bold grey header rows and a green divider, from the row indexes the status module reports in
+  // table { headerRows, dividerRows }.
   formatTableRows(sheet, width, table) {
     var paint = function (indexes, color) {
       (indexes || []).forEach(function (i) { sheet.getRange(i + 1, 1, 1, width).setBackground(color); });
@@ -2349,7 +2336,6 @@ class SheetsStorage {
     (table.headerRows || []).forEach(function (i) { sheet.getRange(i + 1, 1, 1, width).setFontWeight('bold'); });
     paint(table.headerRows, COLOR_HEADER);
     paint(table.dividerRows, COLOR_DIVIDER);
-    paint(table.currentRows, COLOR_CURRENT);
   }
 
   // Rows below the header of a ledger-shaped tab; previews go to '#Preview <name>' with a fresh header.
@@ -2377,7 +2363,7 @@ class SheetsStorage {
     this.writeLedgerRows(GLOBAL_TAB, rows);
   }
 
-  // Generated tabs are cleared with their formats and rewritten; table: { rows, headerRows, dividerRows, currentRows }.
+  // Generated tabs are cleared with their formats and rewritten; table: { rows, headerRows, dividerRows }.
   writeTable(name, table) {
     var sheet = this.sheetNamed(name);
     sheet.clear();
@@ -2388,7 +2374,11 @@ class SheetsStorage {
   // #Status and #All shifts tabs, rewritten in full from the status data (DESIGN 5.8).
   writeStatus(data) {
     this.writeTable(STATUS_TAB, statusRows(data));
-    this.writeTable(ALL_SHIFTS_TAB, shiftsRows(data));
+    var shifts = shiftsRows(data);
+    this.writeTable(ALL_SHIFTS_TAB, shifts);
+    var sheet = this.ss.getSheetByName(ALL_SHIFTS_TAB);
+    shifts.rows[0].forEach(function (cell, i) { sheet.setColumnWidth(i + 1, i === 0 ? SHIFTS_START_WIDTH : SHIFTS_ROTATION_WIDTH); });
+    sheet.setFrozenRows(1);
   }
 }
 
@@ -2492,7 +2482,7 @@ function writeHeaderRow(sheet, header) {
 function tabLayout(sheet) {
   var name = sheet.getName();
   if (name === HOLIDAYS_TAB) return { header: HOLIDAYS_HEADER, widths: HOLIDAYS_COLUMN_WIDTHS, notes: true, freeze: true };
-  if (name === ALL_SHIFTS_TAB) return { header: SHIFTS_HEADER, widths: SHIFTS_COLUMN_WIDTHS, notes: false, freeze: true };
+  if (name === ALL_SHIFTS_TAB) return { header: null, widths: null, notes: false, freeze: false };
   if (name === STATUS_TAB) return { header: null, widths: STATUS_COLUMN_WIDTHS, notes: false, freeze: false };
   if (isSystemTab(name) && !isKnownSystemTab(name)) return null;
   if (!isSystemTab(name) && !isEmptySheet(sheet) && !isLedgerHeader(sheet.getRange(1, 1, 1, LEDGER_HEADER.length).getValues()[0])) return null;

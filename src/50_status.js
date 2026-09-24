@@ -4,7 +4,8 @@ var STATUS_WIDTH = 17;
 var STATUS_GAP = 2;
 var STATUS_KEYS_WIDTH = 3;
 var STATUS_SETTINGS_WIDTH = 3;
-var SHIFTS_HEADER = ['pin', 'start', 'end', 'rotation', 'who', 'note'];
+var SHIFTS_HEADER = ['start'];
+var NOW_MARK = '--now--';
 var MEMBER_HEADER = ['member', 'current', 'score', 'projected', 'last shift', 'next shift', 'exclusions'];
 
 function statusInstant(min) {
@@ -77,19 +78,12 @@ function rotationStatus(rot, now) {
   };
 }
 
-// Every shift of every rotation, by start then rotation order.
+// Every shift of every rotation, by start then rotation order. who is '' for a nobody shift.
 function shiftsView(rots) {
   var out = [];
   rots.forEach(function (rot) {
     rot.entries.forEach(function (e) {
-      var row = e.row || e.generated;
-      out.push({
-        start: e.start, end: e.end, rotation: rot.name,
-        who: e.who === null ? '' : e.who,
-        pinned: Boolean(row && row.pinned),
-        pin: row ? row.pin : '',
-        note: row ? row.note : '',
-      });
+      out.push({ start: e.start, rotation: rot.name, who: e.who === null ? '' : e.who });
     });
   });
   return out.sort(function (a, b) { return a.start - b.start; });
@@ -248,7 +242,7 @@ function statusRowsWith(status, block) {
       push([e.rotation, where, e.message]);
     });
   }
-  return { rows: rows, headerRows: headerRows, dividerRows: [], currentRows: [] };
+  return { rows: rows, headerRows: headerRows, dividerRows: [] };
 }
 
 function statusRows(status) {
@@ -259,37 +253,28 @@ function statusRowsVertical(status) {
   return statusRowsWith(status, verticalBlock);
 }
 
-// Rows of the #All shifts tab: header, shifts by start with the ledger's own pin marker, and a divider row at
-// the run instant between past and future shifts. currentRows marks each rotation's shift covering now;
-// both are empty when status.at is unknown.
-// A ticked checkbox arrives as the text "true"; shown as x, other markers verbatim.
-function pinMarker(text) {
-  return text.toLowerCase() === 'true' ? 'x' : text;
-}
-
+// Rows of the #All shifts grid: header start | <rotation> ..., one row per distinct shift start with the
+// assignee starting then in each rotation's column ('-' for nobody), and a now row marked in every rotation
+// column after any row with the same start (omitted when status.at is unknown).
 function shiftsRows(status) {
-  var rows = [SHIFTS_HEADER.slice()];
+  var names = status.rotations.map(function (r) { return r.name; });
+  var rows = [SHIFTS_HEADER.concat(names)];
   var dividerRows = [];
-  var currentRows = [];
   var at = status.at;
   var known = at !== null && at !== undefined;
-  var current = new Set();
-  if (known) {
-    status.rotations.forEach(function (rot) { if (rot.current) current.add(rot.name + '|' + rot.current.start); });
-  }
-  var placed = !known;
+  var starts = [];
+  var byStart = new Map();
   status.shifts.forEach(function (s) {
-    if (!placed && s.start > at) {
-      dividerRows.push(rows.length);
-      rows.push(['', statusInstant(at), '', 'now', '', '']);
-      placed = true;
-    }
-    if (current.has(s.rotation + '|' + s.start)) currentRows.push(rows.length);
-    rows.push([pinMarker(s.pin), statusInstant(s.start), statusInstant(s.end), s.rotation, s.who, s.note]);
+    if (!byStart.has(s.start)) { byStart.set(s.start, {}); starts.push(s.start); }
+    byStart.get(s.start)[s.rotation] = s.who === '' ? '-' : s.who;
   });
-  if (!placed) {
-    dividerRows.push(rows.length);
-    rows.push(['', statusInstant(at), '', 'now', '', '']);
-  }
-  return { rows: rows, headerRows: [0], dividerRows: dividerRows, currentRows: currentRows };
+  var nowRow = [statusInstant(at)].concat(names.map(function () { return NOW_MARK; }));
+  var placed = !known;
+  starts.forEach(function (start) {
+    if (!placed && start > at) { dividerRows.push(rows.length); rows.push(nowRow); placed = true; }
+    var cells = byStart.get(start);
+    rows.push([statusInstant(start)].concat(names.map(function (n) { return cells[n] || ''; })));
+  });
+  if (!placed) { dividerRows.push(rows.length); rows.push(nowRow); }
+  return { rows: rows, headerRows: [0], dividerRows: dividerRows };
 }

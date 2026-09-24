@@ -45,14 +45,16 @@ function pad2(n) {
   return n < 10 ? '0' + n : String(n);
 }
 
+// Canonical text; midnight is written as the bare date (DESIGN 3.3).
 function formatDateTime(min) {
   var d = new Date(min * 60000);
-  return d.getUTCFullYear() + '-' + pad2(d.getUTCMonth() + 1) + '-' + pad2(d.getUTCDate()) +
-    'T' + pad2(d.getUTCHours()) + ':' + pad2(d.getUTCMinutes());
+  var date = String(d.getUTCFullYear()).padStart(4, '0') + '-' + pad2(d.getUTCMonth() + 1) + '-' + pad2(d.getUTCDate());
+  var time = pad2(d.getUTCHours()) + ':' + pad2(d.getUTCMinutes());
+  return time === '00:00' ? date : date + 'T' + time;
 }
 
 function formatDay(day) {
-  return formatDateTime(day * MINUTES_PER_DAY).slice(0, 10);
+  return formatDateTime(day * MINUTES_PER_DAY);
 }
 
 function dayIndex(min) {

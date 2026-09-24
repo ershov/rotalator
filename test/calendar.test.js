@@ -18,7 +18,7 @@ test('Grid floor, ceil, next with anchor before and after t', () => {
   assert.equal(g.ceil(MON), MON);
   assert.equal(g.next(MON), MON + W);
   assert.equal(g.next(MON - 1), MON);
-  const early = dt('2026-09-01T00:00');
+  const early = dt('2026-09-01');
   assert.equal(U.formatDateTime(g.floor(early)), '2026-08-31T09:00');
   assert.equal(U.formatDateTime(g.ceil(early)), '2026-09-07T09:00');
   const daily = new U.Grid({ period: 1440, anchor: 0 });
@@ -40,7 +40,7 @@ test('units counts fractional days and skips weekends and holidays', () => {
   assert.equal(U.units(MON, MON + W, { skip_holidays: true, holidays }), 6);
   assert.equal(U.units(MON, MON + W, { skip_holidays: false, holidays }), 7);
   assert.equal(U.units(MON, MON + W, { skip_weekends: true, skip_holidays: true, holidays }), 4);
-  const midnight = dt('2026-10-06T00:00');
+  const midnight = dt('2026-10-06');
   assert.equal(U.units(midnight - 90, midnight + 30, { skip_holidays: true, holidays: new Set([U.parseDay('2026-10-06')]) }), 90 / 1440);
 });
 

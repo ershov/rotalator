@@ -9,7 +9,8 @@ var TAB_COLOR_EDITABLE = '#9e9e9e';
 var DEFAULT_ROTATION_TAB = 'On-Call';
 var LEDGER_COLUMN_WIDTHS = { pin: 40, start: 150, type: 80, what: 320, end: 150, duration: 80, note: 640 };
 var HOLIDAYS_COLUMN_WIDTHS = { date: 110, note: 640 };
-var SHIFTS_COLUMN_WIDTHS = { pin: 40, start: 150, end: 150, rotation: 120, who: 120, note: 640 };
+var SHIFTS_START_WIDTH = 150;
+var SHIFTS_ROTATION_WIDTH = 120;
 // #Status: keys | names or dates | dates | gap | gap | member | mark | score | projected | last | next |
 // exclusions | gap | gap | setting | value | source.
 var STATUS_COLUMN_WIDTHS = [100, 150, 150, 60, 60, 120, 60, 100, 100, 150, 150, 150, 60, 60, 100, 150, 100];
@@ -17,7 +18,6 @@ var STATUS_COLUMN_WIDTHS = [100, 150, 150, 60, 60, 120, 60, 100, 100, 150, 150, 
 // Pastel palette (DESIGN 10.1).
 var COLOR_HEADER = '#eeeeee';
 var COLOR_DIVIDER = '#d9ead3';
-var COLOR_CURRENT = '#fce5cd';
 var COLOR_ERROR = '#f4c7c3';
 var COLOR_SETTINGS = '#c9daf8';
 var COLOR_ROSTER = '#d0e0e3';
@@ -140,8 +140,8 @@ class SheetsStorage {
     range.setValues(rows);
   }
 
-  // Bold grey header rows, a green divider and orange current shifts, from the row indexes the status
-  // module reports in table { headerRows, dividerRows, currentRows }.
+  // Bold grey header rows and a green divider, from the row indexes the status module reports in
+  // table { headerRows, dividerRows }.
   formatTableRows(sheet, width, table) {
     var paint = function (indexes, color) {
       (indexes || []).forEach(function (i) { sheet.getRange(i + 1, 1, 1, width).setBackground(color); });
@@ -149,7 +149,6 @@ class SheetsStorage {
     (table.headerRows || []).forEach(function (i) { sheet.getRange(i + 1, 1, 1, width).setFontWeight('bold'); });
     paint(table.headerRows, COLOR_HEADER);
     paint(table.dividerRows, COLOR_DIVIDER);
-    paint(table.currentRows, COLOR_CURRENT);
   }
 
   // Rows below the header of a ledger-shaped tab; previews go to '#Preview <name>' with a fresh header.
@@ -177,7 +176,7 @@ class SheetsStorage {
     this.writeLedgerRows(GLOBAL_TAB, rows);
   }
 
-  // Generated tabs are cleared with their formats and rewritten; table: { rows, headerRows, dividerRows, currentRows }.
+  // Generated tabs are cleared with their formats and rewritten; table: { rows, headerRows, dividerRows }.
   writeTable(name, table) {
     var sheet = this.sheetNamed(name);
     sheet.clear();
@@ -188,7 +187,11 @@ class SheetsStorage {
   // #Status and #All shifts tabs, rewritten in full from the status data (DESIGN 5.8).
   writeStatus(data) {
     this.writeTable(STATUS_TAB, statusRows(data));
-    this.writeTable(ALL_SHIFTS_TAB, shiftsRows(data));
+    var shifts = shiftsRows(data);
+    this.writeTable(ALL_SHIFTS_TAB, shifts);
+    var sheet = this.ss.getSheetByName(ALL_SHIFTS_TAB);
+    shifts.rows[0].forEach(function (cell, i) { sheet.setColumnWidth(i + 1, i === 0 ? SHIFTS_START_WIDTH : SHIFTS_ROTATION_WIDTH); });
+    sheet.setFrozenRows(1);
   }
 }
 
@@ -292,7 +295,7 @@ function writeHeaderRow(sheet, header) {
 function tabLayout(sheet) {
   var name = sheet.getName();
   if (name === HOLIDAYS_TAB) return { header: HOLIDAYS_HEADER, widths: HOLIDAYS_COLUMN_WIDTHS, notes: true, freeze: true };
-  if (name === ALL_SHIFTS_TAB) return { header: SHIFTS_HEADER, widths: SHIFTS_COLUMN_WIDTHS, notes: false, freeze: true };
+  if (name === ALL_SHIFTS_TAB) return { header: null, widths: null, notes: false, freeze: false };
   if (name === STATUS_TAB) return { header: null, widths: STATUS_COLUMN_WIDTHS, notes: false, freeze: false };
   if (isSystemTab(name) && !isKnownSystemTab(name)) return null;
   if (!isSystemTab(name) && !isEmptySheet(sheet) && !isLedgerHeader(sheet.getRange(1, 1, 1, LEDGER_HEADER.length).getValues()[0])) return null;
