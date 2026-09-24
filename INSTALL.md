@@ -99,7 +99,7 @@ Reload the spreadsheet and continue with section 4.
      beyond the last one removed;
    - on rotation tabs and `#Global`: conditional row colours by `type`
      (errors red, `set` and `score` blue, roster changes teal, `snapshot`
-     green, comment rows yellow; in `#Global` `link` green and `unlink` grey).
+     green, comment rows yellow, `attract` and `repel` green, `detach` grey).
      The tab's existing conditional format rules are replaced;
    - colours the `#` tabs: blue for tabs the script writes, grey for
      `#Holidays` and `#Global`, which you edit.
@@ -269,7 +269,7 @@ Everything **Set Up Spreadsheet** and **Set Up Tab** do can be typed by hand.
    the roster, same `start`.
 5. Add a `#Holidays` tab with the header `date | note` in row 1, and
    optionally a `#Global` tab with the same seven-cell header as a ledger (see
-   the README for global `set` rows and `link` rows).
+   the README for global `set` rows and relation rows).
 6. Optional: freeze row 1 (**View > Freeze > 1 row**) and add a checkbox to
    the `pin` column (**Insert > Checkbox**). An unticked checkbox counts as
    empty.

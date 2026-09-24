@@ -27,16 +27,19 @@ function isKnownSystemTab(name) {
 // settings). extent: end/duration allowed. A row with an empty type is a comment (internal type 'comment',
 // order -1): never validated, replayed or generated, only sorted.
 var ROW_TYPES = {
-  error:    { order: 0, what: 'text',   required: true,  extent: false },
-  set:      { order: 1, what: 'set',    required: false, extent: false },
-  snapshot: { order: 2, what: 'scores', required: false, extent: false },
-  team:     { order: 3, what: 'team',   required: true,  extent: false },
-  join:     { order: 4, what: 'join',   required: true,  extent: false },
-  leave:    { order: 5, what: 'names',  required: true,  extent: false },
-  score:    { order: 6, what: 'team',   required: true,  extent: false },
-  exclude:  { order: 7, what: 'names',  required: true,  extent: true },
-  include:  { order: 8, what: 'names',  required: true,  extent: false },
-  shift:    { order: 9, what: 'shift',  required: false, extent: true },
+  error:    { order: 0,  what: 'text',   required: true,  extent: false },
+  set:      { order: 1,  what: 'set',    required: false, extent: false },
+  attract:  { order: 2,  what: 'names',  required: true,  extent: true },
+  repel:    { order: 3,  what: 'names',  required: true,  extent: true },
+  detach:   { order: 4,  what: 'names',  required: true,  extent: true },
+  snapshot: { order: 5,  what: 'scores', required: false, extent: false },
+  team:     { order: 6,  what: 'team',   required: true,  extent: false },
+  join:     { order: 7,  what: 'join',   required: true,  extent: false },
+  leave:    { order: 8,  what: 'names',  required: true,  extent: false },
+  score:    { order: 9,  what: 'team',   required: true,  extent: false },
+  exclude:  { order: 10, what: 'names',  required: true,  extent: true },
+  include:  { order: 11, what: 'names',  required: true,  extent: false },
+  shift:    { order: 12, what: 'shift',  required: false, extent: true },
 };
 
 var BASELINE_KEYWORDS = ['median', 'mean', 'min', 'max'];

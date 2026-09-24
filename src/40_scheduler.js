@@ -99,7 +99,7 @@ function resolvedExcludeEnds(rows) {
   return ends;
 }
 
-// frozen (DESIGN 5, run scope): the rotation is swept as it stands so links see its shifts, but nothing is
+// frozen (DESIGN 5, run scope): the rotation is swept as it stands so relations see its shifts, but nothing is
 // pruned, no slot is filled and the snapshot stays where it is; it is not written. globalSetRows: #Global.
 function prepareRotation(input, index, holidays, frozen, globalSetRows) {
   var validated = validateLedger(input.rows, input.name, globalSetRows);
@@ -162,7 +162,7 @@ function rotationItems(rot) {
   rot.roster.fromSnapshotWhat(rot.previousWhat);
   rot.precredited = new Set();
   rot.kept.forEach(function (row) {
-    if (row.type === 'shift' || row.type === 'comment' || row.type === 'set') return;
+    if (row.type === 'shift' || row.type === 'comment' || row.type === 'set' || isRelationRow(row)) return;
     if (row.type === 'exclude') {
       var ends = excludeEnds.get(row);
       var names = whatNames(row).filter(function (n) { return clipToSnapshot(row.start, ends[n], P) !== null; });
@@ -238,7 +238,7 @@ function previousAssignee(rot, entry) {
   return previous ? previous.who : null;
 }
 
-// DESIGN 5.7 steps 3 and 4. joined links prefer holders of an overlapping shift in a linked rotation.
+// DESIGN 5.7 steps 3 and 4.
 function tiebreak(rot, entry, candidates, settings) {
   var names = rot.roster.names();
   var chosen = new Set(candidates.map(function (m) { return m.name; }));
@@ -260,42 +260,43 @@ function tiebreak(rot, entry, candidates, settings) {
   return null;
 }
 
-// DESIGN 5.7 and 7. distinct holders are removed before relaxation; joined holders are preferred inside the band.
+// DESIGN 5.7 and 7. Exclusions are never violated. min_distance steps down with repel kept, then once more
+// without repel (warning and note), then nobody. attract holders are preferred inside the band.
 function assignSlot(rot, entry, holidays, ctx) {
   var settings = rot.timeline.at(entry.start);
   var roster = rot.roster;
   var a = entry.start, b = entry.slotEnd;
   var minDistance = settings.get('min_distance');
-  var distinct = linkedHolders(ctx, rot, 'distinct', a, b);
-  var members = roster.members.filter(function (m) { return !distinct.has(m.name); });
   var grid = rot.timeline.gridAt(a);
-  var eligible = [];
-  var used = 0;
-  for (var d = minDistance; d >= 0 && !eligible.length; d--) {
-    var from = grid.step(a, -d), to = grid.step(b, d);
-    used = d;
-    eligible = members.filter(function (m) {
-      return !roster.isExcluded(m.name, a, b) && !hasShiftOverlapping(rot, m.name, from, to);
-    });
-  }
-  var note = '';
-  if (eligible.length) {
-    var lowest = Math.min.apply(null, eligible.map(function (m) { return m.score; }));
+  var repelled = relatedHolders(ctx, rot, 'repel', a, b);
+  var members = roster.members.filter(function (m) { return !roster.isExcluded(m.name, a, b); });
+  var pick = null;
+  // The second pass only adds repelled members back, so a pick made there is always a repelled one.
+  [true, false].forEach(function (keepRepel) {
+    if (pick || (!keepRepel && !repelled.size)) return;
+    var pool = keepRepel ? members.filter(function (m) { return !repelled.has(m.name); }) : members;
+    for (var d = minDistance; d >= 0 && !pick; d--) {
+      var from = grid.step(a, -d), to = grid.step(b, d);
+      var eligible = pool.filter(function (m) { return !hasShiftOverlapping(rot, m.name, from, to); });
+      if (eligible.length) pick = { eligible: eligible, distance: d, repelDropped: !keepRepel };
+    }
+  });
+  var notes = [];
+  if (pick) {
+    var lowest = Math.min.apply(null, pick.eligible.map(function (m) { return m.score; }));
     var tolerance = settings.get('tolerance');
-    var candidates = eligible.filter(function (m) { return m.score <= lowest + tolerance; });
-    var joined = linkedHolders(ctx, rot, 'joined', a, b);
-    var preferred = candidates.filter(function (m) { return joined.has(m.name); });
+    var candidates = pick.eligible.filter(function (m) { return m.score <= lowest + tolerance; });
+    var attracted = relatedHolders(ctx, rot, 'attract', a, b);
+    var preferred = candidates.filter(function (m) { return attracted.has(m.name); });
     entry.who = tiebreak(rot, entry, preferred.length ? preferred : candidates, settings);
     roster.credit(entry.who, units(a, entry.end, settings.unitsOptions(holidays)));
-    if (used < minDistance) {
-      note = 'min_distance relaxed to ' + used;
-      rot.warnings.push({ start: a, message: note });
-    }
+    if (pick.distance < minDistance) notes.push('min_distance relaxed to ' + pick.distance);
+    if (pick.repelDropped) notes.push('repel relaxed: ' + entry.who + ' also on ' + (repelled.get(entry.who) || []).join(', '));
+    notes.forEach(function (n) { rot.warnings.push({ start: a, message: n }); });
   } else {
-    var message = 'no eligible member for shift ' + formatDateTime(a) + ' to ' + formatDateTime(b);
-    rot.problems.push({ start: a, message: message });
+    rot.problems.push({ start: a, message: 'no eligible member for shift ' + formatDateTime(a) + ' to ' + formatDateTime(b) });
   }
-  entry.generated = makeRow({ type: 'shift', start: a, what: entry.who === null ? '' : entry.who, note: note });
+  entry.generated = makeRow({ type: 'shift', start: a, what: entry.who === null ? '' : entry.who, note: notes.join('; ') });
 }
 
 function sweep(items, rots, holidays, ctx) {
@@ -356,24 +357,45 @@ function errorOutput(rots, global, now) {
   };
 }
 
-// #Global rows parsed against the rotation names: set rows for the timelines, links for the sweep, error rows
-// for the tab. A bad set row blocks regeneration (blocking); relation errors never do.
-function prepareGlobal(rows, names) {
-  var parsed = parseGlobal(rows || [], names);
-  var errors = parsed.errors.map(function (e) {
-    return { rotation: GLOBAL_TAB, rowIndex: e.rowIndex, start: e.start, message: e.message };
-  });
-  return { rows: parsed.rows, errors: errors, blocking: parsed.setErrors.length > 0, setRows: parsed.setRows, links: parsed.links };
+function globalError(e) {
+  return { rotation: GLOBAL_TAB, rowIndex: e.rowIndex, start: e.start, message: e.message };
 }
 
-// Sweep order and lookup of the rotations for the link filters.
-function linkContext(global, rots) {
+// #Global rows parsed against the rotation names: set rows for the timelines, relation rows for the sweep,
+// error rows for the tab. A bad set row blocks regeneration (blocking); relation errors never do.
+function prepareGlobal(rows, names) {
+  var parsed = parseGlobal(rows || [], names);
+  return { rows: parsed.rows, errors: parsed.errors.map(globalError), blocking: parsed.setErrors.length > 0, setRows: parsed.setRows, relationRows: parsed.relationRows };
+}
+
+// Relation state, sweep order and rotation lookup for the sweep (DESIGN 7). Rotation-tab relation rows are
+// checked here against the rotation names; rejected rows and rows inside an order cycle get a non-blocking
+// error row in their own tab.
+function relationContext(global, rots) {
   var names = rots.map(function (r) { return r.name; });
-  var order = linkedRotationOrder(global.links, names);
-  rots.forEach(function (rot) { rot.rank = order.indexOf(rot.name); });
   var byName = {};
   rots.forEach(function (rot) { byName[rot.name] = rot; });
-  return { links: global.links, byName: byName };
+  var entries = global.relationRows.map(function (row) { return { row: row, reader: null, names: whatNames(row) }; });
+  rots.forEach(function (rot) {
+    (rot.kept || []).filter(isRelationRow).forEach(function (row) {
+      var message = validateRelationRow(row, names, rot.name);
+      if (message !== null) rot.problems.push(rowError(row, message));
+      else entries.push({ row: row, reader: rot.name, names: whatNames(row) });
+    });
+  });
+  var relations = new Relations();
+  entries.forEach(function (entry) { relations.add(entry); });
+  // Only states that can be in force from the earliest snapshot on order the sweep; only one-sided rows
+  // create edges, so only rotation-tab rows can form a cycle.
+  var snapshots = rots.filter(function (r) { return r.S !== undefined; }).map(function (r) { return r.S; });
+  var minS = snapshots.length ? Math.min.apply(null, snapshots) : -Infinity;
+  var ordered = relationOrder(relations.orderEdges(minS), names);
+  ordered.ignored.forEach(function (entry) {
+    relations.remove(entry);
+    byName[entry.reader].problems.push(rowError(entry.row, cycleMessage(entry, ordered.cyclic)));
+  });
+  rots.forEach(function (rot) { rot.rank = ordered.order.indexOf(rot.name); });
+  return { relations: relations, byName: byName };
 }
 
 // Script rows go in front of the kept rows so undated comments still attach to the next kept row below them.
@@ -395,17 +417,20 @@ function regenerate(input) {
   var rots = input.rotations.map(function (r, i) {
     return prepareRotation(r, i, holidays, only !== null && only.indexOf(r.name) < 0, global.setRows);
   });
-  var ctx = linkContext(global, rots);
+  var ctx = relationContext(global, rots);
   var hasErrors = function () { return global.blocking || rots.some(function (rot) { return rot.errors.length > 0; }); };
   if (hasErrors()) return errorOutput(rots, global, input.now);
   sweep(mergeItems(rots), rots, holidays, ctx);
   if (hasErrors()) return errorOutput(rots, global, input.now);
-  var warnings = collectErrors(rots, 'warnings').concat(collectErrors(rots, 'problems'));
+  // Problems with a row (rejected relation rows) are errors in the status; unassignable slots are warnings.
+  var problems = collectErrors(rots, 'problems');
+  var rowProblems = problems.filter(function (p) { return p.rowIndex !== null; });
+  var slotProblems = problems.filter(function (p) { return p.rowIndex === null; });
   return {
     rotations: writable(rots).map(rotationOutput),
     regenerated: true,
     global: { rows: global.rows, errors: global.errors },
-    errors: collectErrors(rots, 'problems').concat(global.errors),
-    status: buildStatus(rots, warnings, global.errors, input.now),
+    errors: problems.concat(global.errors),
+    status: buildStatus(rots, collectErrors(rots, 'warnings').concat(slotProblems), rowProblems.concat(global.errors), input.now),
   };
 }

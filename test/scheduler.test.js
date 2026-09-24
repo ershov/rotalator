@@ -501,12 +501,12 @@ test('comment above a generated shift stays above that instant across runs; a co
   assert.deepEqual(plain(empty.errors.map((e) => e.message)), ['r: ledger is empty']);
 });
 
-test('only: unlisted rotations are swept frozen, not returned, and their shifts still constrain links', () => {
+test('only: unlisted rotations are swept frozen, not returned, and their shifts still constrain relations', () => {
   const primary = { name: 'primary', rows: rows([SET, TEAM,
     R('', '2026-10-05T09:00', 'shift', 'alice'), R('', '2026-10-12T09:00', 'shift', 'alice'), R('', '2026-10-19T09:00', 'shift', 'alice'),
   ]), snapshotAt: MON };
   const secondary = { name: 'secondary', rows: rows([SET, TEAM]), snapshotAt: MON };
-  const link = rows([R('', '2026-10-05T09:00', 'link', 'distinct: primary, secondary')]);
+  const link = rows([R('', '2026-10-05T09:00', 'repel', 'primary, secondary')]);
   const full = U.regenerate({ rotations: [primary, secondary], holidays: [], global: link });
   assert.deepEqual(plain(full.rotations.map((r) => r.name)), ['primary', 'secondary']);
   // A full run reassigns primary's unpinned future shifts (alice, bob, carol); a scoped run keeps alice on all three.

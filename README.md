@@ -36,7 +36,7 @@ A tab whose name starts with `#` is a system tab and never a rotation. Any
 other tab is a rotation when its first row is exactly the header below;
 anything else is ignored and listed under `ignored` in `#Status`. To disable a
 rotation, rename its tab to `#<rotation>`: it is neither read nor written,
-links naming it get an `error` row in `#Global`, and renaming it back later
+relation rows naming it get an `error` row, and renaming it back later
 resumes like a run after a pause.
 
 ## Ledger columns
@@ -215,9 +215,9 @@ them opens a dialog and none rewrites existing data.
   removed, tab colours on `#` tabs (blue for tabs the script writes, grey for
   `#Holidays` and `#Global`). Rotation tabs and `#Global` get conditional row
   colours by `type` (errors red, settings blue, roster changes teal, snapshot
-  green, comment rows yellow, links green, unlinks grey); the tab's existing
-  conditional rules are replaced. A new `#Global` gets its header and a
-  comment row explaining the tab. It is idempotent.
+  green, comment rows yellow, `attract` and `repel` green, `detach` grey);
+  the tab's existing conditional rules are replaced. A new `#Global` gets its
+  header and a comment row explaining the tab. It is idempotent.
 - **Set Up Tab** fills the active tab from its name: an empty rotation tab
   gets the header, a `set` row with every setting at its default (bare
   `anchor`, dated the most recent Monday 00:00) and a sample `team` row; an
@@ -286,7 +286,7 @@ preview tab is created right after its rotation tab.
 
 `#Status` starts with the run instant and mode (`run` or `dry run`), then a
 `tabs` block: the rotations found, the rotations regenerated in this run, the
-number of holidays and link rows read, and the tabs ignored (a disabled
+number of holidays and `#Global` rows read, and the tabs ignored (a disabled
 `#<rotation>` appears there). For each rotation it shows `rotation`,
 `snapshot`, `horizon`, `current` (who is on call now and until when) and
 `next` (who follows and from when), then a member table with one line per
@@ -297,7 +297,8 @@ snapshot with their end or `open`. A `settings`
 block lists every setting with its value in effect at the run instant,
 including defaults for keys never set; when a later `set` row exists, a `note`
 row names its start, since the values change from there. A warnings table
-appears when `min_distance` was relaxed or a slot was unassignable. After a
+appears when `min_distance` or a `repel` was relaxed or a slot was
+unassignable. After a
 validation error the tab lists the errors instead of rotations.
 
 `#All shifts` is one table of every shift of every rotation, sorted by start:
@@ -307,35 +308,57 @@ marked `now` separates past shifts from future ones, and each rotation's
 current shift is highlighted. Both tabs are rewritten by every run, including
 dry runs.
 
-## Global defaults and links between rotations
+## Global defaults and relations between rotations
 
 The optional `#Global` tab has the same header row as a ledger and holds
 three kinds of rows: `set` rows with spreadsheet-wide defaults (see Settings),
-comments, and the `link` and `unlink` rows below, which relate rotations over
-time.
+comments, and the relation rows below. Relation rows also go into rotation
+tabs.
 
 | type | what | end/duration | effect |
 |---|---|---|---|
-| link | `distinct: primary, secondary` | optional | Nobody holds overlapping shifts in both rotations. |
-| link | `joined: alerts, tickets` | optional | The same person is preferred for overlapping shifts. |
-| unlink | same as the link | | Ends the link from `start`. |
+| repel | rotation names | optional | Nobody holds overlapping shifts in both rotations. |
+| attract | rotation names | optional | The same person is preferred for overlapping shifts. |
+| detach | rotation names | optional | The rotations are no longer related. |
+
+A relation row sets the state of every pair of rotations it names from its
+`start`; the latest row wins per pair, and an `end` or `duration` returns the
+pair to neutral at that instant. In `#Global` the row names all listed
+rotations mutually:
 
 ```
 pin,start,type,what,end,duration,note
-,2026-06-01T09:00,link,"distinct: primary, secondary",,,one person on call
-,2026-12-01T09:00,unlink,"distinct: primary, secondary",,,
+,2026-06-01T09:00,repel,"primary, secondary",,,one person on call
+,2026-12-01T09:00,detach,"primary, secondary",,,
 ```
 
-Rotations named earlier in a link are decided first when shifts start at the
-same instant. `distinct` is hard: when it leaves nobody, the slot gets an
-empty `shift` and an `error` row like any unassignable slot. `joined` only
-prefers someone who is already within `tolerance` of the lowest score;
-otherwise the usual selection applies. Rotations may use different periods;
-overlaps are compared on the actual intervals.
+In a rotation's own tab the row is one-sided: the tab reads the listed
+rotations and adapts to their shifts, which are not affected. `repel primary`
+in the `secondary` tab keeps `secondary` away from whoever holds `primary`
+that week while `primary` schedules as if `secondary` did not exist. If both
+tabs start the same relation on each other at the same instant, the pair is
+mutual from then on, as if written in `#Global`.
 
-A link row that names a rotation without a tab (or a disabled `#` tab), has a
-malformed `what`, or an `unlink` without an active link gets an `error` row
-above it in `#Global` and is ignored. Unlike ledger errors and malformed
+When shifts start at the same instant, a rotation is decided after the
+rotations it reads; otherwise, including for rotations related by a `#Global`
+row, tab order decides who yields. Two tabs reading each other cannot be
+ordered: both rows get an `error` row suggesting a `#Global` row and are
+ignored.
+
+`repel` is soft: when it leaves nobody, `min_distance` is relaxed first, then
+the repel is dropped and the shift gets the note `repel relaxed: <who> also
+on <rotation>`, which also appears in the `#Status` warnings; only when even
+that leaves nobody does the slot get an empty `shift` and an `error` row.
+`attract` only prefers someone who is already within `tolerance` of the
+lowest score; otherwise the usual selection applies. Rotations may use
+different periods; overlaps are compared on the actual intervals, but a
+rotation only sees the shifts already decided when its slot comes up, so a
+weekly rotation reading a daily one may still collide with the daily shifts
+later in its week.
+
+A relation row that names a rotation without a tab (or a disabled `#` tab),
+names its own rotation or a rotation twice, or has a malformed `what` gets an
+`error` row above it and is ignored. Unlike ledger errors and malformed
 global `set` rows, this does not stop the run. `#Global` is written back
 sorted; a dry run writes `#Preview Global`.
 
@@ -399,8 +422,8 @@ bin/rotalator help
 `run` regenerates the ledgers in `DIR`. Without `--write` they are printed as
 CSV and nothing is changed. `--status` appends the `#Status` and `#All shifts`
 tables as plain text. `--rotation NAME`, repeatable, regenerates only the named
-rotations: the others are read so that links still see their shifts, but they
-are neither printed nor written, and the `tabs` block of the status shows
+rotations: the others are read so that relations still see their shifts, but
+they are neither printed nor written, and the `tabs` block of the status shows
 which rotations were regenerated. An unknown name stops the run with nothing
 written. Errors go to stderr and set exit code 1.
 

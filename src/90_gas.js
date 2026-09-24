@@ -20,8 +20,8 @@ var COLOR_SETTINGS = '#c9daf8';
 var COLOR_ROSTER = '#d0e0e3';
 var COLOR_SNAPSHOT = '#d9ead3';
 var COLOR_COMMENT = '#fff2cc';
-var COLOR_LINK = '#d9ead3';
-var COLOR_UNLINK = '#efefef';
+var COLOR_RELATION = '#d9ead3';
+var COLOR_DETACH = '#efefef';
 
 // Conditional formatting over A:G, keyed on the type cell; comment rows have content but no type.
 var COMMENT_FORMULA = '=AND($C1="", COUNTA($A1:$G1)>0)';
@@ -30,13 +30,15 @@ var LEDGER_FORMAT_RULES = [
   { formula: '=OR($C1="set", $C1="score")', color: COLOR_SETTINGS },
   { formula: '=OR($C1="team", $C1="join", $C1="leave", $C1="include", $C1="exclude")', color: COLOR_ROSTER },
   { formula: '=$C1="snapshot"', color: COLOR_SNAPSHOT },
+  { formula: '=OR($C1="attract", $C1="repel")', color: COLOR_RELATION },
+  { formula: '=$C1="detach"', color: COLOR_DETACH },
   { formula: COMMENT_FORMULA, color: COLOR_COMMENT },
 ];
 var GLOBAL_FORMAT_RULES = [
   { formula: '=$C1="error"', color: COLOR_ERROR },
   { formula: '=OR($C1="set", $C1="score")', color: COLOR_SETTINGS },
-  { formula: '=$C1="link"', color: COLOR_LINK },
-  { formula: '=$C1="unlink"', color: COLOR_UNLINK },
+  { formula: '=OR($C1="attract", $C1="repel")', color: COLOR_RELATION },
+  { formula: '=$C1="detach"', color: COLOR_DETACH },
   { formula: COMMENT_FORMULA, color: COLOR_COMMENT },
 ];
 

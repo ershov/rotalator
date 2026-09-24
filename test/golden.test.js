@@ -21,7 +21,7 @@ test('CsvDirStorage: # files and files without the ledger header are ignored and
 });
 
 test('runner: rotations option writes only the named ledgers and reports unknown names', () => {
-  const dir = path.join(FIXTURES, 'links-distinct');
+  const dir = path.join(FIXTURES, 'repel-global');
   const storage = new CsvDirStorage(dir);
   const before = storage.readLedgers();
   const mem = new MemoryStorage({ ledgers: before, holidays: storage.readHolidays(), global: storage.readGlobal() });

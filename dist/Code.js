@@ -249,16 +249,19 @@ function isKnownSystemTab(name) {
 // settings). extent: end/duration allowed. A row with an empty type is a comment (internal type 'comment',
 // order -1): never validated, replayed or generated, only sorted.
 var ROW_TYPES = {
-  error:    { order: 0, what: 'text',   required: true,  extent: false },
-  set:      { order: 1, what: 'set',    required: false, extent: false },
-  snapshot: { order: 2, what: 'scores', required: false, extent: false },
-  team:     { order: 3, what: 'team',   required: true,  extent: false },
-  join:     { order: 4, what: 'join',   required: true,  extent: false },
-  leave:    { order: 5, what: 'names',  required: true,  extent: false },
-  score:    { order: 6, what: 'team',   required: true,  extent: false },
-  exclude:  { order: 7, what: 'names',  required: true,  extent: true },
-  include:  { order: 8, what: 'names',  required: true,  extent: false },
-  shift:    { order: 9, what: 'shift',  required: false, extent: true },
+  error:    { order: 0,  what: 'text',   required: true,  extent: false },
+  set:      { order: 1,  what: 'set',    required: false, extent: false },
+  attract:  { order: 2,  what: 'names',  required: true,  extent: true },
+  repel:    { order: 3,  what: 'names',  required: true,  extent: true },
+  detach:   { order: 4,  what: 'names',  required: true,  extent: true },
+  snapshot: { order: 5,  what: 'scores', required: false, extent: false },
+  team:     { order: 6,  what: 'team',   required: true,  extent: false },
+  join:     { order: 7,  what: 'join',   required: true,  extent: false },
+  leave:    { order: 8,  what: 'names',  required: true,  extent: false },
+  score:    { order: 9,  what: 'team',   required: true,  extent: false },
+  exclude:  { order: 10, what: 'names',  required: true,  extent: true },
+  include:  { order: 11, what: 'names',  required: true,  extent: false },
+  shift:    { order: 12, what: 'shift',  required: false, extent: true },
 };
 
 var BASELINE_KEYWORDS = ['median', 'mean', 'min', 'max'];
@@ -1130,7 +1133,7 @@ function resolvedExcludeEnds(rows) {
   return ends;
 }
 
-// frozen (DESIGN 5, run scope): the rotation is swept as it stands so links see its shifts, but nothing is
+// frozen (DESIGN 5, run scope): the rotation is swept as it stands so relations see its shifts, but nothing is
 // pruned, no slot is filled and the snapshot stays where it is; it is not written. globalSetRows: #Global.
 function prepareRotation(input, index, holidays, frozen, globalSetRows) {
   var validated = validateLedger(input.rows, input.name, globalSetRows);
@@ -1193,7 +1196,7 @@ function rotationItems(rot) {
   rot.roster.fromSnapshotWhat(rot.previousWhat);
   rot.precredited = new Set();
   rot.kept.forEach(function (row) {
-    if (row.type === 'shift' || row.type === 'comment' || row.type === 'set') return;
+    if (row.type === 'shift' || row.type === 'comment' || row.type === 'set' || isRelationRow(row)) return;
     if (row.type === 'exclude') {
       var ends = excludeEnds.get(row);
       var names = whatNames(row).filter(function (n) { return clipToSnapshot(row.start, ends[n], P) !== null; });
@@ -1269,7 +1272,7 @@ function previousAssignee(rot, entry) {
   return previous ? previous.who : null;
 }
 
-// DESIGN 5.7 steps 3 and 4. joined links prefer holders of an overlapping shift in a linked rotation.
+// DESIGN 5.7 steps 3 and 4.
 function tiebreak(rot, entry, candidates, settings) {
   var names = rot.roster.names();
   var chosen = new Set(candidates.map(function (m) { return m.name; }));
@@ -1291,42 +1294,43 @@ function tiebreak(rot, entry, candidates, settings) {
   return null;
 }
 
-// DESIGN 5.7 and 7. distinct holders are removed before relaxation; joined holders are preferred inside the band.
+// DESIGN 5.7 and 7. Exclusions are never violated. min_distance steps down with repel kept, then once more
+// without repel (warning and note), then nobody. attract holders are preferred inside the band.
 function assignSlot(rot, entry, holidays, ctx) {
   var settings = rot.timeline.at(entry.start);
   var roster = rot.roster;
   var a = entry.start, b = entry.slotEnd;
   var minDistance = settings.get('min_distance');
-  var distinct = linkedHolders(ctx, rot, 'distinct', a, b);
-  var members = roster.members.filter(function (m) { return !distinct.has(m.name); });
   var grid = rot.timeline.gridAt(a);
-  var eligible = [];
-  var used = 0;
-  for (var d = minDistance; d >= 0 && !eligible.length; d--) {
-    var from = grid.step(a, -d), to = grid.step(b, d);
-    used = d;
-    eligible = members.filter(function (m) {
-      return !roster.isExcluded(m.name, a, b) && !hasShiftOverlapping(rot, m.name, from, to);
-    });
-  }
-  var note = '';
-  if (eligible.length) {
-    var lowest = Math.min.apply(null, eligible.map(function (m) { return m.score; }));
+  var repelled = relatedHolders(ctx, rot, 'repel', a, b);
+  var members = roster.members.filter(function (m) { return !roster.isExcluded(m.name, a, b); });
+  var pick = null;
+  // The second pass only adds repelled members back, so a pick made there is always a repelled one.
+  [true, false].forEach(function (keepRepel) {
+    if (pick || (!keepRepel && !repelled.size)) return;
+    var pool = keepRepel ? members.filter(function (m) { return !repelled.has(m.name); }) : members;
+    for (var d = minDistance; d >= 0 && !pick; d--) {
+      var from = grid.step(a, -d), to = grid.step(b, d);
+      var eligible = pool.filter(function (m) { return !hasShiftOverlapping(rot, m.name, from, to); });
+      if (eligible.length) pick = { eligible: eligible, distance: d, repelDropped: !keepRepel };
+    }
+  });
+  var notes = [];
+  if (pick) {
+    var lowest = Math.min.apply(null, pick.eligible.map(function (m) { return m.score; }));
     var tolerance = settings.get('tolerance');
-    var candidates = eligible.filter(function (m) { return m.score <= lowest + tolerance; });
-    var joined = linkedHolders(ctx, rot, 'joined', a, b);
-    var preferred = candidates.filter(function (m) { return joined.has(m.name); });
+    var candidates = pick.eligible.filter(function (m) { return m.score <= lowest + tolerance; });
+    var attracted = relatedHolders(ctx, rot, 'attract', a, b);
+    var preferred = candidates.filter(function (m) { return attracted.has(m.name); });
     entry.who = tiebreak(rot, entry, preferred.length ? preferred : candidates, settings);
     roster.credit(entry.who, units(a, entry.end, settings.unitsOptions(holidays)));
-    if (used < minDistance) {
-      note = 'min_distance relaxed to ' + used;
-      rot.warnings.push({ start: a, message: note });
-    }
+    if (pick.distance < minDistance) notes.push('min_distance relaxed to ' + pick.distance);
+    if (pick.repelDropped) notes.push('repel relaxed: ' + entry.who + ' also on ' + (repelled.get(entry.who) || []).join(', '));
+    notes.forEach(function (n) { rot.warnings.push({ start: a, message: n }); });
   } else {
-    var message = 'no eligible member for shift ' + formatDateTime(a) + ' to ' + formatDateTime(b);
-    rot.problems.push({ start: a, message: message });
+    rot.problems.push({ start: a, message: 'no eligible member for shift ' + formatDateTime(a) + ' to ' + formatDateTime(b) });
   }
-  entry.generated = makeRow({ type: 'shift', start: a, what: entry.who === null ? '' : entry.who, note: note });
+  entry.generated = makeRow({ type: 'shift', start: a, what: entry.who === null ? '' : entry.who, note: notes.join('; ') });
 }
 
 function sweep(items, rots, holidays, ctx) {
@@ -1387,24 +1391,45 @@ function errorOutput(rots, global, now) {
   };
 }
 
-// #Global rows parsed against the rotation names: set rows for the timelines, links for the sweep, error rows
-// for the tab. A bad set row blocks regeneration (blocking); relation errors never do.
-function prepareGlobal(rows, names) {
-  var parsed = parseGlobal(rows || [], names);
-  var errors = parsed.errors.map(function (e) {
-    return { rotation: GLOBAL_TAB, rowIndex: e.rowIndex, start: e.start, message: e.message };
-  });
-  return { rows: parsed.rows, errors: errors, blocking: parsed.setErrors.length > 0, setRows: parsed.setRows, links: parsed.links };
+function globalError(e) {
+  return { rotation: GLOBAL_TAB, rowIndex: e.rowIndex, start: e.start, message: e.message };
 }
 
-// Sweep order and lookup of the rotations for the link filters.
-function linkContext(global, rots) {
+// #Global rows parsed against the rotation names: set rows for the timelines, relation rows for the sweep,
+// error rows for the tab. A bad set row blocks regeneration (blocking); relation errors never do.
+function prepareGlobal(rows, names) {
+  var parsed = parseGlobal(rows || [], names);
+  return { rows: parsed.rows, errors: parsed.errors.map(globalError), blocking: parsed.setErrors.length > 0, setRows: parsed.setRows, relationRows: parsed.relationRows };
+}
+
+// Relation state, sweep order and rotation lookup for the sweep (DESIGN 7). Rotation-tab relation rows are
+// checked here against the rotation names; rejected rows and rows inside an order cycle get a non-blocking
+// error row in their own tab.
+function relationContext(global, rots) {
   var names = rots.map(function (r) { return r.name; });
-  var order = linkedRotationOrder(global.links, names);
-  rots.forEach(function (rot) { rot.rank = order.indexOf(rot.name); });
   var byName = {};
   rots.forEach(function (rot) { byName[rot.name] = rot; });
-  return { links: global.links, byName: byName };
+  var entries = global.relationRows.map(function (row) { return { row: row, reader: null, names: whatNames(row) }; });
+  rots.forEach(function (rot) {
+    (rot.kept || []).filter(isRelationRow).forEach(function (row) {
+      var message = validateRelationRow(row, names, rot.name);
+      if (message !== null) rot.problems.push(rowError(row, message));
+      else entries.push({ row: row, reader: rot.name, names: whatNames(row) });
+    });
+  });
+  var relations = new Relations();
+  entries.forEach(function (entry) { relations.add(entry); });
+  // Only states that can be in force from the earliest snapshot on order the sweep; only one-sided rows
+  // create edges, so only rotation-tab rows can form a cycle.
+  var snapshots = rots.filter(function (r) { return r.S !== undefined; }).map(function (r) { return r.S; });
+  var minS = snapshots.length ? Math.min.apply(null, snapshots) : -Infinity;
+  var ordered = relationOrder(relations.orderEdges(minS), names);
+  ordered.ignored.forEach(function (entry) {
+    relations.remove(entry);
+    byName[entry.reader].problems.push(rowError(entry.row, cycleMessage(entry, ordered.cyclic)));
+  });
+  rots.forEach(function (rot) { rot.rank = ordered.order.indexOf(rot.name); });
+  return { relations: relations, byName: byName };
 }
 
 // Script rows go in front of the kept rows so undated comments still attach to the next kept row below them.
@@ -1426,18 +1451,21 @@ function regenerate(input) {
   var rots = input.rotations.map(function (r, i) {
     return prepareRotation(r, i, holidays, only !== null && only.indexOf(r.name) < 0, global.setRows);
   });
-  var ctx = linkContext(global, rots);
+  var ctx = relationContext(global, rots);
   var hasErrors = function () { return global.blocking || rots.some(function (rot) { return rot.errors.length > 0; }); };
   if (hasErrors()) return errorOutput(rots, global, input.now);
   sweep(mergeItems(rots), rots, holidays, ctx);
   if (hasErrors()) return errorOutput(rots, global, input.now);
-  var warnings = collectErrors(rots, 'warnings').concat(collectErrors(rots, 'problems'));
+  // Problems with a row (rejected relation rows) are errors in the status; unassignable slots are warnings.
+  var problems = collectErrors(rots, 'problems');
+  var rowProblems = problems.filter(function (p) { return p.rowIndex !== null; });
+  var slotProblems = problems.filter(function (p) { return p.rowIndex === null; });
   return {
     rotations: writable(rots).map(rotationOutput),
     regenerated: true,
     global: { rows: global.rows, errors: global.errors },
-    errors: collectErrors(rots, 'problems').concat(global.errors),
-    status: buildStatus(rots, warnings, global.errors, input.now),
+    errors: problems.concat(global.errors),
+    status: buildStatus(rots, collectErrors(rots, 'warnings').concat(slotProblems), rowProblems.concat(global.errors), input.now),
   };
 }
 
@@ -1646,53 +1674,37 @@ function shiftsRows(status) {
   return { rows: rows, headerRows: [0], dividerRows: dividerRows, currentRows: currentRows };
 }
 
-// ---- 60_links.js ----
-// #Global tab (DESIGN 3.5 and 7): spreadsheet-wide set rows, link and unlink rows relating rotations over
-// time, and comments.
+// ---- 60_relations.js ----
+// #Global tab (DESIGN 3.5 and 7): spreadsheet-wide set rows, relation rows between rotations, and comments.
+// Relation rows (attract, repel, detach) also appear in rotation tabs, where they are one-sided.
 
-var LINK_KINDS = ['distinct', 'joined'];
+var RELATION_TYPES = ['attract', 'repel', 'detach'];
 
-// "distinct: a, b" -> { kind, rotations } or null.
-function parseLinkArg(text) {
-  var m = /^\s*([A-Za-z]+)\s*:(.*)$/.exec(text);
-  if (!m) return null;
-  var kind = m[1].toLowerCase();
-  if (LINK_KINDS.indexOf(kind) < 0) return null;
-  var rotations = splitList(m[2]);
-  if (rotations.length < 2 || new Set(rotations).size !== rotations.length) return null;
-  return { kind: kind, rotations: rotations };
+function isRelationRow(row) {
+  return RELATION_TYPES.indexOf(row.type) >= 0;
 }
 
-function sameRotations(a, b) {
-  return a.length === b.length && a.every(function (r) { return b.indexOf(r) >= 0; });
-}
-
-function validateLinkRow(row, rotationNames) {
-  if (row.type !== 'link' && row.type !== 'unlink') return row.type === '' ? 'missing type' : 'unknown type "' + row.type + '"';
-  if (row.start === null) return row.startText === '' ? 'missing start' : 'bad start "' + row.startText + '"';
-  if (row.what === '') return row.type + ' requires what';
-  var parsed = parseLinkArg(row.what);
-  if (!parsed) return 'what must be "distinct: a, b" or "joined: a, b"';
-  for (var i = 0; i < parsed.rotations.length; i++) {
-    if (rotationNames.indexOf(parsed.rotations[i]) < 0) return 'unknown rotation "' + parsed.rotations[i] + '"';
+// Relation-specific checks. reader: the rotation whose tab holds the row, null for #Global.
+function validateRelationRow(row, rotationNames, reader) {
+  var names = whatNames(row);
+  if (new Set(names).size !== names.length) return row.type + ' names a rotation twice';
+  if (reader === null && names.length < 2) return row.type + ' in ' + GLOBAL_TAB + ' needs at least two rotations';
+  for (var i = 0; i < names.length; i++) {
+    if (names[i] === reader) return row.type + ' names its own rotation';
+    if (rotationNames.indexOf(names[i]) < 0) return 'unknown rotation "' + names[i] + '"';
   }
-  if (row.type === 'unlink' && (row.endText !== '' || row.durationText !== '')) return 'unlink does not take end or duration';
-  if (row.endText !== '' && row.durationText !== '') return 'end and duration are mutually exclusive';
-  if (row.endText !== '' && parseDateTime(row.endText) === null) return 'bad end "' + row.endText + '"';
-  if (row.durationText !== '' && (row.duration === null || row.duration <= 0)) return 'bad duration "' + row.durationText + '"';
-  if (row.end !== null && row.end <= row.start) return 'end must be after start';
   return null;
 }
 
-// rows: #Global row objects. Returns { setRows, setErrors, links: [{ kind, rotations, from, to }], errors, rows }
-// where rows are the kept rows plus an error row above each rejected one. set rows are validated with the
-// ledger rules; a bad one is in setErrors and blocks regeneration since every rotation depends on it. Rejected
-// relation rows are ignored; unlink closes matching open links. Comments are kept and otherwise ignored.
+// rows: #Global row objects. Returns { setRows, setErrors, relationRows, errors, rows } where rows are the kept
+// rows plus an error row above each rejected one. set rows are validated with the ledger rules; a bad one is in
+// setErrors and blocks regeneration since every rotation depends on it. Rejected relation rows are ignored.
+// Comments are kept and otherwise ignored.
 function parseGlobal(rows, rotationNames) {
   var errors = [];
   var setErrors = [];
   var setRows = [];
-  var links = [];
+  var relationRows = [];
   var kept = sortRows(attachComments(rows.filter(function (r) { return r.type !== 'error'; })));
   kept.forEach(function (row) {
     if (row.type === 'comment') return;
@@ -1701,53 +1713,168 @@ function parseGlobal(rows, rotationNames) {
       if (problem === null) setRows.push(row); else setErrors.push(rowError(row, problem));
       return;
     }
-    var message = validateLinkRow(row, rotationNames);
-    if (message === null) {
-      var parsed = parseLinkArg(row.what);
-      if (row.type === 'link') {
-        links.push({ kind: parsed.kind, rotations: parsed.rotations, from: row.start, to: row.end });
-      } else {
-        var open = links.filter(function (l) {
-          return l.kind === parsed.kind && sameRotations(l.rotations, parsed.rotations) && l.from <= row.start && (l.to === null || l.to > row.start);
-        });
-        if (!open.length) message = 'unlink: no active ' + parsed.kind + ' link for ' + parsed.rotations.join(', ');
-        open.forEach(function (l) { l.to = row.start; });
-      }
-    }
-    if (message !== null) errors.push(rowError(row, message));
+    var message = !isRelationRow(row) ? (row.type === '' ? 'missing type' : 'type "' + row.type + '" is not allowed in ' + GLOBAL_TAB)
+      : validateRow(row) || validateRelationRow(row, rotationNames, null);
+    if (message === null) relationRows.push(row); else errors.push(rowError(row, message));
   });
   var all = setErrors.concat(errors);
-  return { setRows: setRows, setErrors: setErrors, links: links, errors: all, rows: sortRows(all.map(errorRow).concat(kept)) };
+  return { setRows: setRows, setErrors: setErrors, relationRows: relationRows, errors: all, rows: sortRows(all.map(errorRow).concat(kept)) };
 }
 
-// Sweep order at equal starts: rotations in link list order first, then the rest in tab order.
-function linkedRotationOrder(links, rotationNames) {
-  var ordered = [];
-  var add = function (name) { if (ordered.indexOf(name) < 0) ordered.push(name); };
-  links.forEach(function (l) { l.rotations.forEach(add); });
-  rotationNames.forEach(add);
-  return ordered;
+function pairKey(a, b) {
+  return a < b ? a + '\u0000' + b : b + '\u0000' + a;
 }
 
-function activeLinks(links, kind, rotation, t) {
-  return links.filter(function (l) {
-    return l.kind === kind && l.rotations.indexOf(rotation) >= 0 && l.from <= t && (l.to === null || l.to > t);
-  });
-}
+// Pair states over time. Each relation row sets the state of every pair it names from its start (latest row
+// wins, ties by processing order) and reverts it to neutral at its end. reader null means mutual; two tabs
+// starting the same one-sided relation on each other at the same instant make the pair mutual.
+class Relations {
+  constructor() {
+    this.events = new Map();
+  }
 
-// Members holding a decided shift overlapping [a, b) in rotations linked to rot by `kind` at instant a.
-function linkedHolders(ctx, rot, kind, a, b) {
-  var names = new Set();
-  activeLinks(ctx.links, kind, rot.name, a).forEach(function (link) {
-    link.rotations.forEach(function (other) {
-      var target = ctx.byName[other];
-      if (!target || target === rot) return;
-      target.entries.forEach(function (e) {
-        if (e.who !== null && e.start < b && e.end > a) names.add(e.who);
+  // entry: { row, reader, names }. Pairs: all pairs of names for #Global, (reader, name) for a rotation tab.
+  add(entry) {
+    var self = this;
+    var kind = entry.row.type === 'detach' ? null : entry.row.type;
+    var pairs = [];
+    if (entry.reader === null) {
+      entry.names.forEach(function (a, i) { entry.names.slice(i + 1).forEach(function (b) { pairs.push([a, b]); }); });
+    } else {
+      entry.names.forEach(function (b) { pairs.push([entry.reader, b]); });
+    }
+    pairs.forEach(function (p) {
+      var key = pairKey(p[0], p[1]);
+      if (!self.events.has(key)) self.events.set(key, []);
+      var list = self.events.get(key);
+      var opposite = list.find(function (e) {
+        return e.starts === 1 && e.t === entry.row.start && e.kind === kind && e.reader !== null && e.reader === p[1] && entry.reader !== null;
       });
+      if (opposite) { opposite.reader = null; opposite.target = null; }
+      else list.push({ t: entry.row.start, starts: 1, seq: list.length, kind: kind, reader: entry.reader, target: p[1], entry: entry });
+      if (entry.row.end !== null) list.push({ t: entry.row.end, starts: 0, seq: list.length, kind: null, reader: null, target: null, entry: entry });
+    });
+  }
+
+  remove(entry) {
+    this.events.forEach(function (list, key, map) {
+      map.set(key, list.filter(function (e) { return e.entry !== entry; }));
+    });
+  }
+
+  // Ends sort before starts at equal instants; later-added rows win among starts.
+  sorted(list) {
+    return list.slice().sort(function (x, y) { return (x.t - y.t) || (x.starts - y.starts) || (x.seq - y.seq); });
+  }
+
+  // { kind, reader } in force between a and b at t, or null.
+  stateAt(a, b, t) {
+    var list = this.events.get(pairKey(a, b));
+    if (!list) return null;
+    var sorted = this.sorted(list);
+    var state = null;
+    for (var i = 0; i < sorted.length && sorted[i].t <= t; i++) state = sorted[i].kind === null ? null : sorted[i];
+    return state;
+  }
+
+  // The kind reader is subject to towards other at t: a mutual state, or a one-sided one it holds itself.
+  kindFor(reader, other, t) {
+    var state = this.stateAt(reader, other, t);
+    if (!state || (state.reader !== null && state.reader !== reader)) return null;
+    return state.kind;
+  }
+
+  // Order edges { from, to, entry } (from is decided before to) of the one-sided states that are or will be in
+  // force from t on: per pair the last event at or before t and every event after it. Mutual states add none.
+  orderEdges(t) {
+    var edges = [];
+    var self = this;
+    this.events.forEach(function (list) {
+      var sorted = self.sorted(list);
+      var from = 0;
+      for (var i = 0; i < sorted.length; i++) if (sorted[i].t <= t) from = i;
+      for (var j = from; j < sorted.length; j++) {
+        var e = sorted[j];
+        if (e.kind !== null && e.reader !== null) edges.push({ from: e.target, to: e.reader, entry: e.entry });
+      }
+    });
+    return edges;
+  }
+}
+
+// Kahn's algorithm with tab order as tiebreak. Returns { order, rest } where rest holds the rotations left in
+// cycles (and those only reachable through them).
+function topologicalOrder(edges, rotationNames) {
+  var pending = edges.slice();
+  var order = [];
+  var rest = rotationNames.slice();
+  var progress = true;
+  while (progress) {
+    progress = false;
+    for (var i = 0; i < rest.length; i++) {
+      var name = rest[i];
+      if (pending.some(function (e) { return e.to === name; })) continue;
+      order.push(name);
+      rest.splice(i, 1);
+      pending = pending.filter(function (e) { return e.from !== name; });
+      progress = true;
+      break;
+    }
+  }
+  return { order: order, rest: rest };
+}
+
+// Rotations inside dependency cycles: what remains after repeatedly dropping sources and sinks. A rotation on
+// a path between two cycles is included too.
+function cyclicRotations(edges, rotationNames) {
+  var nodes = rotationNames.slice();
+  var changed = true;
+  while (changed) {
+    changed = false;
+    nodes = nodes.filter(function (n) {
+      var hasIn = edges.some(function (e) { return e.to === n && nodes.indexOf(e.from) >= 0; });
+      var hasOut = edges.some(function (e) { return e.from === n && nodes.indexOf(e.to) >= 0; });
+      if (hasIn && hasOut) return true;
+      changed = true;
+      return false;
+    });
+  }
+  return nodes;
+}
+
+// Sweep order at equal starts (DESIGN 7): every rotation after the rotations it reads, then tab order. Entries
+// whose edges lie inside a cycle are returned in `ignored`; the order is computed without them.
+function relationOrder(edges, rotationNames) {
+  var cyclic = cyclicRotations(edges, rotationNames);
+  var ignored = [];
+  var kept = edges.filter(function (e) {
+    var inCycle = cyclic.indexOf(e.from) >= 0 && cyclic.indexOf(e.to) >= 0;
+    if (inCycle && ignored.indexOf(e.entry) < 0) ignored.push(e.entry);
+    return !inCycle;
+  });
+  var result = topologicalOrder(kept.filter(function (e) { return ignored.indexOf(e.entry) < 0; }), rotationNames);
+  return { order: result.order.concat(result.rest), ignored: ignored, cyclic: cyclic };
+}
+
+function cycleMessage(entry, cyclic) {
+  var others = cyclic.filter(function (n) { return n !== entry.reader; });
+  return 'relation order cycle among ' + others.join(', ') + '; use a ' + GLOBAL_TAB + ' row';
+}
+
+// Members holding a decided shift overlapping [a, b) in rotations that `kind` applies to for rot at a:
+// Map of member -> rotation names.
+function relatedHolders(ctx, rot, kind, a, b) {
+  var holders = new Map();
+  Object.keys(ctx.byName).forEach(function (other) {
+    var target = ctx.byName[other];
+    if (target === rot || ctx.relations.kindFor(rot.name, other, a) !== kind) return;
+    target.entries.forEach(function (e) {
+      if (e.who === null || e.start >= b || e.end <= a) return;
+      if (!holders.has(e.who)) holders.set(e.who, []);
+      if (holders.get(e.who).indexOf(other) < 0) holders.get(e.who).push(other);
     });
   });
-  return names;
+  return holders;
 }
 
 // ---- 70_tools.js ----
@@ -1790,7 +1917,7 @@ function templateSetWhat() {
 }
 
 var GLOBAL_TEMPLATE_NOTE = 'Spreadsheet-wide defaults and relations. A set row here applies to every rotation ' +
-  'from its start unless the rotation sets the same key itself; link rows relate rotations; rows without a ' +
+  'from its start unless the rotation sets the same key itself; attract, repel and detach rows relate rotations; rows without a ' +
   'type are comments.';
 
 // Header and one explanatory comment row of a new #Global tab.
@@ -2001,8 +2128,8 @@ var COLOR_SETTINGS = '#c9daf8';
 var COLOR_ROSTER = '#d0e0e3';
 var COLOR_SNAPSHOT = '#d9ead3';
 var COLOR_COMMENT = '#fff2cc';
-var COLOR_LINK = '#d9ead3';
-var COLOR_UNLINK = '#efefef';
+var COLOR_RELATION = '#d9ead3';
+var COLOR_DETACH = '#efefef';
 
 // Conditional formatting over A:G, keyed on the type cell; comment rows have content but no type.
 var COMMENT_FORMULA = '=AND($C1="", COUNTA($A1:$G1)>0)';
@@ -2011,13 +2138,15 @@ var LEDGER_FORMAT_RULES = [
   { formula: '=OR($C1="set", $C1="score")', color: COLOR_SETTINGS },
   { formula: '=OR($C1="team", $C1="join", $C1="leave", $C1="include", $C1="exclude")', color: COLOR_ROSTER },
   { formula: '=$C1="snapshot"', color: COLOR_SNAPSHOT },
+  { formula: '=OR($C1="attract", $C1="repel")', color: COLOR_RELATION },
+  { formula: '=$C1="detach"', color: COLOR_DETACH },
   { formula: COMMENT_FORMULA, color: COLOR_COMMENT },
 ];
 var GLOBAL_FORMAT_RULES = [
   { formula: '=$C1="error"', color: COLOR_ERROR },
   { formula: '=OR($C1="set", $C1="score")', color: COLOR_SETTINGS },
-  { formula: '=$C1="link"', color: COLOR_LINK },
-  { formula: '=$C1="unlink"', color: COLOR_UNLINK },
+  { formula: '=OR($C1="attract", $C1="repel")', color: COLOR_RELATION },
+  { formula: '=$C1="detach"', color: COLOR_DETACH },
   { formula: COMMENT_FORMULA, color: COLOR_COMMENT },
 ];
 

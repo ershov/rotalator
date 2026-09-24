@@ -37,7 +37,7 @@ function templateSetWhat() {
 }
 
 var GLOBAL_TEMPLATE_NOTE = 'Spreadsheet-wide defaults and relations. A set row here applies to every rotation ' +
-  'from its start unless the rotation sets the same key itself; link rows relate rotations; rows without a ' +
+  'from its start unless the rotation sets the same key itself; attract, repel and detach rows relate rotations; rows without a ' +
   'type are comments.';
 
 // Header and one explanatory comment row of a new #Global tab.

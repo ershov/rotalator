@@ -61,8 +61,8 @@ owner explicitly approves one.
 Every tab whose name starts with `#` is a system tab and is never a rotation.
 Any other tab whose first row is the ledger header is a rotation; anything else
 is ignored. Renaming `primary` to `#primary` disables the rotation: it is
-neither read nor written, links naming it are dangling and get an `error` row
-in `#Global`, and renaming it back later behaves like a stale run (5.2). The
+neither read nor written, relation rows naming it get an `error` row, and
+renaming it back later behaves like a stale run (5.2). The
 `#Status` tab starts with a block listing the rotations found, the number of
 holidays and `#Global` rows read, and the tabs ignored (including
 `#`-prefixed tabs that are not system tabs, so a disabled rotation is visible
@@ -117,9 +117,18 @@ are kept sorted by `start`; the script re-sorts on every write.
 | include | `name`, one or more | | users |
 | score | same forms as team | | users |
 | set | `key`, `key=value` | | users |
+| attract | rotation names, one or more | optional | users |
+| repel | rotation names, one or more | optional | users |
+| detach | rotation names, one or more | optional | users |
 | snapshot | `name=score` | | script |
 | error | message | | script |
 | (empty) | free text | | users |
+
+**attract / repel / detach.** Relations between rotations, see 7. In a rotation
+tab the row relates that rotation to each listed rotation one-sidedly; in
+`#Global` it relates all listed rotations mutually. `end` or `duration` revert
+the pairs to neutral at that instant. The rows are configuration like `set`:
+always read, never replayed, pruned or moved.
 
 A row with an empty `type` is a comment (internal type `comment`). It is never
 validated beyond parsing `start`, never replayed, never pruned and never
@@ -245,8 +254,9 @@ rotation that hands over during the day sets its own time in the `set` row.
 
 ### 3.6 Same-instant ordering
 
-Rows with equal `start` sort as: comment, `error`, `set`, `snapshot`, `team`,
-`join`, `leave`, `score`, `exclude`, `include`, `shift`. State changes at an
+Rows with equal `start` sort as: comment, `error`, `set`, `attract`, `repel`,
+`detach`, `snapshot`, `team`, `join`, `leave`, `score`, `exclude`, `include`,
+`shift`. State changes at an
 instant therefore apply before the shift starting at it. Sorting is stable, so
 user order is kept otherwise.
 
@@ -298,7 +308,7 @@ the spreadsheet content and can be tested without a clock.
 
 Run scope: with `only`, rotations not listed are frozen. They are read,
 validated and swept with all their rows kept as they stand (no prune, no
-slots, no snapshot move), so link constraints still see their shifts and the
+slots, no snapshot move), so relations still see their shifts and the
 status still shows them; they are not returned for writing. A frozen rotation
 with a validation error still stops the run (5.1). The tabs block of `#Status`
 lists the rotations regenerated in the run.
@@ -371,7 +381,8 @@ further out are credited when reached, and the greedy compensates afterwards.
 ### 5.6 Sweep
 
 Walk all items of all rotations in `start` order, ties broken by rotation
-order (link order, else tab order) and by 3.6. Replay begins at each
+order (the dependency order of 7, else tab order) and by 3.6. Replay begins at
+each
 rotation's previous snapshot, with `set` rows applied from the top first.
 Rows before the previous snapshot other than `set` rows are ignored; intervals
 that extend past it are clipped.
@@ -387,20 +398,24 @@ that extend past it are clipped.
 
 ### 5.7 Selection for a slot `[a, b)`
 
-1. Eligible: on the roster, no exclusion overlapping `[a, b)`, and no shift of
-   theirs, kept or already generated, overlapping `[a', b')` where `a'` is
-   `min_distance` grid steps before `a` and `b'` as many steps after `b`
-   (`a - D` and `b + D` with `D = min_distance * period` in calendar mode).
-2. Candidates: eligible members with `score <= min(score) + tolerance`.
+1. Eligible: on the roster, no exclusion overlapping `[a, b)`, not repelled
+   (7), and no shift of theirs, kept or already generated, overlapping
+   `[a', b')` where `a'` is `min_distance` grid steps before `a` and `b'` as
+   many steps after `b` (`a - D` and `b + D` with `D = min_distance * period`
+   in calendar mode).
+2. Candidates: eligible members with `score <= min(score) + tolerance`; when
+   some of them are attracted (7), only those.
 3. Tiebreak `order`: walk the roster cyclically starting after the assignee of
    the previous shift in this rotation and take the first candidate. With no
    previous shift, start at the top.
 4. Tiebreak `shuffle`: lowest FNV-1a 32-bit hash of
    `seed|rotation|a|member`, ties by roster order.
 5. Relaxation: if nobody is eligible, decrement `min_distance` by one and
-   retry. At zero with nobody eligible, emit a `shift` with nobody and an
+   retry. At zero with nobody eligible, drop repel and walk `min_distance`
+   down again; a member chosen this way gets the warning `repel relaxed: <who>
+   also on <rotation>`. Still nobody: emit a `shift` with nobody and an
    `error` row at `a`. Exclusions are never violated. Any relaxation used is
-   recorded in the generated shift's `note`.
+   recorded in the generated shift's `note` and in the `#Status` warnings.
 
 With `tolerance = 0` and `tiebreak = order` this is plain lowest-score-first
 with a stable order for ties.
@@ -415,7 +430,7 @@ and `horizonEnd` is always a grid boundary so the two agree.
 
 Status data is built from the swept state: the run instant and mode, the
 recognised tabs (rotations found, rotations regenerated in this run, holidays
-and link rows read, tabs ignored),
+and `#Global` rows read, tabs ignored),
 and per rotation the snapshot instant, `horizonEnd`, and for each roster
 member the score at `S`, the projected score at `horizonEnd`, the last shift
 (latest start at or before `S`), the next shift (first start after `S`) and
@@ -474,8 +489,9 @@ removed on the next read, so fixing the cause and rerunning clears them.
   start. The empty shift keeps the interval rules intact.
 - Relaxation used: text in the generated shift's `note` and in the `#Status`
   warnings table.
-- Dangling link to a missing or disabled rotation tab: `error` row in
-  `#Global`, link ignored.
+- Relation row naming a missing or disabled rotation, itself, or a rotation
+  twice, or part of an order cycle: `error` row above it in its own tab, row
+  ignored, run continues.
 - Malformed global `set` row: `error` row in `#Global` and no regeneration,
   like a ledger validation error.
 
@@ -483,44 +499,83 @@ removed on the next read, so fixing the cause and rerunning clears them.
 
 Rotations are tabs and can appear or disappear at any time. The `#Global`
 tab is a timeline with the same column layout as a ledger that holds `set`
-rows with spreadsheet-wide defaults (3.5), the relations between rotations
-described here, and comments:
+rows with spreadsheet-wide defaults (3.5), relation rows between rotations,
+and comments:
 
 ```
 pin | start | type | what | end | duration | note
 ```
 
-The tab carries the ledger header row.
+The tab carries the ledger header row. Relation rows also appear in rotation
+tabs. Three types, `what` a plain list of rotation names:
 
-- `link`: `what` is `distinct: primary, secondary` or `joined: alerts, tickets`,
-  two or more distinct rotation names. Active from `start` until `end`,
-  `duration`, or a matching `unlink` row.
-- `unlink`: same `what`; closes every open link of the same kind and the same
-  set of rotations, in any order, that is active at its `start`.
+- `repel`: members holding a shift that overlaps the slot in a related
+  rotation are removed from the slot's candidates.
+- `attract`: among the candidates inside the tolerance band, members holding
+  an overlapping shift in a related rotation are preferred.
+- `detach`: the pairs return to neutral.
 
-A link applies to a slot when it is active at the slot's start. Overlap is
-tested on intervals, so rotations with different periods combine. `distinct`
-removes from a slot's candidates any member holding a shift, kept or already
-generated, that overlaps the slot in a linked rotation; it is applied before
-`min_distance` relaxation and is never relaxed, so an empty candidate list
-yields a `shift` with nobody and an `error` row as in 5.7. `joined` prefers,
-among the candidates inside the tolerance band, the members holding an
-overlapping shift in a linked rotation; when none is in the band, normal
-selection applies.
+### State per pair
 
-Rotations are decided at equal starts in the order they first appear in the
-`link` rows, top to bottom, then the remaining rotations in tab order. This
-order is static for the run; it does not change when links start or end.
+Relations are states of unordered pairs of rotations over time. Each row sets
+the state of every pair it names from its `start`; the latest row wins per
+pair, and `end` or `duration` revert the pair to neutral at that instant. A
+pair holds at most one relation at a time. In `#Global` a row names all pairs
+among the listed rotations, mutually. In rotation A's tab a row names the
+pairs (A, x) one-sidedly: A reads x, so A's slots are filtered or steered by
+x's shifts while x is unaffected. Mutual and one-sided rows set the same pair
+state, with the direction recorded; a later one-sided row therefore replaces
+an earlier mutual one for that pair and vice versa. At equal instants an end
+applies before a start, `#Global` rows are applied before rotation rows, and
+rotation rows in tab order, so the last one wins. Two rotation tabs that start
+the same one-sided relation on each other at the same instant make the pair
+mutual from that instant.
 
-Link rows that fail validation (unknown type, bad `start`, malformed `what`, a
-rotation name without a ledger tab, `unlink` without an active link, bad `end`
-or `duration`) get an `error` row above them in `#Global` and are ignored; the
-run still reports them. They do not stop regeneration, because the ledgers do
-not depend on the relations being valid (global `set` rows do stop it, 3.5).
-`#Global` is written back in full like a ledger when the tab exists; a dry run
-writes `#Preview Global`. The sweep already walks all rotations in one merged
-time order, so links add only the `#Global` reader and two candidate filters.
-The `#All shifts` tab is the all-rotations view.
+A relation applies to a slot when it is in force at the slot's start. Overlap
+is tested on `[start, scored end)` intervals, so rotations with different
+periods combine. A rotation only sees shifts already decided when its slot is
+chosen: kept shifts, and generated shifts of rotations decided earlier at the
+same instant. A one-sided `repel` is therefore complete only when the reading
+rotation's grid is at least as fine as the grid it reads: a weekly rotation
+reading a daily one sees, for its Monday slot, only the Monday of the daily
+rotation and may still collide with its Tuesday.
+
+### Order at equal starts
+
+At equal starts rotations are decided in dependency order: a rotation comes
+after every rotation it reads; everything else, including rotations related
+mutually by a `#Global` row, follows tab order. Only one-sided rows create
+dependencies, and only the pair states that are or will be in force from the
+earliest snapshot of the run on (per pair, the last state at or before it and
+every later one); rows that ended or were superseded before that order
+nothing. The order is static for the run. Two tabs reading each other, at any
+time in that range, form a cycle that cannot be ordered: each row involved
+gets an `error` row above it (`relation order cycle among ...; use a #Global
+row`), its relations are ignored, and the order is computed without them. The
+cycle test is coarse: a rotation on a dependency path between two cycles
+counts as part of them.
+
+### Soft repel
+
+`repel` is relaxed only after `min_distance`: the candidate search first
+walks `min_distance` down to zero with repel in force, then once more without
+repel, and only then gives up with a `shift` for nobody and an `error` row
+(5.7). A member chosen without repel gets the note and `#Status` warning
+`repel relaxed: <who> also on <rotation>`. Exclusions are never relaxed.
+`attract` needs no relaxation.
+
+### Errors
+
+Relation rows that fail validation (unknown or disabled rotation, a rotation
+naming itself, a name listed twice, fewer than two names in `#Global`, a type
+other than `set`, relation or comment in `#Global`, bad `start`, `end` or
+`duration`) get an `error` row above them and are ignored; the run reports
+them but continues, because the ledgers do not depend on the relations being
+valid (global `set` rows do stop it, 3.5). `#Global` is written back in full
+like a ledger when the tab exists; a dry run writes `#Preview Global`. The
+sweep already walks all rotations in one merged time order, so relations add
+only the pair states, the order and two candidate filters. The `#All shifts`
+tab is the all-rotations view.
 
 ## 8. Code layout
 
@@ -534,7 +589,7 @@ src/
   30_state.js         roster, scores, exclusions, settings replay
   40_scheduler.js     prune, claims, pre-credit, sweep, selection
   50_status.js        status data, #Status and #All shifts rows
-  60_links.js         #Global rows, rotation order, distinct and joined filters
+  60_relations.js     #Global rows, pair states, sweep order, repel, attract
   70_tools.js         template rows, Fill Shifts Grid rows, header notes
   80_runner.js        storage-agnostic run: read, advance, regenerate, write
   90_gas.js           Apps Script entry points and Sheets adapter
@@ -614,8 +669,9 @@ core and writes cells; the row logic of the tools lives in `70_tools.js`.
   resumes at the current grid boundary; tolerance and min_distance interplay;
   shuffle determinism across runs; period change via `set`; validation errors
   produce error rows and no other change; unassignable slot; snapshot deletion
-  triggers full replay; `distinct` and `joined` links between two rotations;
-  a rotation disabled by a `#` prefix with a link that dangles; comment rows
+  triggers full replay; mutual `repel` and `attract` between two rotations, a
+  one-sided `repel`, a `repel` relaxed with its warning; a rotation disabled
+  by a `#` prefix with a relation row that dangles; comment rows
   dated, attached and trailing; global defaults shared by two rotations with
   one overriding a key.
 
@@ -659,10 +715,12 @@ are replaced (not appended to) by the script's set, so a user rule on these
 tabs does not survive Set Up. Each rule is a custom formula over the whole
 columns `A:G` keyed on the `type` cell. Rotation tabs: `error` light red,
 `set` and `score` light blue, `team`, `join`, `leave`, `include` and
-`exclude` light teal, `snapshot` light green, comment rows (empty type with
-content, `=AND($C1="", COUNTA($A1:$G1)>0)`) light yellow, `shift` no colour.
-`#Global`: `set` and `score` light blue, `link` light green, `unlink` light
-grey, `error` light red, comments light yellow. Generated tabs (`#Status`,
+`exclude` light teal, `snapshot` light green, `attract` and `repel` light
+green, `detach` light grey, comment rows (empty type with content,
+`=AND($C1="", COUNTA($A1:$G1)>0)`) light yellow, `shift` no colour.
+`#Global`: `set` and `score` light blue, `attract` and `repel` light green,
+`detach` light grey, `error` light red, comments light yellow. Generated tabs
+(`#Status`,
 `#All shifts`, previews) are cleared with their formats and rewritten on every
 run; the adapter then
 applies bold and the light grey background to the `headerRows`, light green
@@ -670,8 +728,8 @@ to the `dividerRows` and light orange to the `currentRows` reported with the
 rows (5.8).
 
 Palette: header `#eeeeee`, error `#f4c7c3`, settings `#c9daf8`, roster
-`#d0e0e3`, snapshot and link and divider `#d9ead3`, current shift `#fce5cd`,
-comment `#fff2cc`, unlink `#efefef`; tab colours generated `#4285f4`,
+`#d0e0e3`, snapshot and relation and divider `#d9ead3`, current shift
+`#fce5cd`, comment `#fff2cc`, detach `#efefef`; tab colours generated `#4285f4`,
 editable `#9e9e9e`.
 
 ### 10.2 Set Up Tab
