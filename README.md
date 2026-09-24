@@ -48,7 +48,7 @@ pin | start | type | what | end | duration | note
 
 | Column | Meaning |
 |---|---|
-| `pin` | Any non-empty value (`x`, or a ticked checkbox). Pinned rows are never modified or deleted by the script. |
+| `pin` | Any non-empty value (`x`, or a ticked checkbox). Pinned rows are never modified or deleted by the script. The script writes its own marker `a` into empty pin cells of shifts that have started (see `autopin`). |
 | `start` | `YYYY-MM-DD` for midnight, `YYYY-MM-DDTHH:MM` otherwise, in the spreadsheet time zone. Mandatory. A space instead of `T`, an explicit `T00:00` and real date cells are accepted on read; the script always writes the canonical form. |
 | `type` | Row type, see below. Case-insensitive. |
 | `what` | The row's payload: a member, a list of items, settings or a message, depending on `type`. |
@@ -185,6 +185,7 @@ like any ledger error.
 | `seed` | `0` | Integer mixed into the shuffle hash. |
 | `baseline` | `median` | Default score for joiners: `median`, `mean`, `min`, `max`. |
 | `precredit` | `1ts` | Interval after the snapshot within which pinned shifts are credited before slots are assigned; `1ts` is one full cycle of the current roster. `0` disables. |
+| `autopin` | `0` | After each run, every shift starting up to `now + autopin` whose pin cell is empty gets the marker `a`: `0` pins the shifts that have started, `2w` also the next two weeks, `-2w` leaves the last two weeks unpinned, `1sl` and `0.5ts` are grid units, `false` pins nothing. `a:2w` (anything before the last colon) sets the marker. Existing pins are kept. |
 
 ### Intervals
 
@@ -278,6 +279,13 @@ is regenerated from that instant.
 `pin`, and run. Pins inside the next `precredit` shifts are credited up front,
 so the volunteer's regular turn is skipped. Unpinned edits to future shifts
 are lost on the next run.
+
+**Keep the near future stable.** Set `autopin=2w` (or `1ts` for one full
+cycle) and every run pins the shifts up to two weeks ahead, so team or
+settings changes only reshape the schedule beyond that window and people can
+rely on what they see. Unpinning a shift inside the window by hand is undone
+on the next run; lower `autopin` (or set it to `false`) to let near-future
+shifts float again. The default `0` pins only the shifts that have started.
 
 **Swap two shifts.** Exchange the `what` of both rows and pin both.
 
@@ -390,8 +398,9 @@ sorted; a dry run writes `#Preview Global`.
 ## What the script never touches
 
 - Pinned rows.
-- Rows at or before the snapshot, apart from re-sorting and writing `start`,
-  `end` and `type` in canonical form.
+- Rows at or before the snapshot, apart from re-sorting, writing `start`,
+  `end` and `type` in canonical form, and the `autopin` marker in empty pin
+  cells of shifts.
 - The current shift (the shift row starting at the snapshot instant).
 - The content of user rows: `team`, `join`, `leave`, `exclude`, `include`,
   `score`, `set`. They are re-sorted and canonicalised like any other row.

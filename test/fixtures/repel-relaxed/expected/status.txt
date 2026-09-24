@@ -34,6 +34,7 @@ next      bob               from 2026-09-14T09:00
   seed           0                       default
   baseline       median                  default
   precredit      1ts                     default
+  autopin        0                       default
 
 rotation  secondary
 snapshot  2026-09-07T09:00
@@ -58,6 +59,7 @@ next      alice             from 2026-09-14T09:00
   seed           0                       default
   baseline       median                  default
   precredit      1ts                     default
+  autopin        0                       default
 
 warnings
 rotation   start             message

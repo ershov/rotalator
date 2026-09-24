@@ -104,6 +104,28 @@ function parseBaseline(text) {
 
 var INTERVAL_HINT = 'an interval like 2sl, 1ts, 3d or 0';
 var POSITIVE_INTERVAL_HINT = 'a positive interval like 2sl, 1ts or 3d';
+var AUTOPIN_HINT = 'false, or an interval relative to now like 0, 2w, -2w or 1sl, optionally marker:interval';
+var AUTOPIN_MARKER = 'a';
+
+// autopin (DESIGN 3.5): false, or [marker:]interval where the interval may carry a sign and the marker is
+// everything before the last colon. Returns false, { marker, sign, interval, text } or null.
+function parseAutopin(text) {
+  var t = text.trim();
+  if (t.toLowerCase() === 'false') return false;
+  var marker = AUTOPIN_MARKER;
+  var colon = t.lastIndexOf(':');
+  if (colon >= 0) {
+    marker = t.slice(0, colon).trim();
+    t = t.slice(colon + 1).trim();
+    if (marker === '') return null;
+  }
+  var sign = 1;
+  if (t.charAt(0) === '-') { sign = -1; t = t.slice(1).trim(); }
+  var interval = parseInterval(t);
+  if (interval === null) return null;
+  var signed = (sign < 0 && interval.text !== '0' ? '-' : '') + interval.text;
+  return { marker: marker, sign: sign, interval: interval, text: (marker === AUTOPIN_MARKER ? '' : marker + ':') + signed };
+}
 
 // def: initial value. bare: what a value-less key means: 'default' restores def, 'start' takes the row's
 // start, 'none' is an error. parse null: the key takes no value. hint: accepted forms named in errors.
@@ -121,6 +143,7 @@ var SETTINGS = {
   seed:          { parse: parseInteger,            def: 0,                    bare: 'default' },
   baseline:      { parse: parseBaselineKeyword,    def: 'median',             bare: 'default' },
   precredit:     { parse: parseInterval,           def: parseInterval('1ts'), bare: 'default', hint: INTERVAL_HINT },
+  autopin:       { parse: parseAutopin,            def: parseAutopin('0'),    bare: 'default', hint: AUTOPIN_HINT },
 };
 
 function defaultSettings() {

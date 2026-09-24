@@ -77,7 +77,9 @@ afterwards.
 pin | start | type | what | end | duration | note
 ```
 
-- `pin`: any non-empty value. Pinned rows are never modified or deleted.
+- `pin`: any non-empty value. Pinned rows are never modified or deleted. The
+  script itself writes the `autopin` marker (3.5) into empty pin cells of past
+  and near-future shifts after each run.
 - `start`: `YYYY-MM-DDTHH:MM`, spreadsheet time zone, plain text. Mandatory.
 - `type`: row type, see 3.4.
 - `what`: the row's payload: a member, a list of items, a settings list or a
@@ -161,7 +163,10 @@ before the next run; a hand-entered history shift spanning several periods
 therefore needs `duration` or `end`. Its claim (see 5.4) ends at the explicit
 `end`, else at the next grid boundary strictly after `start`. Unpinned shifts
 starting after the snapshot belong to the script and are regenerated every
-run. Any user edit to a future shift must be pinned or it is lost.
+run. Any user edit to a future shift must be pinned or it is lost. After each
+run the script pins the shifts up to `now + autopin` itself (5.8), so with
+the default `autopin=0` every shift that has started is pinned and only the
+future floats.
 
 **team.** Sets the full roster. `alice, bob, carol=median, dave=12, erin+=2`.
 The list is diffed against the current roster: absent members leave, new
@@ -233,6 +238,7 @@ removed on read, so they are purely diagnostic and never accumulate. See 6.
 | seed | 0 | Integer mixed into the shuffle hash. |
 | baseline | median | Default for joiners: `median`, `mean`, `min`, `max`. |
 | precredit | 1ts | Interval after the snapshot within which pinned shifts are pre-credited: one full cycle by default. `0` disables. |
+| autopin | 0 | `false`, or a signed interval relative to `now` (`0`, `2w`, `-2w`, `1sl`, `0.5ts`), optionally `marker:interval` (`a:2w`; the marker is everything before the last colon, default `a`). After the schedule step, every `shift` row starting at or before `now + autopin` whose pin cell is empty gets the marker (5.8). |
 
 A bare key restores the default in this table (`tolerance`, `tiebreak`,
 `precredit`, ...); a bare `anchor` re-anchors the grid at the row's `start`
@@ -444,9 +450,28 @@ with a stable order for ties.
 
 Replace the old snapshot row with the new one at `S`. Write each ledger tab in
 full, sorted. Rows at or before `S` are written back unchanged apart from
-sorting. No terminator row and no explicit `end` on the last row: the last
-shift's extent is the next grid boundary after its start, by the rule in 3.4,
-and `horizonEnd` is always a grid boundary so the two agree.
+sorting and the `autopin` marker below. No terminator row and no explicit
+`end` on the last row: the last shift's extent is the next grid boundary after
+its start, by the rule in 3.4, and `horizonEnd` is always a grid boundary so
+the two agree.
+
+Autopin is the last step of the output stage, after the schedule of the same
+run, so previews and the CLI show it: for each written rotation the `autopin`
+setting in force at `now` is resolved on the grid at `now` (`ts` with the
+roster size at `now`) into a limit `now + autopin`, and every `shift` row,
+kept or generated in this run, with `start <= limit` and an empty pin cell
+gets the marker; rows with any non-empty pin keep theirs and no other column
+changes. It needs `now`; `regenerate` without `now` pins nothing. Frozen
+rotations and the error path are not written and get no pins. It has no
+effect on the snapshot, the status or `#All shifts` of the run that writes
+it; a second run with the same `now` writes nothing new.
+
+The stability window: because pinned rows are never pruned, the shifts inside
+`now + autopin` are kept as they stand from the next run on, so a roster or
+settings change reshapes only the schedule beyond the window, and a shift the
+user unpins inside the window is pinned again on the next run. Lowering
+`autopin` (or `autopin=false`) is the way to let near-future shifts float
+again; a negative value leaves a margin of recent shifts unpinned.
 
 Status data is built from the swept state: the run instant and mode, the
 recognised tabs (rotations found, rotations regenerated in this run, holidays

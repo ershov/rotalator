@@ -86,6 +86,7 @@ var HELP_TEXT = [
   'seed=0: integer mixed into the shuffle',
   'baseline=median: score given to a joiner: median, mean, min or max of the roster',
   'precredit=1ts: how far ahead pinned shifts are credited before turns are decided',
+  'autopin=0: after each run, shifts starting up to now + this interval get the pin marker a (false: never; a:2w sets the marker); pinned shifts are kept, so this fixes the near future',
   '',
   'INTERVALS (duration, horizon, min_distance, precredit, tolerance):',
   'clock units w d h m; one token may be fractional (1.5w, 0.5d), integer tokens chain from large to small (1d12h)',

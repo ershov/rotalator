@@ -183,6 +183,7 @@ test('settings data and parseSetArg with values and bare keys', () => {
   assert.deepEqual(plain(d.precredit), { text: '1ts', unit: 'ts', amount: 1, minutes: null });
   assert.deepEqual(plain(d.min_distance), { text: '0', unit: 'clock', amount: 0, minutes: 0 });
   assert.equal(d.skip_weekends, false);
+  assert.deepEqual(plain(d.autopin), { marker: 'a', sign: 1, interval: { text: '0', unit: 'clock', amount: 0, minutes: 0 }, text: '0' });
 
   const start = dt('2026-10-05T09:00');
   const ok = U.parseSetArg('period=2w, anchor; horizon=30d, skip_weekends=yes, skip_holidays=FALSE, tolerance=0.5, min_distance=1sl, tiebreak=Shuffle, seed=-7, baseline=Mean, precredit=3d', start);
@@ -197,14 +198,27 @@ test('settings data and parseSetArg with values and bare keys', () => {
   assert.match(U.parseSetArg('min_distance=2', start).error, /bad value for min_distance: "2"; use an interval/);
   assert.equal(U.parseSetArg('min_distance=0', start).values.min_distance.minutes, 0);
   assert.equal(U.parseSetArg('tolerance=1sl', start).values.tolerance.unit, 'sl');
-  const bare = U.parseSetArg('horizon, skip_weekends, skip_holidays, tolerance, min_distance, tiebreak, seed, baseline, precredit', start);
+  const bare = U.parseSetArg('horizon, skip_weekends, skip_holidays, tolerance, min_distance, tiebreak, seed, baseline, precredit, autopin', start);
   assert.equal(bare.error, null);
-  assert.deepEqual(plain(bare.reset), ['horizon', 'skip_weekends', 'skip_holidays', 'tolerance', 'min_distance', 'tiebreak', 'seed', 'baseline', 'precredit']);
+  assert.deepEqual(plain(bare.reset), ['horizon', 'skip_weekends', 'skip_holidays', 'tolerance', 'min_distance', 'tiebreak', 'seed', 'baseline', 'precredit', 'autopin']);
   assert.deepEqual(plain(U.parseSetArg('period=1w, anchor', start).reset), []);
   assert.deepEqual(plain(bare.values), {
     horizon: plain(d.horizon), skip_weekends: false, skip_holidays: false, tolerance: 0, min_distance: plain(d.min_distance),
-    tiebreak: 'order', seed: 0, baseline: 'median', precredit: plain(d.precredit),
+    tiebreak: 'order', seed: 0, baseline: 'median', precredit: plain(d.precredit), autopin: plain(d.autopin),
   });
+  const ap = (text) => plain(U.parseSetArg('autopin=' + text, start).values.autopin);
+  assert.equal(ap('false'), false);
+  assert.equal(ap('FALSE'), false);
+  assert.deepEqual(ap('2w'), { marker: 'a', sign: 1, interval: { text: '2w', unit: 'clock', amount: 2, minutes: 2 * 10080 }, text: '2w' });
+  assert.deepEqual(ap('-2w'), { marker: 'a', sign: -1, interval: { text: '2w', unit: 'clock', amount: 2, minutes: 2 * 10080 }, text: '-2w' });
+  assert.deepEqual(ap('1sl'), { marker: 'a', sign: 1, interval: { text: '1sl', unit: 'sl', amount: 1, minutes: null }, text: '1sl' });
+  assert.deepEqual(ap('keep: 0.5ts'), { marker: 'keep', sign: 1, interval: { text: '0.5ts', unit: 'ts', amount: 0.5, minutes: null }, text: 'keep:0.5ts' });
+  assert.deepEqual(ap('a:b:-3d').marker, 'a:b');
+  assert.equal(ap('a:2w').text, '2w');
+  assert.equal(ap('-0').text, '0');
+  for (const bad of [':2w', 'abc', '2x', 'true', 'x:', '--2w']) {
+    assert.match(U.parseSetArg('autopin=' + bad, start).error, /bad value for autopin: .*; use false, or an interval relative to now/, bad);
+  }
   assert.match(U.parseSetArg('period', start).error, /period requires a value/);
   assert.match(U.parseSetArg('anchor=2026-10-05T09:00', start).error, /anchor takes no value/);
   assert.match(U.parseSetArg('tolerance+=1', start).error, /set expects key or key=value, got "tolerance\+="/);

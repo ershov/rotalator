@@ -454,16 +454,31 @@ function relationContext(global, rots) {
   return { relations: relations, byName: byName };
 }
 
+// DESIGN 5.8 autopin: every shift row starting at or before now + autopin (resolved on the grid at now) whose
+// pin is empty gets the marker, on a copy so the swept rows and the status are untouched. Needs now.
+function autopinRows(rot, rows, now) {
+  if (now === null || now === undefined) return rows;
+  var autopin = rot.timeline.at(now).get('autopin');
+  var grid = rot.timeline.gridAt(now);
+  if (autopin === false || !grid) return rows;
+  var limit = grid.offset(now, autopin.sign * resolveInterval(autopin.interval, grid, rot.sizeAt(now)));
+  return rows.map(function (r) {
+    if (r.type !== 'shift' || r.pin !== '' || r.start > limit) return r;
+    return Object.assign({}, r, { pin: autopin.marker, pinned: true });
+  });
+}
+
 // Script rows go in front of the kept rows so undated comments still attach to the next kept row below them.
-function rotationOutput(rot) {
+function rotationOutput(rot, now) {
   var rows = [makeRow({ type: 'snapshot', start: rot.S, what: rot.snapshotWhat })];
   rot.entries.forEach(function (e) { if (e.generated) rows.push(e.generated); });
-  return { name: rot.name, rows: sortRows(rows.concat(rot.problems.map(errorRow), rot.kept)) };
+  return { name: rot.name, rows: autopinRows(rot, sortRows(rows.concat(rot.problems.map(errorRow), rot.kept)), now) };
 }
 
 // Pure regeneration of DESIGN 5.3 to 5.8 and 7.
 // input: { rotations: [{ name, rows, snapshotAt }], holidays: [dayIndex], global: #Global row objects, now, only }.
-// now is optional and only dates the effective settings in the status; the ledgers never depend on it.
+// now is optional: it dates the effective settings in the status and drives autopin (5.8); the schedule itself
+// never depends on it.
 // only: optional list of rotation names to regenerate; the others are swept frozen and not returned.
 // Output: { rotations: [{ name, rows }], global: { rows, errors }, errors, regenerated, status }.
 function regenerate(input) {
@@ -483,7 +498,7 @@ function regenerate(input) {
   var rowProblems = problems.filter(function (p) { return p.rowIndex !== null; });
   var slotProblems = problems.filter(function (p) { return p.rowIndex === null; });
   return {
-    rotations: writable(rots).map(rotationOutput),
+    rotations: writable(rots).map(function (rot) { return rotationOutput(rot, input.now); }),
     regenerated: true,
     global: { rows: global.rows, errors: global.errors },
     errors: problems.concat(global.errors),

@@ -373,6 +373,28 @@ function parseBaseline(text) {
 
 var INTERVAL_HINT = 'an interval like 2sl, 1ts, 3d or 0';
 var POSITIVE_INTERVAL_HINT = 'a positive interval like 2sl, 1ts or 3d';
+var AUTOPIN_HINT = 'false, or an interval relative to now like 0, 2w, -2w or 1sl, optionally marker:interval';
+var AUTOPIN_MARKER = 'a';
+
+// autopin (DESIGN 3.5): false, or [marker:]interval where the interval may carry a sign and the marker is
+// everything before the last colon. Returns false, { marker, sign, interval, text } or null.
+function parseAutopin(text) {
+  var t = text.trim();
+  if (t.toLowerCase() === 'false') return false;
+  var marker = AUTOPIN_MARKER;
+  var colon = t.lastIndexOf(':');
+  if (colon >= 0) {
+    marker = t.slice(0, colon).trim();
+    t = t.slice(colon + 1).trim();
+    if (marker === '') return null;
+  }
+  var sign = 1;
+  if (t.charAt(0) === '-') { sign = -1; t = t.slice(1).trim(); }
+  var interval = parseInterval(t);
+  if (interval === null) return null;
+  var signed = (sign < 0 && interval.text !== '0' ? '-' : '') + interval.text;
+  return { marker: marker, sign: sign, interval: interval, text: (marker === AUTOPIN_MARKER ? '' : marker + ':') + signed };
+}
 
 // def: initial value. bare: what a value-less key means: 'default' restores def, 'start' takes the row's
 // start, 'none' is an error. parse null: the key takes no value. hint: accepted forms named in errors.
@@ -390,6 +412,7 @@ var SETTINGS = {
   seed:          { parse: parseInteger,            def: 0,                    bare: 'default' },
   baseline:      { parse: parseBaselineKeyword,    def: 'median',             bare: 'default' },
   precredit:     { parse: parseInterval,           def: parseInterval('1ts'), bare: 'default', hint: INTERVAL_HINT },
+  autopin:       { parse: parseAutopin,            def: parseAutopin('0'),    bare: 'default', hint: AUTOPIN_HINT },
 };
 
 function defaultSettings() {
@@ -1551,16 +1574,31 @@ function relationContext(global, rots) {
   return { relations: relations, byName: byName };
 }
 
+// DESIGN 5.8 autopin: every shift row starting at or before now + autopin (resolved on the grid at now) whose
+// pin is empty gets the marker, on a copy so the swept rows and the status are untouched. Needs now.
+function autopinRows(rot, rows, now) {
+  if (now === null || now === undefined) return rows;
+  var autopin = rot.timeline.at(now).get('autopin');
+  var grid = rot.timeline.gridAt(now);
+  if (autopin === false || !grid) return rows;
+  var limit = grid.offset(now, autopin.sign * resolveInterval(autopin.interval, grid, rot.sizeAt(now)));
+  return rows.map(function (r) {
+    if (r.type !== 'shift' || r.pin !== '' || r.start > limit) return r;
+    return Object.assign({}, r, { pin: autopin.marker, pinned: true });
+  });
+}
+
 // Script rows go in front of the kept rows so undated comments still attach to the next kept row below them.
-function rotationOutput(rot) {
+function rotationOutput(rot, now) {
   var rows = [makeRow({ type: 'snapshot', start: rot.S, what: rot.snapshotWhat })];
   rot.entries.forEach(function (e) { if (e.generated) rows.push(e.generated); });
-  return { name: rot.name, rows: sortRows(rows.concat(rot.problems.map(errorRow), rot.kept)) };
+  return { name: rot.name, rows: autopinRows(rot, sortRows(rows.concat(rot.problems.map(errorRow), rot.kept)), now) };
 }
 
 // Pure regeneration of DESIGN 5.3 to 5.8 and 7.
 // input: { rotations: [{ name, rows, snapshotAt }], holidays: [dayIndex], global: #Global row objects, now, only }.
-// now is optional and only dates the effective settings in the status; the ledgers never depend on it.
+// now is optional: it dates the effective settings in the status and drives autopin (5.8); the schedule itself
+// never depends on it.
 // only: optional list of rotation names to regenerate; the others are swept frozen and not returned.
 // Output: { rotations: [{ name, rows }], global: { rows, errors }, errors, regenerated, status }.
 function regenerate(input) {
@@ -1580,7 +1618,7 @@ function regenerate(input) {
   var rowProblems = problems.filter(function (p) { return p.rowIndex !== null; });
   var slotProblems = problems.filter(function (p) { return p.rowIndex === null; });
   return {
-    rotations: writable(rots).map(rotationOutput),
+    rotations: writable(rots).map(function (rot) { return rotationOutput(rot, input.now); }),
     regenerated: true,
     global: { rows: global.rows, errors: global.errors },
     errors: problems.concat(global.errors),
@@ -2169,6 +2207,7 @@ var HELP_TEXT = [
   'seed=0: integer mixed into the shuffle',
   'baseline=median: score given to a joiner: median, mean, min or max of the roster',
   'precredit=1ts: how far ahead pinned shifts are credited before turns are decided',
+  'autopin=0: after each run, shifts starting up to now + this interval get the pin marker a (false: never; a:2w sets the marker); pinned shifts are kept, so this fixes the near future',
   '',
   'INTERVALS (duration, horizon, min_distance, precredit, tolerance):',
   'clock units w d h m; one token may be fractional (1.5w, 0.5d), integer tokens chain from large to small (1d12h)',
