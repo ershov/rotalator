@@ -87,10 +87,10 @@ Reload the spreadsheet and continue with section 4.
    Troubleshooting). The command is idempotent and never rewrites existing
    data. It:
    - creates the missing system tabs `#Holidays`, `#Global`, `#Status` and
-     `#All shifts` with their headers (`#Global` also gets a comment row that
-     explains it);
-   - creates a first rotation tab `On-Call` from the template when the
-     spreadsheet has no rotation yet;
+     `#All shifts`; `#Holidays` gets a sample `New Year` row for the previous
+     year and `#Global` its help rows and a `set` row of defaults;
+   - creates a first rotation tab `Rotation 1 Primary` from the template when
+     the spreadsheet has no rotation yet;
    - on every rotation, `#Holidays`, `#Global` and `#All shifts` tab: Roboto
      Mono font, plain text format on the whole ledger columns (`A:G`), which
      should carry over to rows added later (to be confirmed on a live
@@ -104,17 +104,20 @@ Reload the spreadsheet and continue with section 4.
    - colours the `#` tabs: blue for tabs the script writes, grey for
      `#Holidays` and `#Global`, which you edit.
    Tabs without the ledger header that already have content are left alone.
-2. Open `On-Call` (or rename it: the tab name is the rotation name). Row 2 is
-   a `set` row listing every setting at its default, dated the most recent
-   Monday 00:00 with a bare `anchor`, so the first shift starts there and
-   shifts change at midnight; change the time in `start` if the team hands
-   over during the day. Adjust `period`, `horizon`, `skip_weekends` and the
-   rest as needed. Row 3 is a `team` row with sample names: replace them with
-   your members. Rows with an empty `type` are comments: put notes anywhere in
-   the ledger, the script keeps them in place.
+2. Open `Rotation 1 Primary` (or rename it: the tab name is the rotation
+   name). The first rows are help comments listing what each row type takes
+   in `what`; they stay at the top and can be deleted. Below them a `set` row
+   lists every setting at its default, dated the most recent Monday 00:00
+   with a bare `anchor`, so the first shift starts there and shifts change at
+   midnight; change the time in `start` if the team hands over during the
+   day. Adjust `period`, `horizon`, `skip_weekends` and the rest as needed.
+   The `team` row has sample names: replace them with your members. Rows with
+   an empty `type` are comments: put notes anywhere in the ledger, the script
+   keeps them in place.
 3. More rotations: add a tab, name it, and choose **Rotalator > Set Up Tab**
-   with the tab active. It only fills empty tabs. On `#Holidays` or `#Global`
-   it writes the header row; on tabs the script writes it does nothing.
+   with the tab active. It only fills empty tabs. On `#Holidays` it writes
+   the header and the sample row, on `#Global` the header, help rows and a
+   `set` row of defaults; on tabs the script writes it does nothing.
    Settings shared by every rotation can go into a `set` row in `#Global`
    instead of each tab (see the README); a rotation's own `set` row still
    wins for the keys it names. A rotation that takes everything from

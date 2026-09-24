@@ -258,9 +258,9 @@ var ROW_TYPES = {
   detach:   { order: 4,  what: 'names',  required: true,  extent: true },
   snapshot: { order: 5,  what: 'scores', required: false, extent: false },
   team:     { order: 6,  what: 'team',   required: true,  extent: false },
-  join:     { order: 7,  what: 'join',   required: true,  extent: false },
-  leave:    { order: 8,  what: 'names',  required: true,  extent: false },
-  score:    { order: 9,  what: 'team',   required: true,  extent: false },
+  score:    { order: 7,  what: 'team',   required: true,  extent: false },
+  join:     { order: 8,  what: 'join',   required: true,  extent: false },
+  leave:    { order: 9,  what: 'names',  required: true,  extent: false },
   exclude:  { order: 10, what: 'names',  required: true,  extent: true },
   include:  { order: 11, what: 'names',  required: true,  extent: false },
   shift:    { order: 12, what: 'shift',  required: false, extent: true },
@@ -2000,23 +2000,45 @@ function templateSetWhat() {
   }).join(', ');
 }
 
-var GLOBAL_TEMPLATE_NOTE = 'Spreadsheet-wide defaults and relations. A set row here applies to every rotation ' +
-  'from its start unless the rotation sets the same key itself; attract, repel and detach rows relate rotations; rows without a ' +
-  'type are comments.';
+// In-tab help: undated comment rows (text in note) that attach to the set row below them and stay on top.
+var ROTATION_HELP = [
+  'ROWS:',
+  'shift: one member, or nobody',
+  'team / score: name, name=baseline, name=number, name+=n, name-=n [, ...]',
+  'join: name, name=baseline, name=number [, ...]',
+  'leave: name [, name ...]',
+  'exclude / include: name [, name ...]',
+  'set: key, key=value',
+];
+var GLOBAL_HELP = [
+  'ROWS:',
+  'repel / attract / detach: Rotation1, Rotation2',
+  'set: key, key=value',
+];
+var HOLIDAYS_SAMPLE_NOTE = 'New Year';
 
-// Header and one explanatory comment row of a new #Global tab.
-function globalTemplateRows() {
-  return [LEDGER_HEADER.slice(), ['', '', '', '', '', '', GLOBAL_TEMPLATE_NOTE]];
+function helpRows(lines) {
+  return lines.map(function (text) { return ['', '', '', '', '', '', text]; });
 }
 
-// Header, set and team cell rows of a new rotation tab, dated firstStart.
+// Header, help rows and a set row with every setting at its default, dated firstStart, for a new #Global tab.
+function globalTemplateRows(firstStart) {
+  return [LEDGER_HEADER.slice()].concat(helpRows(GLOBAL_HELP), [['', formatDateTime(firstStart), 'set', templateSetWhat(), '', '', '']]);
+}
+
+// Header plus one sample holiday: New Year of the calendar year before `now`.
+function holidaysTemplateRows(now) {
+  var year = Number(formatDateTime(now).slice(0, 4)) - 1;
+  return [HOLIDAYS_HEADER.slice(), [String(year).padStart(4, '0') + '-01-01', HOLIDAYS_SAMPLE_NOTE]];
+}
+
+// Header, help rows, set and team cell rows of a new rotation tab, dated firstStart.
 function templateRows(firstStart) {
   var start = formatDateTime(firstStart);
-  return [
-    LEDGER_HEADER.slice(),
+  return [LEDGER_HEADER.slice()].concat(helpRows(ROTATION_HELP), [
     ['', start, 'set', templateSetWhat(), '', '', ''],
     ['', start, 'team', TEMPLATE_TEAM, '', '', ''],
-  ];
+  ]);
 }
 
 function previousBoundary(grid, t) {
@@ -2198,7 +2220,7 @@ var TRIGGER_HANDLER = 'run';
 var FONT_FAMILY = 'Roboto Mono';
 var TAB_COLOR_GENERATED = '#4285f4';
 var TAB_COLOR_EDITABLE = '#9e9e9e';
-var DEFAULT_ROTATION_TAB = 'On-Call';
+var DEFAULT_ROTATION_TAB = 'Rotation 1 Primary';
 var LEDGER_COLUMN_WIDTHS = { pin: 40, start: 150, type: 80, what: 320, end: 150, duration: 80, note: 640 };
 var HOLIDAYS_COLUMN_WIDTHS = { date: 110, note: 640 };
 var SHIFTS_START_WIDTH = 150;
@@ -2545,22 +2567,26 @@ function ensureTab(ss, name, header) {
 }
 
 // #Global gets its header and one comment row explaining the tab when created or still empty.
-function ensureGlobalTab(ss) {
-  var sheet = ss.getSheetByName(GLOBAL_TAB) || ss.insertSheet(GLOBAL_TAB);
-  if (!isEmptySheet(sheet)) return sheet;
-  var rows = globalTemplateRows();
-  var range = sheet.getRange(1, 1, rows.length, LEDGER_HEADER.length);
-  range.setNumberFormat('@');
-  range.setValues(rows);
-  return sheet;
+// Template rows for a tab by name: rotation, #Global or #Holidays; null for tabs without a template.
+function templateFor(name, storage) {
+  var now = parseDateTime(storage.nowText);
+  if (name === GLOBAL_TAB) return globalTemplateRows(recentMonday(now));
+  if (name === HOLIDAYS_TAB) return holidaysTemplateRows(now);
+  if (isSystemTab(name)) return null;
+  return templateRows(recentMonday(now));
 }
 
-// Rotation template into an empty tab: header, set row dated the most recent Monday 00:00, sample team.
-function writeRotationTemplate(sheet, storage) {
-  var rows = templateRows(recentMonday(parseDateTime(storage.nowText)));
-  var range = sheet.getRange(1, 1, rows.length, LEDGER_HEADER.length);
+function writeTemplate(sheet, rows) {
+  var range = sheet.getRange(1, 1, rows.length, rows[0].length);
   range.setNumberFormat('@');
   range.setValues(rows);
+}
+
+// Creates a missing tab and fills an empty one from its template.
+function ensureTemplateTab(ss, name, storage) {
+  var sheet = ss.getSheetByName(name) || ss.insertSheet(name);
+  if (isEmptySheet(sheet)) writeTemplate(sheet, templateFor(name, storage));
+  return sheet;
 }
 
 // Menu: Set Up Spreadsheet. Creates missing system tabs, a first rotation when there is none, and formats
@@ -2570,10 +2596,10 @@ function setupSpreadsheet() {
   var storage = new SheetsStorage(ss);
   if (!Object.keys(storage.readLedgers()).length) {
     var first = ss.getSheetByName(DEFAULT_ROTATION_TAB) || ss.insertSheet(DEFAULT_ROTATION_TAB, 0);
-    if (isEmptySheet(first)) writeRotationTemplate(first, storage);
+    if (isEmptySheet(first)) writeTemplate(first, templateFor(DEFAULT_ROTATION_TAB, storage));
   }
-  ensureTab(ss, HOLIDAYS_TAB, HOLIDAYS_HEADER);
-  ensureGlobalTab(ss);
+  ensureTemplateTab(ss, HOLIDAYS_TAB, storage);
+  ensureTemplateTab(ss, GLOBAL_TAB, storage);
   ensureTab(ss, STATUS_TAB, null);
   ensureTab(ss, ALL_SHIFTS_TAB, SHIFTS_HEADER);
   ss.getSheets().forEach(formatTab);
@@ -2588,9 +2614,7 @@ function setupTab() {
   if (isSystemTab(name) && !isKnownSystemTab(name)) { toast('"' + name + '" starts with # and is not a system tab; rename it to use it as a rotation'); return; }
   if (name === STATUS_TAB || name === ALL_SHIFTS_TAB || name.indexOf(PREVIEW_TAB_PREFIX) === 0) { toast('"' + name + '" is written by the script; nothing to fill in'); return; }
   if (!isEmptySheet(sheet)) { toast('"' + name + '" is not empty; Set Up Tab only fills empty tabs'); return; }
-  var layout = tabLayout(sheet);
-  if (isSystemTab(name)) writeHeaderRow(sheet, layout.header);
-  else writeRotationTemplate(sheet, new SheetsStorage(ss));
+  writeTemplate(sheet, templateFor(name, new SheetsStorage(ss)));
   formatTab(sheet);
   toast('"' + name + '" set up from the template');
 }

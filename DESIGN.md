@@ -257,10 +257,10 @@ rotation that hands over during the day sets its own time in the `set` row.
 ### 3.6 Same-instant ordering
 
 Rows with equal `start` sort as: comment, `error`, `set`, `attract`, `repel`,
-`detach`, `snapshot`, `team`, `join`, `leave`, `score`, `exclude`, `include`,
-`shift`. State changes at an
-instant therefore apply before the shift starting at it. Sorting is stable, so
-user order is kept otherwise.
+`detach`, `snapshot`, `team`, `score`, `join`, `leave`, `exclude`, `include`,
+`shift`. State changes at an instant therefore apply before the shift
+starting at it, and a `score` correction applies right after the `team` row
+of the same instant. Sorting is stable, so user order is kept otherwise.
 
 An undated comment attaches to the next dated row below it in the ledger as
 read: its sort key becomes that row's `start` with an order just before that
@@ -389,7 +389,7 @@ rotation's previous snapshot, with `set` rows applied from the top first.
 Rows before the previous snapshot other than `set` rows are ignored; intervals
 that extend past it are clipped.
 
-- `set`, `team`, `join`, `leave`, `score`, `exclude`, `include`: update state.
+- `set`, `team`, `score`, `join`, `leave`, `exclude`, `include`: update state.
   Baselines use projected scores at that instant.
 - Kept `shift`: credit units of its scored interval to its assignee, unless
   pre-credited.
@@ -712,8 +712,8 @@ rows, `#Holidays` tab. The menu tools below do the same without typing.
 
 `setupSpreadsheet()` is idempotent and never rewrites existing data. It
 creates the missing `#Holidays`, `#Global`, `#Status` and `#All shifts` tabs
-with their headers (`#Global` also gets one comment row explaining the tab),
-creates `On-Call` from the rotation template when no rotation exists, and
+(`#Holidays` and `#Global` from their templates of 10.2), creates `Rotation 1
+Primary` from the rotation template when no rotation exists, and
 formats every rotation tab, `#Holidays`, `#Global`,
 `#All shifts` and empty non-`#` tabs: Roboto Mono on the whole tab, plain
 text number format on the whole ledger columns (`A:G`), which is expected to
@@ -754,12 +754,36 @@ editable `#9e9e9e`.
 ### 10.2 Set Up Tab
 
 `setupTab()` fills the active tab according to its name and formats it like
-10.1. A non-`#` tab must
-be empty, otherwise the command refuses with a toast; it gets the header, a
-`set` row listing every setting explicitly at its default (`period=1w`, bare
-`anchor`, `horizon=90d`, ...) dated the most recent Monday 00:00, and a
-`team` row with sample names. `#Holidays` and `#Global` get their header row.
-Tabs the script writes get a toast and nothing else.
+10.1. The tab must be empty, otherwise the command refuses with a toast.
+Templates start with in-tab help: undated comment rows (empty `type`, text
+in `note`) that attach to the `set` row below them and therefore stay at the
+top of the tab through every run (3.6). A rotation tab gets the header, the
+help rows
+
+```
+ROWS:
+shift: one member, or nobody
+team / score: name, name=baseline, name=number, name+=n, name-=n [, ...]
+join: name, name=baseline, name=number [, ...]
+leave: name [, name ...]
+exclude / include: name [, name ...]
+set: key, key=value
+```
+
+then a `set` row listing every setting explicitly at its default
+(`period=1w`, bare `anchor`, `horizon=90d`, ...) dated the most recent Monday
+00:00, and a `team` row with sample names. `#Global` gets the header, the
+help rows
+
+```
+ROWS:
+repel / attract / detach: Rotation1, Rotation2
+set: key, key=value
+```
+
+and the same `set` row of defaults dated like the rotation template.
+`#Holidays` gets its header and one sample row, `<previous year>-01-01 | New
+Year`. Tabs the script writes get a toast and nothing else.
 
 ### 10.3 Fill Shifts Grid
 

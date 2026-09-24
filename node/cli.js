@@ -4,14 +4,16 @@ const path = require('node:path');
 const { load } = require('./load.js');
 const { CsvDirStorage } = require('./storage.js');
 
+const DEFAULT_ROTATION = 'Rotation 1 Primary';
+
 const USAGE = `usage:
   rotalator run DIR [--now YYYY-MM-DDTHH:MM] [--rotation NAME]... [--write] [--status]
-  rotalator init DIR --rotation NAME [--start YYYY-MM-DDTHH:MM] [--history-from YYYY-MM-DD] [--now YYYY-MM-DDTHH:MM]
+  rotalator init DIR [--rotation NAME] [--start YYYY-MM-DDTHH:MM] [--history-from YYYY-MM-DD] [--now YYYY-MM-DDTHH:MM]
   rotalator help
 
 run   regenerates the ledgers in DIR and prints them as CSV; --write saves them, --status appends the status tables.
       --rotation limits regeneration to the named rotations; the others are read but left untouched.
-init  creates <NAME>.csv from the rotation template, plus holidays.csv and now.txt when missing.
+init  creates <NAME>.csv (default "Rotation 1 Primary") from the rotation template, plus holidays.csv and now.txt when missing.
       --start dates the set and team rows (default: the most recent Monday 00:00 before now);
       --history-from adds empty shift rows on the grid from that date up to --start.
 `;
@@ -62,9 +64,9 @@ function parseInstant(U, text, what) {
 // Creates <rotation>.csv from the template in dir; holidays.csv and now.txt only when missing.
 // With historyFrom, the set and team rows are dated at the first grid boundary at or after it and empty
 // shift rows follow up to start, so the ledger validates and start stays a grid instant.
-function initDir(dir, { rotation, start = null, historyFrom = null, now = null }) {
+function initDir(dir, { rotation = DEFAULT_ROTATION, start = null, historyFrom = null, now = null }) {
   const U = load();
-  if (!rotation) throw new Error('init needs --rotation NAME');
+  if (!rotation) throw new Error('init needs a rotation name');
   if (U.isSystemTab(rotation) || !U.isValidMemberId(rotation) || rotation.includes('/')) throw new Error(`bad rotation name "${rotation}"`);
   fs.mkdirSync(dir, { recursive: true });
   const ledgerFile = path.join(dir, `${rotation}.csv`);
@@ -94,9 +96,9 @@ function initDir(dir, { rotation, start = null, historyFrom = null, now = null }
   fs.writeFileSync(ledgerFile, U.formatCsv(structuredClone(cells)));
   written.push(ledgerFile);
   const holidaysFile = path.join(dir, 'holidays.csv');
-  if (!fs.existsSync(holidaysFile)) { fs.writeFileSync(holidaysFile, 'date,note\n'); written.push(holidaysFile); }
+  if (!fs.existsSync(holidaysFile)) { fs.writeFileSync(holidaysFile, U.formatCsv(structuredClone(U.holidaysTemplateRows(nowMin)))); written.push(holidaysFile); }
   if (!fs.existsSync(nowFile)) { fs.writeFileSync(nowFile, nowText + '\n'); written.push(nowFile); }
-  return { files: written, start: cells[1][1], now: nowText };
+  return { files: written, start: cells.find((r) => r[2] === 'set')[1], now: nowText };
 }
 
 function takeValue(argv, i, flag) {
@@ -122,7 +124,7 @@ function parseRunArgs(argv) {
 }
 
 function parseInitArgs(argv) {
-  const args = { dir: null, rotation: null, start: null, historyFrom: null, now: null };
+  const args = { dir: null, rotation: DEFAULT_ROTATION, start: null, historyFrom: null, now: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--rotation') args.rotation = takeValue(argv, i++, a);
@@ -132,7 +134,7 @@ function parseInitArgs(argv) {
     else if (!a.startsWith('--') && args.dir === null) args.dir = a;
     else throw new Error(`unknown argument "${a}"`);
   }
-  if (!args.dir || !args.rotation) throw new Error(USAGE);
+  if (!args.dir) throw new Error(USAGE);
   return args;
 }
 

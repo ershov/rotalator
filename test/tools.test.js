@@ -17,16 +17,40 @@ test('recentMonday: most recent Monday 00:00 at or before t', () => {
   assert.equal(U.formatDateTime(U.recentMonday(dt('2026-10-11T23:00'))), '2026-10-05');
 });
 
-test('templateRows: header, every setting at its default, sample team', () => {
+const SET_DEFAULTS = 'period=1w, anchor, grid=calendar, horizon=90d, skip_weekends=false, skip_holidays=false, tolerance=0, min_distance=0, tiebreak=order, seed=0, baseline=median, precredit=auto';
+
+test('templateRows: header, help comments, every setting at its default, sample team', () => {
   const rows = plain(U.templateRows(dt('2026-10-05T09:00')));
   assert.deepEqual(rows[0], plain(U.LEDGER_HEADER));
-  assert.deepEqual(rows[1], R('', '2026-10-05T09:00', 'set',
-    'period=1w, anchor, grid=calendar, horizon=90d, skip_weekends=false, skip_holidays=false, tolerance=0, min_distance=0, tiebreak=order, seed=0, baseline=median, precredit=auto'));
-  assert.deepEqual(rows[2], R('', '2026-10-05T09:00', 'team', 'alice, bob, carol'));
+  assert.deepEqual(rows.slice(1, 8).map((r) => r[6]), [
+    'ROWS:',
+    'shift: one member, or nobody',
+    'team / score: name, name=baseline, name=number, name+=n, name-=n [, ...]',
+    'join: name, name=baseline, name=number [, ...]',
+    'leave: name [, name ...]',
+    'exclude / include: name [, name ...]',
+    'set: key, key=value',
+  ]);
+  assert.ok(rows.slice(1, 8).every((r) => r.slice(0, 6).every((c) => c === '')), 'help rows are undated comments');
+  assert.deepEqual(rows[8], R('', '2026-10-05T09:00', 'set', SET_DEFAULTS));
+  assert.deepEqual(rows[9], R('', '2026-10-05T09:00', 'team', 'alice, bob, carol'));
   const parsed = U.rowsFromCells(rows.slice(1));
   assert.deepEqual(plain(U.validateLedger(parsed, 'r').errors), []);
-  const values = U.parseSetArg(parsed[0].what, parsed[0].start).values;
+  const set = parsed.find((r) => r.type === 'set');
+  const values = U.parseSetArg(set.what, set.start).values;
   assert.deepEqual(plain(values), { ...plain(U.defaultSettings()), period: 7 * 1440, anchor: dt('2026-10-05T09:00') });
+  // The help comments attach to the set row and sort above it.
+  assert.deepEqual(U.sortRows(parsed).map((r) => r.type).slice(6, 9), ['comment', 'set', 'team']);
+});
+
+test('globalTemplateRows and holidaysTemplateRows', () => {
+  const rows = plain(U.globalTemplateRows(dt('2026-10-05')));
+  assert.deepEqual(rows[0], plain(U.LEDGER_HEADER));
+  assert.deepEqual(rows.slice(1, 4).map((r) => r[6]), ['ROWS:', 'repel / attract / detach: Rotation1, Rotation2', 'set: key, key=value']);
+  assert.deepEqual(rows[4], R('', '2026-10-05', 'set', SET_DEFAULTS));
+  assert.equal(rows.length, 5);
+  assert.deepEqual(plain(U.holidaysTemplateRows(dt('2026-10-07T12:00'))), [['date', 'note'], ['2025-01-01', 'New Year']]);
+  assert.deepEqual(plain(U.holidaysTemplateRows(dt('0100-02-03'))), [['date', 'note'], ['0099-01-01', 'New Year']]);
 });
 
 test('gridRows: extension after the last claim, backfill before the first row', () => {

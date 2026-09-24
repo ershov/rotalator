@@ -59,9 +59,10 @@ Every list in `what` uses one grammar: items separated by `,` or `;`, each
 item `name`, `name=value`, `name+=n` or `name-=n`. Member ids are any text
 without `,` `;` `=` `+`, matched verbatim. Nobody is an empty `what` on a
 `shift`, `-` or `none`. Rows are kept sorted by `start`; rows with equal
-`start` sort as comment, `error`, `set`, `snapshot`, `team`, `join`, `leave`,
-`score`, `exclude`, `include`, `shift`, so state changes apply before the
-shift that starts at the same instant.
+`start` sort as comment, `error`, `set`, `snapshot`, `team`, `score`, `join`,
+`leave`, `exclude`, `include`, `shift`, so state changes apply before the
+shift that starts at the same instant and a `score` right after the `team`
+row it corrects.
 
 ## Row types
 
@@ -210,20 +211,23 @@ The **Rotalator** menu has three tools that prepare the spreadsheet; none of
 them opens a dialog and none rewrites existing data.
 
 - **Set Up Spreadsheet** creates the missing system tabs, a first rotation
-  `On-Call` from the template when there is none, and formats every rotation
-  and system tab: monospace font, plain text on the ledger columns, bold grey
-  frozen header with a note on each header cell, column widths, spare columns
-  removed, tab colours on `#` tabs (blue for tabs the script writes, grey for
-  `#Holidays` and `#Global`). Rotation tabs and `#Global` get conditional row
-  colours by `type` (errors red, settings blue, roster changes teal, snapshot
-  green, comment rows yellow, `attract` and `repel` green, `detach` grey);
-  the tab's existing conditional rules are replaced. A new `#Global` gets its
-  header and a comment row explaining the tab. It is idempotent.
-- **Set Up Tab** fills the active tab from its name: an empty rotation tab
-  gets the header, a `set` row with every setting at its default (bare
-  `anchor`, dated the most recent Monday 00:00) and a sample `team` row; an
-  empty `#Holidays` or `#Global` tab gets its header. Non-empty tabs are
-  refused.
+  `Rotation 1 Primary` from the template when there is none, and formats
+  every rotation and system tab: monospace font, plain text on the ledger
+  columns, bold grey frozen header with a note on each header cell, column
+  widths, spare columns removed, tab colours on `#` tabs (blue for tabs the
+  script writes, grey for `#Holidays` and `#Global`). Rotation tabs and
+  `#Global` get conditional row colours by `type` (errors red, settings blue,
+  roster changes teal, snapshot green, comment rows yellow, `attract` and
+  `repel` green, `detach` grey); the tab's existing conditional rules are
+  replaced. New `#Holidays` and `#Global` tabs get their templates. It is
+  idempotent.
+- **Set Up Tab** fills the active tab from its name. An empty rotation tab
+  gets the header, help rows (comments listing what each row type takes in
+  `what`, kept at the top of the tab), a `set` row with every setting at its
+  default (bare `anchor`, dated the most recent Monday 00:00) and a sample
+  `team` row. An empty `#Global` gets the header, its own help rows and the
+  same `set` row of defaults; an empty `#Holidays` gets the header and a
+  sample `New Year` row for the previous year. Non-empty tabs are refused.
 - **Fill Shifts Grid** fills the `start` of the selected rows of a rotation
   tab so they sit on the grid: empty rows above the first dated row are
   placed on the boundaries before it, empty rows below the last dated row on
@@ -434,8 +438,9 @@ they are neither printed nor written, and the `tabs` block of the status shows
 which rotations were regenerated. An unknown name stops the run with nothing
 written. Errors go to stderr and set exit code 1.
 
-`init` creates `NAME.csv` from the rotation template, plus `holidays.csv` and
-`now.txt` when they are missing. `--start` dates the `set` and `team` rows
+`init` creates `NAME.csv` (default `Rotation 1 Primary`) from the rotation
+template, plus `holidays.csv` (with the sample `New Year` row) and `now.txt`
+when they are missing. `--start` dates the `set` and `team` rows
 (default: the most recent Monday 00:00 before `now`). `--history-from` adds
 empty `shift` rows on the grid from that date up to the start; the `set` and
 `team` rows are then dated at the first of those boundaries so the ledger

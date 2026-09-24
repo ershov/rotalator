@@ -169,7 +169,7 @@ test('sortRows orders by start then type, stable, nulls last', () => {
   ];
   const sorted = U.sortRows(rows);
   assert.deepEqual(sorted.map((r) => r.type + (r.what ? ':' + r.what : '')),
-    ['shift:b', 'error', 'set', 'snapshot', 'team', 'join', 'leave', 'score', 'exclude', 'include', 'shift:a', 'shift:c', 'bogus', 'shift:z']);
+    ['shift:b', 'error', 'set', 'snapshot', 'team', 'score', 'join', 'leave', 'exclude', 'include', 'shift:a', 'shift:c', 'bogus', 'shift:z']);
   assert.notEqual(sorted, rows);
 });
 

@@ -36,23 +36,45 @@ function templateSetWhat() {
   }).join(', ');
 }
 
-var GLOBAL_TEMPLATE_NOTE = 'Spreadsheet-wide defaults and relations. A set row here applies to every rotation ' +
-  'from its start unless the rotation sets the same key itself; attract, repel and detach rows relate rotations; rows without a ' +
-  'type are comments.';
+// In-tab help: undated comment rows (text in note) that attach to the set row below them and stay on top.
+var ROTATION_HELP = [
+  'ROWS:',
+  'shift: one member, or nobody',
+  'team / score: name, name=baseline, name=number, name+=n, name-=n [, ...]',
+  'join: name, name=baseline, name=number [, ...]',
+  'leave: name [, name ...]',
+  'exclude / include: name [, name ...]',
+  'set: key, key=value',
+];
+var GLOBAL_HELP = [
+  'ROWS:',
+  'repel / attract / detach: Rotation1, Rotation2',
+  'set: key, key=value',
+];
+var HOLIDAYS_SAMPLE_NOTE = 'New Year';
 
-// Header and one explanatory comment row of a new #Global tab.
-function globalTemplateRows() {
-  return [LEDGER_HEADER.slice(), ['', '', '', '', '', '', GLOBAL_TEMPLATE_NOTE]];
+function helpRows(lines) {
+  return lines.map(function (text) { return ['', '', '', '', '', '', text]; });
 }
 
-// Header, set and team cell rows of a new rotation tab, dated firstStart.
+// Header, help rows and a set row with every setting at its default, dated firstStart, for a new #Global tab.
+function globalTemplateRows(firstStart) {
+  return [LEDGER_HEADER.slice()].concat(helpRows(GLOBAL_HELP), [['', formatDateTime(firstStart), 'set', templateSetWhat(), '', '', '']]);
+}
+
+// Header plus one sample holiday: New Year of the calendar year before `now`.
+function holidaysTemplateRows(now) {
+  var year = Number(formatDateTime(now).slice(0, 4)) - 1;
+  return [HOLIDAYS_HEADER.slice(), [String(year).padStart(4, '0') + '-01-01', HOLIDAYS_SAMPLE_NOTE]];
+}
+
+// Header, help rows, set and team cell rows of a new rotation tab, dated firstStart.
 function templateRows(firstStart) {
   var start = formatDateTime(firstStart);
-  return [
-    LEDGER_HEADER.slice(),
+  return [LEDGER_HEADER.slice()].concat(helpRows(ROTATION_HELP), [
     ['', start, 'set', templateSetWhat(), '', '', ''],
     ['', start, 'team', TEMPLATE_TEAM, '', '', ''],
-  ];
+  ]);
 }
 
 function previousBoundary(grid, t) {
