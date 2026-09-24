@@ -275,6 +275,7 @@ var HOLIDAYS_TAB = '#Holidays';
 var GLOBAL_TAB = '#Global';
 var STATUS_TAB = '#Status';
 var ALL_SHIFTS_TAB = '#All shifts';
+var HELP_TAB = '#Help';
 var PREVIEW_TAB_PREFIX = '#Preview ';
 
 function isSystemTab(name) {
@@ -288,7 +289,7 @@ function previewTabName(name) {
 
 function isKnownSystemTab(name) {
   return name === HOLIDAYS_TAB || name === GLOBAL_TAB || name === STATUS_TAB || name === ALL_SHIFTS_TAB ||
-    name.indexOf(PREVIEW_TAB_PREFIX) === 0;
+    name === HELP_TAB || name.indexOf(PREVIEW_TAB_PREFIX) === 0;
 }
 
 // order: same-instant sort (DESIGN 3.6). what: item grammar of the column (see validateWhat).
@@ -2130,6 +2131,69 @@ var GLOBAL_HELP = [
 ];
 var HOLIDAYS_SAMPLE_NOTE = 'New Year';
 
+// The #Help tab, one line per row (DESIGN 10.1). Written in full by Set Up Spreadsheet.
+var HELP_TEXT = [
+  'ROTALATOR',
+  'Rotalator keeps on-call rotations topped up in this spreadsheet. You edit the rotation tabs; the script runs nightly or from the Rotalator menu, replays the history and rewrites the future so that on-call load stays fair. Unpinned shifts after the snapshot row belong to the script and are regenerated on every run.',
+  '',
+  'COLUMNS: pin | start | type | what | end | duration | note',
+  'pin: any value pins the row; the script never modifies or deletes a pinned row',
+  'start: YYYY-MM-DD or YYYY-MM-DDTHH:MM in the spreadsheet time zone; mandatory on every row but comments',
+  'type: one of the row types below; an empty type makes the row a comment',
+  'what: the payload of the row, see ROWS',
+  'end / duration: optional extent of a shift or exclude; at most one of the two',
+  'note: free text on your rows; the script writes notes on generated rows',
+  '',
+  'ROWS:',
+  'shift: one member, or nobody (empty, - or none)',
+  'team / score: name, name=baseline, name=number, name+=n, name-=n [, ...]',
+  'join: name, name=baseline, name=number [, ...]',
+  'leave: name [, name ...]',
+  'exclude / include: name [, name ...]; exclude takes end or duration, otherwise it lasts until an include',
+  'set: key, key=value',
+  'repel / attract / detach: Rotation1, Rotation2 (mutual in #Global; in a rotation tab one-sided, naming the other rotation)',
+  'snapshot: written by the script at the start of the current shift with the roster and scores; delete it to replay the whole history',
+  'error: written by the script above the row it describes; removed on the next run',
+  'comment: any row with an empty type; kept in place, never replayed; an undated comment sticks to the row below it',
+  '',
+  'SETTINGS (set rows; a bare key drops the local value, falling back to #Global and then to the default):',
+  'period=1w: regular shift length in clock units; required in the first set row of a rotation',
+  'anchor: bare key, the row start becomes the grid anchor; every shift starts at anchor + k x period',
+  'grid=calendar: or counted, a boundary every period of counted (not skipped) days',
+  'horizon=90d: generate shifts up to this interval after the snapshot',
+  'skip_weekends=false: Saturdays and Sundays credit nothing',
+  'skip_holidays=false: dates listed in #Holidays credit nothing',
+  'tolerance=0: days (or an interval) above the lowest score that still count as candidates',
+  'min_distance=0: rest required on both sides of a shift, as an interval',
+  'tiebreak=order: or shuffle (deterministic hash with seed)',
+  'seed=0: integer mixed into the shuffle',
+  'baseline=median: score given to a joiner: median, mean, min or max of the roster',
+  'precredit=1ts: how far ahead pinned shifts are credited before turns are decided',
+  '',
+  'INTERVALS (duration, horizon, min_distance, precredit, tolerance):',
+  'clock units w d h m; one token may be fractional (1.5w, 0.5d), integer tokens chain from large to small (1d12h)',
+  'sl: one shift length, the period in force; ts: team size x shift length, one full cycle of the roster (0.5ts, 2sl)',
+  '0 is the zero interval; with grid=counted intervals count counted days, so 2d is two working days',
+  '',
+  'RELATIONS between rotations (rows in #Global, or one-sided in a rotation tab):',
+  'repel: nobody holds overlapping shifts in both rotations; attract: prefer the member already on call in the other rotation; detach: ends an earlier relation',
+  '',
+  'MENU:',
+  'Run: regenerates every rotation and rewrites #Status and #All shifts; the nightly trigger runs this',
+  'Run - dry run: writes #Preview <rotation> tabs instead of the ledgers, plus #Status and #All shifts',
+  'Run for current rotation / Run for current rotation - dry run: the same for the active tab only',
+  'Set Up Spreadsheet: creates missing tabs, formats every tab and rewrites #Help; never changes your data',
+  'Set Up Tab: fills an empty tab from its template (rotation, #Holidays or #Global)',
+  'Fill Shifts Grid: puts the selected rows of a rotation tab on the grid, filling start',
+  'Install nightly trigger / Remove trigger: schedule Run daily between 02:00 and 03:00, or stop it',
+  '',
+  'NEVER TOUCHED BY THE SCRIPT: pinned rows; rows at or before the snapshot; the current shift; comments; header rows; tabs without the ledger header.',
+  '',
+  'ONE GRID STEP: a shift without end or duration ends at the earlier of the next shift start and the next grid boundary, so it counts as at most one period. Give hand-entered history that spans several periods a duration or an end.',
+  '',
+  'MORE: README.md (features and everyday tasks) and INSTALL.md (setup, deployment, troubleshooting) in the Rotalator repository.',
+];
+
 function helpRows(lines) {
   return lines.map(function (text) { return ['', '', '', '', '', '', text]; });
 }
@@ -2333,6 +2397,8 @@ var TRIGGER_HANDLER = 'run';
 var FONT_FAMILY = 'Roboto Mono';
 var TAB_COLOR_GENERATED = '#4285f4';
 var TAB_COLOR_EDITABLE = '#9e9e9e';
+var TAB_COLOR_HELP = '#76a5af';
+var HELP_COLUMN_WIDTH = 900;
 var DEFAULT_ROTATION_TAB = 'Rotation 1 Primary';
 var LEDGER_COLUMN_WIDTHS = { pin: 40, start: 150, type: 80, what: 320, end: 150, duration: 80, note: 640 };
 var HOLIDAYS_COLUMN_WIDTHS = { date: 110, note: 640 };
@@ -2626,6 +2692,7 @@ function tabLayout(sheet) {
   if (name === HOLIDAYS_TAB) return { header: HOLIDAYS_HEADER, widths: HOLIDAYS_COLUMN_WIDTHS, notes: true, freeze: true };
   if (name === ALL_SHIFTS_TAB) return { header: null, widths: null, notes: false, freeze: false };
   if (name === STATUS_TAB) return { header: null, widths: STATUS_COLUMN_WIDTHS, notes: false, freeze: false };
+  if (name === HELP_TAB) return { header: null, widths: [HELP_COLUMN_WIDTH], notes: false, freeze: false };
   if (isSystemTab(name) && !isKnownSystemTab(name)) return null;
   if (!isSystemTab(name) && !isEmptySheet(sheet) && !isLedgerHeader(sheet.getRange(1, 1, 1, LEDGER_HEADER.length).getValues()[0])) return null;
   return { header: LEDGER_HEADER, widths: LEDGER_COLUMN_WIDTHS, notes: true, freeze: true };
@@ -2647,7 +2714,7 @@ function formatTab(sheet) {
   var layout = tabLayout(sheet);
   if (!layout) return;
   sheet.getRange(1, 1, sheet.getMaxRows(), sheet.getMaxColumns()).setFontFamily(FONT_FAMILY);
-  var width = layout.header ? layout.header.length : STATUS_WIDTH;
+  var width = layout.header ? layout.header.length : layout.widths ? layout.widths.length : STATUS_WIDTH;
   sheet.getRange('A:' + String.fromCharCode(64 + width)).setNumberFormat('@');
   if (!layout.header && layout.widths) layout.widths.forEach(function (w, i) { sheet.setColumnWidth(i + 1, w); });
   if (layout.header && !isEmptySheet(sheet)) {
@@ -2664,8 +2731,24 @@ function formatTab(sheet) {
   if (name === GLOBAL_TAB) setConditionalRules(sheet, GLOBAL_FORMAT_RULES, LEDGER_HEADER.length);
   if (isSystemTab(name)) {
     var editable = name === HOLIDAYS_TAB || name === GLOBAL_TAB;
-    sheet.setTabColor(editable ? TAB_COLOR_EDITABLE : TAB_COLOR_GENERATED);
+    sheet.setTabColor(name === HELP_TAB ? TAB_COLOR_HELP : editable ? TAB_COLOR_EDITABLE : TAB_COLOR_GENERATED);
   }
+}
+
+// #Help: HELP_TEXT in column A, first row bold, moved to the last position; the active tab is kept.
+function writeHelpTab(ss) {
+  var sheet = ss.getSheetByName(HELP_TAB) || ss.insertSheet(HELP_TAB);
+  sheet.clear();
+  var range = sheet.getRange(1, 1, HELP_TEXT.length, 1);
+  range.setNumberFormat('@');
+  range.setWrap(true);
+  range.setValues(HELP_TEXT.map(function (line) { return [line]; }));
+  sheet.getRange(1, 1).setFontWeight('bold');
+  var active = ss.getActiveSheet();
+  ss.setActiveSheet(sheet);
+  ss.moveActiveSheet(ss.getNumSheets());
+  ss.setActiveSheet(active);
+  return sheet;
 }
 
 function ensureTab(ss, name, header) {
@@ -2715,8 +2798,9 @@ function setupSpreadsheet() {
   ensureTemplateTab(ss, GLOBAL_TAB, storage);
   ensureTab(ss, STATUS_TAB, null);
   ensureTab(ss, ALL_SHIFTS_TAB, SHIFTS_HEADER);
+  writeHelpTab(ss);
   ss.getSheets().forEach(formatTab);
-  toast('Tabs and formatting are in place');
+  toast('Tabs, formatting and #Help are in place');
 }
 
 // Menu: Set Up Tab. Fills the active tab according to its name; never overwrites content.
@@ -2725,7 +2809,7 @@ function setupTab() {
   var sheet = ss.getActiveSheet();
   var name = sheet.getName();
   if (isSystemTab(name) && !isKnownSystemTab(name)) { toast('"' + name + '" starts with # and is not a system tab; rename it to use it as a rotation'); return; }
-  if (name === STATUS_TAB || name === ALL_SHIFTS_TAB || name.indexOf(PREVIEW_TAB_PREFIX) === 0) { toast('"' + name + '" is written by the script; nothing to fill in'); return; }
+  if (name === STATUS_TAB || name === ALL_SHIFTS_TAB || name === HELP_TAB || name.indexOf(PREVIEW_TAB_PREFIX) === 0) { toast('"' + name + '" is written by the script; nothing to fill in'); return; }
   if (!isEmptySheet(sheet)) { toast('"' + name + '" is not empty; Set Up Tab only fills empty tabs'); return; }
   writeTemplate(sheet, templateFor(name, new SheetsStorage(ss)));
   formatTab(sheet);

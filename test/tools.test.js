@@ -43,6 +43,16 @@ test('templateRows: header, help comments, every setting at its default, sample 
   assert.deepEqual(U.sortRows(parsed).map((r) => r.type).slice(6, 9), ['comment', 'set', 'team']);
 });
 
+test('HELP_TEXT covers every row type, setting, interval unit and menu item', () => {
+  const text = structuredClone(U.HELP_TEXT).join('\n');
+  assert.ok(U.HELP_TEXT.length > 20 && U.HELP_TEXT.length < 80);
+  for (const type of Object.keys(U.ROW_TYPES)) assert.match(text, new RegExp(`(^|[^a-z_])${type}([^a-z_]|$)`, 'm'), type);
+  for (const key of Object.keys(U.SETTINGS)) assert.match(text, new RegExp(`^${key}(=|:)`, 'm'), key);
+  for (const word of ['comment', 'sl:', 'ts:', 'Run - dry run', 'Set Up Spreadsheet', 'Set Up Tab', 'Fill Shifts Grid', 'Install nightly trigger', 'README.md', 'INSTALL.md']) assert.ok(text.includes(word), word);
+  assert.equal(U.HELP_TEXT[0], 'ROTALATOR');
+  assert.ok(U.isKnownSystemTab(U.HELP_TAB) && U.isSystemTab(U.HELP_TAB));
+});
+
 test('globalTemplateRows and holidaysTemplateRows', () => {
   const rows = plain(U.globalTemplateRows(dt('2026-10-05')));
   assert.deepEqual(rows[0], plain(U.LEDGER_HEADER));

@@ -29,6 +29,7 @@ Setup and deployment are in [INSTALL.md](INSTALL.md). The design is in
 | `#Holidays` | users | Column A date `YYYY-MM-DD`, column B note. Shared by all rotations. |
 | `#Status` | script | Recognised tabs, scores, last and next shifts, exclusions, warnings. Rewritten on every run. |
 | `#All shifts` | script | Every shift of every rotation in one table. Rewritten on every run. |
+| `#Help` | script | Plain-text help on columns, rows, settings, intervals, relations and the menu. Rewritten by Set Up Spreadsheet and kept as the last tab. |
 | `#Preview <rotation>`, `#Preview Global` | script | Output of a dry run. |
 | `#Global` | users and script | Spreadsheet-wide `set` defaults and relations between rotations, see below. The script adds `error` rows. |
 
@@ -234,8 +235,8 @@ them opens a dialog and none rewrites existing data.
   `#Global` get conditional row colours by `type` (errors red, settings blue,
   roster changes teal, snapshot green, comment rows yellow, `attract` and
   `repel` green, `detach` grey); the tab's existing conditional rules are
-  replaced. New `#Holidays` and `#Global` tabs get their templates. It is
-  idempotent.
+  replaced. New `#Holidays` and `#Global` tabs get their templates, and the
+  `#Help` tab is rewritten and moved to the end. It is idempotent.
 - **Set Up Tab** fills the active tab from its name. An empty rotation tab
   gets the header, help rows (comments listing what each row type takes in
   `what`, kept at the top of the tab), a `set` row with every setting at its

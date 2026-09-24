@@ -6,6 +6,8 @@ var TRIGGER_HANDLER = 'run';
 var FONT_FAMILY = 'Roboto Mono';
 var TAB_COLOR_GENERATED = '#4285f4';
 var TAB_COLOR_EDITABLE = '#9e9e9e';
+var TAB_COLOR_HELP = '#76a5af';
+var HELP_COLUMN_WIDTH = 900;
 var DEFAULT_ROTATION_TAB = 'Rotation 1 Primary';
 var LEDGER_COLUMN_WIDTHS = { pin: 40, start: 150, type: 80, what: 320, end: 150, duration: 80, note: 640 };
 var HOLIDAYS_COLUMN_WIDTHS = { date: 110, note: 640 };
@@ -299,6 +301,7 @@ function tabLayout(sheet) {
   if (name === HOLIDAYS_TAB) return { header: HOLIDAYS_HEADER, widths: HOLIDAYS_COLUMN_WIDTHS, notes: true, freeze: true };
   if (name === ALL_SHIFTS_TAB) return { header: null, widths: null, notes: false, freeze: false };
   if (name === STATUS_TAB) return { header: null, widths: STATUS_COLUMN_WIDTHS, notes: false, freeze: false };
+  if (name === HELP_TAB) return { header: null, widths: [HELP_COLUMN_WIDTH], notes: false, freeze: false };
   if (isSystemTab(name) && !isKnownSystemTab(name)) return null;
   if (!isSystemTab(name) && !isEmptySheet(sheet) && !isLedgerHeader(sheet.getRange(1, 1, 1, LEDGER_HEADER.length).getValues()[0])) return null;
   return { header: LEDGER_HEADER, widths: LEDGER_COLUMN_WIDTHS, notes: true, freeze: true };
@@ -320,7 +323,7 @@ function formatTab(sheet) {
   var layout = tabLayout(sheet);
   if (!layout) return;
   sheet.getRange(1, 1, sheet.getMaxRows(), sheet.getMaxColumns()).setFontFamily(FONT_FAMILY);
-  var width = layout.header ? layout.header.length : STATUS_WIDTH;
+  var width = layout.header ? layout.header.length : layout.widths ? layout.widths.length : STATUS_WIDTH;
   sheet.getRange('A:' + String.fromCharCode(64 + width)).setNumberFormat('@');
   if (!layout.header && layout.widths) layout.widths.forEach(function (w, i) { sheet.setColumnWidth(i + 1, w); });
   if (layout.header && !isEmptySheet(sheet)) {
@@ -337,8 +340,24 @@ function formatTab(sheet) {
   if (name === GLOBAL_TAB) setConditionalRules(sheet, GLOBAL_FORMAT_RULES, LEDGER_HEADER.length);
   if (isSystemTab(name)) {
     var editable = name === HOLIDAYS_TAB || name === GLOBAL_TAB;
-    sheet.setTabColor(editable ? TAB_COLOR_EDITABLE : TAB_COLOR_GENERATED);
+    sheet.setTabColor(name === HELP_TAB ? TAB_COLOR_HELP : editable ? TAB_COLOR_EDITABLE : TAB_COLOR_GENERATED);
   }
+}
+
+// #Help: HELP_TEXT in column A, first row bold, moved to the last position; the active tab is kept.
+function writeHelpTab(ss) {
+  var sheet = ss.getSheetByName(HELP_TAB) || ss.insertSheet(HELP_TAB);
+  sheet.clear();
+  var range = sheet.getRange(1, 1, HELP_TEXT.length, 1);
+  range.setNumberFormat('@');
+  range.setWrap(true);
+  range.setValues(HELP_TEXT.map(function (line) { return [line]; }));
+  sheet.getRange(1, 1).setFontWeight('bold');
+  var active = ss.getActiveSheet();
+  ss.setActiveSheet(sheet);
+  ss.moveActiveSheet(ss.getNumSheets());
+  ss.setActiveSheet(active);
+  return sheet;
 }
 
 function ensureTab(ss, name, header) {
@@ -388,8 +407,9 @@ function setupSpreadsheet() {
   ensureTemplateTab(ss, GLOBAL_TAB, storage);
   ensureTab(ss, STATUS_TAB, null);
   ensureTab(ss, ALL_SHIFTS_TAB, SHIFTS_HEADER);
+  writeHelpTab(ss);
   ss.getSheets().forEach(formatTab);
-  toast('Tabs and formatting are in place');
+  toast('Tabs, formatting and #Help are in place');
 }
 
 // Menu: Set Up Tab. Fills the active tab according to its name; never overwrites content.
@@ -398,7 +418,7 @@ function setupTab() {
   var sheet = ss.getActiveSheet();
   var name = sheet.getName();
   if (isSystemTab(name) && !isKnownSystemTab(name)) { toast('"' + name + '" starts with # and is not a system tab; rename it to use it as a rotation'); return; }
-  if (name === STATUS_TAB || name === ALL_SHIFTS_TAB || name.indexOf(PREVIEW_TAB_PREFIX) === 0) { toast('"' + name + '" is written by the script; nothing to fill in'); return; }
+  if (name === STATUS_TAB || name === ALL_SHIFTS_TAB || name === HELP_TAB || name.indexOf(PREVIEW_TAB_PREFIX) === 0) { toast('"' + name + '" is written by the script; nothing to fill in'); return; }
   if (!isEmptySheet(sheet)) { toast('"' + name + '" is not empty; Set Up Tab only fills empty tabs'); return; }
   writeTemplate(sheet, templateFor(name, new SheetsStorage(ss)));
   formatTab(sheet);

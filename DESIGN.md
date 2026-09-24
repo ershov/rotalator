@@ -57,6 +57,7 @@ owner explicitly approves one.
 | `#Status` | script | Recognised tabs, scores, last and next shifts, exclusions, warnings. Fully rewritten each run. |
 | `#All shifts` | script | Every shift of every rotation in one table. Fully rewritten each run. |
 | `#Preview <rotation>`, `#Preview Global` | script | Dry run output. |
+| `#Help` | script | Plain-text help, rewritten by Set Up Spreadsheet, kept as the last tab. |
 
 Every tab whose name starts with `#` is a system tab and is never a rotation.
 Any other tab whose first row is the ledger header is a rotation; anything else
@@ -730,7 +731,10 @@ rows, `#Holidays` tab. The menu tools below do the same without typing.
 `setupSpreadsheet()` is idempotent and never rewrites existing data. It
 creates the missing `#Holidays`, `#Global`, `#Status` and `#All shifts` tabs
 (`#Holidays` and `#Global` from their templates of 10.2), creates `Rotation 1
-Primary` from the rotation template when no rotation exists, and
+Primary` from the rotation template when no rotation exists, rewrites the
+`#Help` tab from `HELP_TEXT` in `70_tools.js` (one line per row in column A,
+first row bold, column width 900, tab colour light cyan 1 `#76a5af`, no
+conditional rules) and moves it to the last position, and
 formats every rotation tab, `#Holidays`, `#Global`,
 `#All shifts` and empty non-`#` tabs: Roboto Mono on the whole tab, plain
 text number format on the whole ledger columns (`A:G`), which is expected to

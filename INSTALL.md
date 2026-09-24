@@ -91,6 +91,8 @@ Reload the spreadsheet and continue with section 4.
      year and `#Global` its help rows and a `set` row of defaults;
    - creates a first rotation tab `Rotation 1 Primary` from the template when
      the spreadsheet has no rotation yet;
+   - rewrites the `#Help` tab (plain text: columns, row types, settings,
+     intervals, relations, menu) and keeps it as the last tab;
    - on every rotation, `#Holidays`, `#Global` and `#All shifts` tab: Roboto
      Mono font, plain text format on the whole ledger columns (`A:G`), which
      should carry over to rows added later (to be confirmed on a live

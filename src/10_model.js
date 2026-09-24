@@ -6,6 +6,7 @@ var HOLIDAYS_TAB = '#Holidays';
 var GLOBAL_TAB = '#Global';
 var STATUS_TAB = '#Status';
 var ALL_SHIFTS_TAB = '#All shifts';
+var HELP_TAB = '#Help';
 var PREVIEW_TAB_PREFIX = '#Preview ';
 
 function isSystemTab(name) {
@@ -19,7 +20,7 @@ function previewTabName(name) {
 
 function isKnownSystemTab(name) {
   return name === HOLIDAYS_TAB || name === GLOBAL_TAB || name === STATUS_TAB || name === ALL_SHIFTS_TAB ||
-    name.indexOf(PREVIEW_TAB_PREFIX) === 0;
+    name === HELP_TAB || name.indexOf(PREVIEW_TAB_PREFIX) === 0;
 }
 
 // order: same-instant sort (DESIGN 3.6). what: item grammar of the column (see validateWhat).

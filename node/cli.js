@@ -66,7 +66,7 @@ function parseInstant(U, text, what) {
 // shift rows follow up to start, so the ledger validates and start stays a grid instant.
 function initDir(dir, { rotation = DEFAULT_ROTATION, start = null, historyFrom = null, now = null }) {
   const U = load();
-  if (!rotation) throw new Error('init needs a rotation name');
+  if (!rotation) throw new Error('init needs --rotation NAME');
   if (U.isSystemTab(rotation) || !U.isValidMemberId(rotation) || rotation.includes('/')) throw new Error(`bad rotation name "${rotation}"`);
   fs.mkdirSync(dir, { recursive: true });
   const ledgerFile = path.join(dir, `${rotation}.csv`);
