@@ -81,9 +81,9 @@ class Grid {
     return this.instant(a + (Math.floor((this.coord(t) - a) / this.period) + 1) * this.period);
   }
 
-  // n periods from t along the grid; t + n*period in calendar mode.
-  step(t, n) {
-    return this.instant(this.coord(t) + n * this.period);
+  // t moved by minutes along the grid's timeline; t + minutes in calendar mode.
+  offset(t, minutes) {
+    return this.instant(this.coord(t) + minutes);
   }
 }
 
@@ -130,4 +130,11 @@ function scoredEnd(shift, nextShiftStart, grid) {
   if (shift.end !== null) return shift.end;
   var end = grid.next(shift.start);
   return nextShiftStart !== null && nextShiftStart !== undefined && nextShiftStart < end ? nextShiftStart : end;
+}
+
+// Minutes of an interval on the grid's timeline (DESIGN 3.3): sl is one period, ts is rosterSize periods.
+function resolveInterval(interval, grid, rosterSize) {
+  if (interval.unit === 'sl') return interval.amount * grid.period;
+  if (interval.unit === 'ts') return interval.amount * grid.period * rosterSize;
+  return interval.minutes;
 }

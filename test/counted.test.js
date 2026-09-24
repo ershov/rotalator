@@ -37,10 +37,11 @@ test('counted daily grid with skipped weekends: Friday runs to Monday, skipped i
   assert.equal(fmt(g.floor(at('2026-10-02T12:00'))), '2026-10-02T09:00');
   assert.equal(fmt(g.next(at('2026-10-02T12:00'))), '2026-10-05T09:00');
   assert.equal(fmt(g.floor(at('2026-10-04T20:00'))), '2026-10-02T09:00');
-  assert.equal(fmt(g.step(at('2026-10-12T09:00'), -1)), '2026-10-09T09:00');
-  assert.equal(fmt(g.step(at('2026-10-09T09:00'), 2)), '2026-10-13T09:00');
-  assert.equal(fmt(g.step(at('2026-10-09T09:00'), 0)), '2026-10-09T09:00');
-  assert.equal(fmt(g.step(at('2026-10-10T12:00'), 1)), '2026-10-13');
+  assert.equal(fmt(g.offset(at('2026-10-12T09:00'), -D)), '2026-10-09T09:00');
+  assert.equal(fmt(g.offset(at('2026-10-09T09:00'), 2 * D)), '2026-10-13T09:00');
+  assert.equal(fmt(g.offset(at('2026-10-09T09:00'), 0)), '2026-10-09T09:00');
+  assert.equal(fmt(g.offset(at('2026-10-10T12:00'), D)), '2026-10-13');
+  assert.equal(fmt(g.offset(at('2026-10-09T12:00'), 720)), '2026-10-12');
 });
 
 test('counted grid with a holiday mid-week: Tuesday runs to Thursday', () => {
@@ -68,18 +69,18 @@ test('1w in counted mode is seven counted days and drifts across weekdays', () =
   assert.equal(fmt(g.next(MON)), '2026-10-14T09:00');
   assert.equal(fmt(g.next(at('2026-10-14T09:00'))), '2026-10-23T09:00');
   assert.equal(fmt(g.floor(at('2026-10-20T12:00'))), '2026-10-14T09:00');
-  assert.equal(fmt(g.step(MON, 2)), '2026-10-23T09:00');
-  assert.equal(fmt(g.step(at('2026-10-23T09:00'), -2)), '2026-10-05T09:00');
+  assert.equal(fmt(g.offset(MON, 14 * D)), '2026-10-23T09:00');
+  assert.equal(fmt(g.offset(at('2026-10-23T09:00'), -14 * D)), '2026-10-05T09:00');
 });
 
-test('calendar mode ignores the skip flags and step is t + n*period', () => {
+test('calendar mode ignores the skip flags and offset is t + minutes', () => {
   const g = new U.Grid({ period: D, anchor: MON, grid: 'calendar', skip_weekends: true, skip_holidays: true }, new Set([U.parseDay('2026-10-06')]));
   assert.equal(fmt(g.next(at('2026-10-09T09:00'))), '2026-10-10T09:00');
   assert.equal(fmt(g.next(at('2026-10-05T09:00'))), '2026-10-06T09:00');
-  assert.equal(g.step(MON, 3), MON + 3 * D);
-  assert.equal(g.step(MON + 17, -2), MON + 17 - 2 * D);
+  assert.equal(g.offset(MON, 3 * D), MON + 3 * D);
+  assert.equal(g.offset(MON + 17, -2 * D), MON + 17 - 2 * D);
   const bare = new U.Grid({ period: 7 * D, anchor: MON });
-  assert.equal(bare.step(MON, 1), MON + 7 * D);
+  assert.equal(bare.offset(MON, 7 * D), MON + 7 * D);
 });
 
 test('grid setting: values, bare key, validation and grid-change reporting', () => {
@@ -97,7 +98,8 @@ test('grid setting: values, bare key, validation and grid-change reporting', () 
   assert.equal(fmt(changes.at(MON + 8 * 60).grid(holidays).next(at('2026-10-06T09:00'))), '2026-10-07T09:00');
 });
 
-const SET = R('', '2026-10-05T09:00', 'set', 'period=1d, horizon=1w, grid=counted, skip_weekends=true');
+// horizon=5d: intervals are counted days in counted mode, so this is Monday to Friday.
+const SET = R('', '2026-10-05T09:00', 'set', 'period=1d, horizon=5d, grid=counted, skip_weekends=true');
 const TEAM = R('', '2026-10-05T09:00', 'team', 'alice, bob, carol');
 
 test('counted daily rotation: no weekend shifts, Friday credits 1.0 through Monday, idempotent, full replay equal', () => {
@@ -121,6 +123,10 @@ test('counted daily rotation: no weekend shifts, Friday credits 1.0 through Mond
   const monday = run(cellsOf(weekend), '2026-10-12T10:00');
   assert.equal(ofType(monday, 'snapshot')[0].what, 'alice=2, bob=2, carol=1');
   assert.equal(shifts(monday)[5][0], '2026-10-12T09:00');
+  // horizon=1w is seven counted days: the week spills into the next one.
+  const week = run([R('', '2026-10-05T09:00', 'set', 'period=1d, horizon=1w, grid=counted, skip_weekends=true'), TEAM], '2026-10-05T10:00');
+  assert.equal(shifts(week).length, 7);
+  assert.equal(week.status.rotations[0].horizonEnd, at('2026-10-14T09:00'));
 });
 
 test('a Saturday anchor or roster row never leaves the snapshot inside skipped days', () => {
@@ -150,12 +156,12 @@ test('the Grid of a timeline entry is reused and a long counted horizon is fast'
     R('', '2020-01-06T09:00', 'set', 'period=1d, horizon=104w, grid=counted, skip_weekends=true'),
     R('', '2020-01-06T09:00', 'team', 'alice, bob, carol'),
   ], '2020-01-06T10:00');
-  assert.equal(shifts(out).length, 520);
+  assert.equal(shifts(out).length, 728);
   assert.ok(Date.now() - started < 1000, 'long counted run took ' + (Date.now() - started) + ' ms');
 });
 
 test('counted daily rotation with a holiday: Tuesday runs to Thursday and credits 1.0', () => {
-  const set = R('', '2026-10-05T09:00', 'set', 'period=1d, horizon=1w, grid=counted, skip_weekends=true, skip_holidays=true');
+  const set = R('', '2026-10-05T09:00', 'set', 'period=1d, horizon=4d, grid=counted, skip_weekends=true, skip_holidays=true');
   const out = run([set, TEAM], '2026-10-05T10:00', [U.parseDay('2026-10-07')]);
   assert.deepEqual(shifts(out).map((s) => [s[0], s[1]]), [
     ['2026-10-05T09:00', 'alice'], ['2026-10-06T09:00', 'bob'], ['2026-10-08T09:00', 'carol'], ['2026-10-09T09:00', 'alice'],
@@ -173,19 +179,19 @@ test('counted 1w period: boundaries every seven counted days, each credits 7', (
   assert.deepEqual(plain(out.status.rotations[0].roster.map((m) => m.projected)), [7, 7, 7]);
 });
 
-test('min_distance is measured in grid steps: the Thursday holder is too close to Monday', () => {
-  const set = R('', '2026-10-05T09:00', 'set', 'period=1d, horizon=2w, grid=counted, skip_weekends=true, min_distance=2');
+test('min_distance in sl is measured in counted days: the Thursday holder is too close to Monday', () => {
+  const set = R('', '2026-10-05T09:00', 'set', 'period=1d, horizon=10d, grid=counted, skip_weekends=true, min_distance=2sl');
   const out = run([set, TEAM, R('', '2026-10-05T09:00', 'score', 'carol+=10')], '2026-10-05T10:00');
   assert.deepEqual(shifts(out).map((s) => s[1]), ['alice', 'bob', 'carol', 'alice', 'bob', 'carol', 'alice', 'bob', 'carol', 'alice']);
   assert.deepEqual(shifts(out).map((s) => s[2]), new Array(10).fill(''));
   assert.deepEqual(plain(out.status.warnings), []);
-  const calendar = R('', '2026-10-05T09:00', 'set', 'period=1d, horizon=1w, skip_weekends=true, min_distance=2');
+  const calendar = R('', '2026-10-05T09:00', 'set', 'period=1d, horizon=1w, skip_weekends=true, min_distance=2d');
   const plainRun = run([calendar, TEAM, R('', '2026-10-05T09:00', 'score', 'carol+=10')], '2026-10-05T10:00');
   assert.deepEqual(shifts(plainRun).map((s) => s[0]).slice(4, 7), ['2026-10-09T09:00', '2026-10-10T09:00', '2026-10-11T09:00']);
   assert.deepEqual(shifts(plainRun).map((s) => s[1]), ['alice', 'bob', 'carol', 'alice', 'bob', 'carol', 'alice']);
 });
 
-test('precredit window is measured in grid steps across the weekend', () => {
+test('precredit window is an interval on the counted timeline across the weekend', () => {
   const pin = R('x', '2026-10-13T09:00', 'shift', 'alice', '', '', 'volunteered');
   const out = run([SET, TEAM, pin], '2026-10-09T10:00');
   assert.equal(fmt(ofType(out, 'snapshot')[0].start), '2026-10-09T09:00');
@@ -193,7 +199,7 @@ test('precredit window is measured in grid steps across the weekend', () => {
     ['2026-10-09T09:00', 'bob'], ['2026-10-12T09:00', 'carol'], ['2026-10-13T09:00', 'alice'],
     ['2026-10-14T09:00', 'bob'], ['2026-10-15T09:00', 'carol'],
   ]);
-  const narrow = R('', '2026-10-05T09:00', 'set', 'period=1d, horizon=1w, grid=counted, skip_weekends=true, precredit=1');
+  const narrow = R('', '2026-10-05T09:00', 'set', 'period=1d, horizon=5d, grid=counted, skip_weekends=true, precredit=1sl');
   const late = run([narrow, TEAM, pin], '2026-10-09T10:00');
   assert.equal(shifts(late)[0][1], 'alice');
 });

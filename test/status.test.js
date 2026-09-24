@@ -95,7 +95,7 @@ test('statusRows and shiftsRows: rows, header and divider metadata', () => {
   assert.deepEqual(rows[10].slice(14, 17), ['period', '1w', 'rotation']);
   assert.deepEqual(rows[11].slice(14, 17), ['anchor', '2026-10-05T09:00', 'rotation']);
   assert.deepEqual(rows[12].slice(14, 17), ['grid', 'calendar', 'default']);
-  assert.deepEqual(rows[21].slice(14, 17), ['precredit', 'auto', 'default']);
+  assert.deepEqual(rows[21].slice(14, 17), ['precredit', '1ts', 'default']);
   assert.deepEqual(trim([rows[22]]), [[]]);
   assert.deepEqual(rows[23].slice(0, 2), ['rotation', 'secondary']);
   assert.deepEqual(structuredClone(out.headerRows), [0, 2, 9, 23]);
@@ -197,7 +197,7 @@ test('status: effective settings at now, every key, note on a later set row', ()
     { key: 'tiebreak', value: 'order', source: 'default' },
     { key: 'seed', value: '0', source: 'default' },
     { key: 'baseline', value: 'median', source: 'default' },
-    { key: 'precredit', value: 'auto', source: 'default' },
+    { key: 'precredit', value: '1ts', source: 'default' },
   ]);
   const rows = trim(U.statusRows(runStorage(new MemoryStorage({ ledgers: withLater }), NOW).status).rows);
   assert.deepEqual(rows.find((r) => r[14] === 'note').slice(14), ['note', 'a set row at 2026-10-19T09:00 changes these values']);
@@ -218,7 +218,7 @@ test('status: effective settings at now, every key, note on a later set row', ()
 
 test('status: warnings block only when there are warnings', () => {
   const crowded = { primary: [
-    R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w, min_distance=2'),
+    R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w, min_distance=2sl'),
     R('', '2026-10-05T09:00', 'team', 'alice, bob'),
   ] };
   const { status } = runStorage(new MemoryStorage({ ledgers: crowded }), NOW);
@@ -229,7 +229,7 @@ test('status: warnings block only when there are warnings', () => {
   assert.deepEqual(rows[i - 1], []);
   assert.deepEqual(rows[i + 1], ['rotation', 'start', 'message']);
   assert.ok(structuredClone(out.headerRows).includes(i) && structuredClone(out.headerRows).includes(i + 1));
-  assert.deepEqual(rows[i + 2].slice(0, 3), ['primary', '2026-10-19T09:00', 'min_distance relaxed to 1']);
+  assert.deepEqual(rows[i + 2].slice(0, 3), ['primary', '2026-10-19T09:00', 'min_distance relaxed to 1sl']);
 });
 
 test('status on validation error: errors block, no rotations, no shifts', () => {

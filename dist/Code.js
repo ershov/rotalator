@@ -97,8 +97,53 @@ function parseDurationUnits(text, units) {
   return total;
 }
 
+var INTERVAL_TOKEN_RE = /^(\d+(?:\.\d+)?)\s*(sl|ts|w|d|h|m)\s*/;
+
+// Interval (DESIGN 3.3): { text, unit, amount, minutes }. unit 'clock' has whole minutes (a single token may be
+// fractional if it still yields whole minutes, chained tokens are integers in descending order); 'sl' (shift length) and 'ts' (team size times
+// shift length) stand alone with a fractional amount and are resolved at use time. A plain 0 is the zero interval.
+function parseInterval(text) {
+  if (typeof text !== 'string') return null;
+  var rest = text.trim();
+  if (rest === '') return null;
+  if (/^0+(\.0+)?$/.test(rest)) return { text: '0', unit: 'clock', amount: 0, minutes: 0 };
+  var tokens = [];
+  while (rest !== '') {
+    var m = INTERVAL_TOKEN_RE.exec(rest);
+    if (!m) return null;
+    tokens.push({ amount: Number(m[1]), unit: m[2], integer: m[1].indexOf('.') < 0 });
+    rest = rest.slice(m[0].length);
+  }
+  var single = tokens[0];
+  if (tokens.length === 1 && (single.unit === 'sl' || single.unit === 'ts')) {
+    return { text: formatAmount(single.amount) + single.unit, unit: single.unit, amount: single.amount, minutes: null };
+  }
+  if (tokens.length === 1) {
+    var minutes = single.amount * UNIT_MINUTES[single.unit];
+    if (!Number.isInteger(minutes)) return null;
+    return { text: formatAmount(single.amount) + single.unit, unit: 'clock', amount: single.amount, minutes: minutes };
+  }
+  var total = 0;
+  var lastUnit = -1;
+  for (var i = 0; i < tokens.length; i++) {
+    var t = tokens[i];
+    var u = UNIT_ORDER.indexOf(t.unit);
+    if (u < 0 || !t.integer || u <= lastUnit) return null;
+    lastUnit = u;
+    total += t.amount * UNIT_MINUTES[t.unit];
+  }
+  return { text: formatDuration(total), unit: 'clock', amount: null, minutes: total };
+}
+
+// Shortest decimal form of a non-negative amount, at most two decimals.
+function formatAmount(n) {
+  return String(Math.round(n * 100) / 100);
+}
+
+// Clock intervals as minutes; null for sl/ts or unparseable text.
 function parseDuration(text) {
-  return parseDurationUnits(text, 'wdhm');
+  var interval = parseInterval(text);
+  return interval && interval.unit === 'clock' ? interval.minutes : null;
 }
 
 function parsePeriod(text) {
@@ -288,9 +333,19 @@ function parseNonNegativeNumber(text) {
   return n === null || n < 0 ? null : n;
 }
 
-function parsePositiveDuration(text) {
-  var n = parseDuration(text);
-  return n === null || n <= 0 ? null : n;
+function intervalIsPositive(interval) {
+  return interval.unit === 'clock' ? interval.minutes > 0 : interval.amount > 0;
+}
+
+function parsePositiveInterval(text) {
+  var interval = parseInterval(text);
+  return interval && intervalIsPositive(interval) ? interval : null;
+}
+
+// tolerance: a plain number is score units (days); with a unit it is an interval resolved at use time.
+function parseTolerance(text) {
+  var n = parseNonNegativeNumber(text);
+  return n !== null ? n : parseInterval(text);
 }
 
 function parseBoolean(text) {
@@ -315,25 +370,25 @@ function parseBaseline(text) {
   return kw !== null ? kw : parseNumber(text);
 }
 
-function parsePrecredit(text) {
-  return text.toLowerCase() === 'auto' ? 'auto' : parseNonNegativeInteger(text);
-}
+var INTERVAL_HINT = 'an interval like 2sl, 1ts, 3d or 0';
+var POSITIVE_INTERVAL_HINT = 'a positive interval like 2sl, 1ts or 3d';
 
 // def: initial value. bare: what a value-less key means: 'default' restores def, 'start' takes the row's
-// start, 'none' is an error. parse null: the key takes no value.
+// start, 'none' is an error. parse null: the key takes no value. hint: accepted forms named in errors.
+// Interval keys reject a plain number other than 0, so the old "number of shifts" reading is caught.
 var SETTINGS = {
-  period:        { parse: parsePeriod,             def: null,               bare: 'none' },
-  anchor:        { parse: null,                    def: null,               bare: 'start' },
-  grid:          { parse: parseKeyword(GRID_MODES), def: 'calendar',         bare: 'default' },
-  horizon:       { parse: parsePositiveDuration,   def: 90 * MINUTES_PER_DAY, bare: 'default' },
-  skip_weekends: { parse: parseBoolean,            def: false,              bare: 'default' },
-  skip_holidays: { parse: parseBoolean,            def: false,              bare: 'default' },
-  tolerance:     { parse: parseNonNegativeNumber,  def: 0,                  bare: 'default' },
-  min_distance:  { parse: parseNonNegativeInteger, def: 0,                  bare: 'default' },
-  tiebreak:      { parse: parseKeyword(TIEBREAKS), def: 'order',            bare: 'default' },
-  seed:          { parse: parseInteger,            def: 0,                  bare: 'default' },
-  baseline:      { parse: parseBaselineKeyword,    def: 'median',           bare: 'default' },
-  precredit:     { parse: parsePrecredit,          def: 'auto',             bare: 'default' },
+  period:        { parse: parsePeriod,             def: null,                 bare: 'none' },
+  anchor:        { parse: null,                    def: null,                 bare: 'start' },
+  grid:          { parse: parseKeyword(GRID_MODES), def: 'calendar',           bare: 'default' },
+  horizon:       { parse: parsePositiveInterval,   def: parseInterval('90d'), bare: 'default', hint: POSITIVE_INTERVAL_HINT },
+  skip_weekends: { parse: parseBoolean,            def: false,                bare: 'default' },
+  skip_holidays: { parse: parseBoolean,            def: false,                bare: 'default' },
+  tolerance:     { parse: parseTolerance,          def: 0,                    bare: 'default', hint: 'a number of days or ' + INTERVAL_HINT },
+  min_distance:  { parse: parseInterval,           def: parseInterval('0'),   bare: 'default', hint: INTERVAL_HINT },
+  tiebreak:      { parse: parseKeyword(TIEBREAKS), def: 'order',              bare: 'default' },
+  seed:          { parse: parseInteger,            def: 0,                    bare: 'default' },
+  baseline:      { parse: parseBaselineKeyword,    def: 'median',             bare: 'default' },
+  precredit:     { parse: parseInterval,           def: parseInterval('1ts'), bare: 'default', hint: INTERVAL_HINT },
 };
 
 function defaultSettings() {
@@ -365,7 +420,7 @@ function parseSetArg(text, start) {
     } else {
       if (!spec.parse) return fail(it.name + ' takes no value; the row start is the ' + it.name);
       parsed = spec.parse(it.value);
-      if (parsed === null) return fail('bad value for ' + it.name + ': "' + it.value + '"');
+      if (parsed === null) return fail('bad value for ' + it.name + ': "' + it.value + '"' + (spec.hint ? '; use ' + spec.hint : ''));
     }
     out.values[key] = parsed;
   }
@@ -413,7 +468,8 @@ function cellText(cell) {
   return cell === null || cell === undefined || cell === false ? '' : String(cell).trim();
 }
 
-// duration is resolved into end here so downstream code only reads end.
+// A clock duration is resolved into end here; an sl/ts duration (durationInterval) is resolved by the
+// scheduler once the grid and roster at start are known.
 function rowFromArray(cells, rowIndex) {
   var pin = cellText(cells[0]);
   var startText = cellText(cells[1]);
@@ -421,7 +477,8 @@ function rowFromArray(cells, rowIndex) {
   var durationText = cellText(cells[5]);
   var start = parseDateTime(startText);
   var end = parseDateTime(endText);
-  var duration = parseDuration(durationText);
+  var interval = parseInterval(durationText);
+  var duration = interval && interval.unit === 'clock' ? interval.minutes : null;
   if (end === null && duration !== null && start !== null) end = start + duration;
   return {
     rowIndex: rowIndex,
@@ -434,6 +491,7 @@ function rowFromArray(cells, rowIndex) {
     end: end,
     endText: endText,
     duration: duration,
+    durationInterval: interval,
     durationText: durationText,
     note: cellText(cells[6]),
   };
@@ -442,7 +500,7 @@ function rowFromArray(cells, rowIndex) {
 function makeRow(fields) {
   var row = {
     rowIndex: null, pin: '', pinned: false, start: null, startText: '', type: '', what: '',
-    end: null, endText: '', duration: null, durationText: '', note: '',
+    end: null, endText: '', duration: null, durationInterval: null, durationText: '', note: '',
   };
   for (var k in fields) row[k] = fields[k];
   if (fields.pin && !('pinned' in fields)) row.pinned = true;
@@ -452,7 +510,7 @@ function makeRow(fields) {
 
 // Unparseable cells are written back verbatim. An end derived from duration is not written.
 function rowToArray(row) {
-  var duration = row.duration !== null ? formatDuration(row.duration) : row.durationText;
+  var duration = row.durationInterval ? row.durationInterval.text : row.duration !== null ? formatDuration(row.duration) : row.durationText;
   var derivedEnd = duration !== '' && row.endText === '';
   var end = derivedEnd ? '' : row.end !== null ? formatDateTime(row.end) : row.endText;
   return [
@@ -582,7 +640,7 @@ function validateRow(row) {
   if (row.start === null) return row.startText === '' ? 'missing start' : 'bad start "' + row.startText + '"';
   if (row.endText !== '' && row.durationText !== '') return 'end and duration are mutually exclusive';
   if (row.endText !== '' && parseDateTime(row.endText) === null) return 'bad end "' + row.endText + '"';
-  if (row.durationText !== '' && (row.duration === null || row.duration <= 0)) return 'bad duration "' + row.durationText + '"';
+  if (row.durationText !== '' && (!row.durationInterval || !intervalIsPositive(row.durationInterval))) return 'bad duration "' + row.durationText + '"; use ' + POSITIVE_INTERVAL_HINT;
   if (!spec.extent && (row.endText !== '' || row.durationText !== '')) return row.type + ' does not take end or duration';
   if (row.end !== null && row.end <= row.start) return 'end must be after start';
   if (spec.required && row.what === '') return row.type + ' requires what';
@@ -703,9 +761,9 @@ class Grid {
     return this.instant(a + (Math.floor((this.coord(t) - a) / this.period) + 1) * this.period);
   }
 
-  // n periods from t along the grid; t + n*period in calendar mode.
-  step(t, n) {
-    return this.instant(this.coord(t) + n * this.period);
+  // t moved by minutes along the grid's timeline; t + minutes in calendar mode.
+  offset(t, minutes) {
+    return this.instant(this.coord(t) + minutes);
   }
 }
 
@@ -754,6 +812,13 @@ function scoredEnd(shift, nextShiftStart, grid) {
   return nextShiftStart !== null && nextShiftStart !== undefined && nextShiftStart < end ? nextShiftStart : end;
 }
 
+// Minutes of an interval on the grid's timeline (DESIGN 3.3): sl is one period, ts is rosterSize periods.
+function resolveInterval(interval, grid, rosterSize) {
+  if (interval.unit === 'sl') return interval.amount * grid.period;
+  if (interval.unit === 'ts') return interval.amount * grid.period * rosterSize;
+  return interval.minutes;
+}
+
 // ---- 30_state.js ----
 // Effective settings at an instant: the rotation's own values over the global ones over the defaults.
 class Settings {
@@ -771,11 +836,6 @@ class Settings {
 
   grid(holidays) {
     return this.values.period === null ? null : new Grid(this.values, holidays);
-  }
-
-  // Number of regular shifts after the snapshot within which pins are pre-credited.
-  precreditPeriods(rosterSize) {
-    return this.values.precredit === 'auto' ? rosterSize : this.values.precredit;
   }
 
   unitsOptions(holidays) {
@@ -1062,6 +1122,8 @@ function onCountedDay(timeline, t) {
 function advance(rows, now, holidays, globalSetRows) {
   rows = ledgerRows(rows);
   var timeline = new SettingsTimeline(rowsOfType(rows, 'set'), holidays, globalSetRows);
+  var snapshot = firstOfType(rows, ['snapshot']);
+  resolveDurations(rows, timeline, rosterSizeAt(rows, snapshot ? snapshot.start : null, snapshot ? snapshot.what : ''));
   var S = null;
   if (now !== null && now !== undefined) {
     var grid = timeline.gridAt(now);
@@ -1078,7 +1140,6 @@ function advance(rows, now, holidays, globalSetRows) {
   }
   var roster = firstOfType(rows, ['team', 'join']);
   S = raiseTo(S, roster ? onCountedDay(timeline, roster.start) : null);
-  var snapshot = firstOfType(rows, ['snapshot']);
   S = raiseTo(S, snapshot ? snapshot.start : null);
   return S;
 }
@@ -1135,6 +1196,38 @@ function resolvedExcludeEnds(rows) {
   return ends;
 }
 
+// Roster size over time from the snapshot roster and the team/join/leave rows after it, for ts intervals
+// that must be resolved before the sweep. Row errors are left to the sweep.
+function rosterSizeAt(rows, previousAt, previousWhat) {
+  var roster = new Roster();
+  roster.fromSnapshotWhat(previousWhat);
+  var initial = roster.size();
+  var points = [];
+  rows.forEach(function (row) {
+    if (row.start === null || (previousAt !== null && row.start < previousAt)) return;
+    if (row.type === 'team') roster.team(whatItems(row), 'median');
+    else if (row.type === 'join') roster.join(whatItems(row), 'median');
+    else if (row.type === 'leave') roster.leave(whatNames(row));
+    else return;
+    points.push({ t: row.start, size: roster.size() });
+  });
+  return function (t) {
+    var size = initial;
+    points.forEach(function (p) { if (p.t <= t) size = p.size; });
+    return size;
+  };
+}
+
+// sl/ts durations become an end on the grid effective at the row's start (DESIGN 3.3).
+function resolveDurations(rows, timeline, sizeAt) {
+  rows.forEach(function (row) {
+    var interval = row.durationInterval;
+    if (row.end !== null || row.start === null || !interval || interval.unit === 'clock') return;
+    var grid = timeline.gridAt(row.start);
+    if (grid) row.end = grid.offset(row.start, resolveInterval(interval, grid, sizeAt(row.start)));
+  });
+}
+
 // frozen (DESIGN 5, run scope): the rotation is swept as it stands so relations see its shifts, but nothing is
 // pruned, no slot is filled and the snapshot stays where it is; it is not written. globalSetRows: #Global.
 function prepareRotation(input, index, holidays, frozen, globalSetRows) {
@@ -1156,6 +1249,8 @@ function prepareRotation(input, index, holidays, frozen, globalSetRows) {
   rot.previousAt = previous ? previous.start : null;
   rot.previousWhat = previous ? previous.what : '';
   rot.S = S;
+  rot.sizeAt = rosterSizeAt(rows, rot.previousAt, rot.previousWhat);
+  resolveDurations(rows, timeline, rot.sizeAt);
   rot.kept = rows.filter(function (r) { return r.type !== 'snapshot' && !(!frozen && r.type === 'shift' && !r.pinned && r.start > S); });
 
   var shifts = rowsOfType(rot.kept, 'shift');
@@ -1166,7 +1261,8 @@ function prepareRotation(input, index, holidays, frozen, globalSetRows) {
     if (s.start === S) regenStart = Math.max(regenStart, end);
     return [s.start, end];
   });
-  var horizonAt = S + timeline.at(S).get('horizon');
+  var gridS = timeline.gridAt(S);
+  var horizonAt = gridS.offset(S, resolveInterval(timeline.at(S).get('horizon'), gridS, rot.sizeAt(S)));
   rot.horizonEnd = timeline.gridAt(horizonAt).ceil(horizonAt);
 
   var entries = shifts.map(function (s) {
@@ -1250,11 +1346,11 @@ function applyStateRow(rot, item) {
   }
 }
 
-// The window is precredit grid steps after S (DESIGN 5.5).
+// The window is the precredit interval after S on the grid's timeline (DESIGN 5.5).
 function precredit(rot, holidays) {
   var settings = rot.timeline.at(rot.S);
-  var n = settings.precreditPeriods(rot.roster.size());
-  var limit = rot.timeline.gridAt(rot.S).step(rot.S, n);
+  var grid = rot.timeline.gridAt(rot.S);
+  var limit = grid.offset(rot.S, resolveInterval(settings.get('precredit'), grid, rot.roster.size()));
   var options = settings.unitsOptions(holidays);
   rot.entries.forEach(function (entry) {
     if (entry.slot || !entry.row.pinned || entry.who === null || entry.start <= rot.S || entry.start >= limit) return;
@@ -1296,14 +1392,33 @@ function tiebreak(rot, entry, candidates, settings) {
   return null;
 }
 
+// Tolerance in score units at slot start a: a plain number as is; sl the units a regular shift earns there
+// honouring skips, ts that times the roster size, clock units nominal days (DESIGN 3.5).
+function toleranceUnits(tolerance, grid, a, rosterSize, options) {
+  if (typeof tolerance === 'number') return tolerance;
+  if (tolerance.unit === 'clock') return tolerance.minutes / MINUTES_PER_DAY;
+  var shift = units(a, grid.offset(a, grid.period), options);
+  return tolerance.amount * shift * (tolerance.unit === 'ts' ? rosterSize : 1);
+}
+
+// min_distance relaxation ladder: the full distance, then one period less each time, then 0 (DESIGN 5.7).
+function distanceLadder(distance, period) {
+  var ladder = [];
+  for (var d = distance; d > 0; d -= period) ladder.push(d);
+  ladder.push(0);
+  return ladder;
+}
+
 // DESIGN 5.7 and 7. Exclusions are never violated. min_distance steps down with repel kept, then once more
 // without repel (warning and note), then nobody. attract holders are preferred inside the band.
 function assignSlot(rot, entry, holidays, ctx) {
   var settings = rot.timeline.at(entry.start);
   var roster = rot.roster;
   var a = entry.start, b = entry.slotEnd;
-  var minDistance = settings.get('min_distance');
   var grid = rot.timeline.gridAt(a);
+  var options = settings.unitsOptions(holidays);
+  var minDistance = resolveInterval(settings.get('min_distance'), grid, roster.size());
+  var ladder = distanceLadder(minDistance, grid.period);
   var repelled = relatedHolders(ctx, rot, 'repel', a, b);
   var members = roster.members.filter(function (m) { return !roster.isExcluded(m.name, a, b); });
   var pick = null;
@@ -1311,22 +1426,23 @@ function assignSlot(rot, entry, holidays, ctx) {
   [true, false].forEach(function (keepRepel) {
     if (pick || (!keepRepel && !repelled.size)) return;
     var pool = keepRepel ? members.filter(function (m) { return !repelled.has(m.name); }) : members;
-    for (var d = minDistance; d >= 0 && !pick; d--) {
-      var from = grid.step(a, -d), to = grid.step(b, d);
+    ladder.forEach(function (d) {
+      if (pick) return;
+      var from = grid.offset(a, -d), to = grid.offset(b, d);
       var eligible = pool.filter(function (m) { return !hasShiftOverlapping(rot, m.name, from, to); });
       if (eligible.length) pick = { eligible: eligible, distance: d, repelDropped: !keepRepel };
-    }
+    });
   });
   var notes = [];
   if (pick) {
     var lowest = Math.min.apply(null, pick.eligible.map(function (m) { return m.score; }));
-    var tolerance = settings.get('tolerance');
+    var tolerance = toleranceUnits(settings.get('tolerance'), grid, a, roster.size(), options);
     var candidates = pick.eligible.filter(function (m) { return m.score <= lowest + tolerance; });
     var attracted = relatedHolders(ctx, rot, 'attract', a, b);
     var preferred = candidates.filter(function (m) { return attracted.has(m.name); });
     entry.who = tiebreak(rot, entry, preferred.length ? preferred : candidates, settings);
-    roster.credit(entry.who, units(a, entry.end, settings.unitsOptions(holidays)));
-    if (pick.distance < minDistance) notes.push('min_distance relaxed to ' + pick.distance);
+    roster.credit(entry.who, units(a, entry.end, options));
+    if (pick.distance < minDistance) notes.push('min_distance relaxed to ' + (pick.distance === 0 ? '0' : formatScore(pick.distance / grid.period) + 'sl'));
     if (pick.repelDropped) notes.push('repel relaxed: ' + entry.who + ' also on ' + (repelled.get(entry.who) || []).join(', '));
     notes.forEach(function (n) { rot.warnings.push({ start: a, message: n }); });
   } else {
@@ -1489,7 +1605,8 @@ function statusInstant(min) {
 function formatSettingValue(key, value) {
   if (value === null || value === undefined) return '';
   if (key === 'anchor') return formatDateTime(value);
-  if (key === 'period' || key === 'horizon') return formatDuration(value);
+  if (key === 'period') return formatDuration(value);
+  if (typeof value === 'object') return value.text;
   return String(value);
 }
 
@@ -1799,6 +1916,7 @@ function parseGlobal(rows, rotationNames) {
     }
     var message = !isRelationRow(row) ? (row.type === '' ? 'missing type' : 'type "' + row.type + '" is not allowed in ' + GLOBAL_TAB)
       : validateRow(row) || validateRelationRow(row, rotationNames, null);
+    if (message === null && row.durationInterval && row.durationInterval.unit !== 'clock') message = 'duration in ' + GLOBAL_TAB + ' takes clock units only';
     if (message === null) relationRows.push(row); else errors.push(rowError(row, message));
   });
   var all = setErrors.concat(errors);
@@ -1974,7 +2092,7 @@ var COLUMN_NOTES = {
   type: 'shift, team, join, leave, exclude, include, score, set. The script writes snapshot and error rows.',
   what: 'Payload of the row: one member for shift; a list for team, join, leave, exclude, include, score; key=value settings for set.',
   end: 'YYYY-MM-DDTHH:MM. Optional. Not together with duration.',
-  duration: '1w, 3d, 12h, 1d12h. Optional. Not together with end.',
+  duration: '1w, 3d, 12h, 1d12h, 0.5d, 2sl (shift lengths), 1ts (team size x shift length). Optional. Not together with end.',
   note: 'Free text. Kept on your rows; the script writes notes on generated rows.',
   date: 'YYYY-MM-DD, one holiday per row. Counted by rotations with skip_holidays=true.',
 };
@@ -1985,18 +2103,13 @@ function recentMonday(t) {
   return dayStart(day - (weekdayOfDay(day) + 6) % 7);
 }
 
-// Whole days as Nd, otherwise the short chained form.
-function templateDuration(min) {
-  return min % MINUTES_PER_DAY === 0 ? min / MINUTES_PER_DAY + 'd' : formatDuration(min);
-}
-
 // Every setting spelled out at its default: period=1w, bare anchor, the rest key=default.
 function templateSetWhat() {
   return Object.keys(SETTINGS).map(function (key) {
     if (key === 'period') return 'period=' + TEMPLATE_PERIOD;
     if (key === 'anchor') return 'anchor';
     var def = SETTINGS[key].def;
-    return key + '=' + (key === 'horizon' ? templateDuration(def) : String(def));
+    return key + '=' + (def !== null && typeof def === 'object' ? def.text : String(def));
   }).join(', ');
 }
 
@@ -2043,7 +2156,7 @@ function templateRows(firstStart) {
 
 function previousBoundary(grid, t) {
   var b = grid.floor(t);
-  return b < t ? b : grid.step(b, -1);
+  return b < t ? b : grid.offset(b, -grid.period);
 }
 
 function emptyShiftRow(start) {

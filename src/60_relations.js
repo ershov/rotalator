@@ -38,6 +38,7 @@ function parseGlobal(rows, rotationNames) {
     }
     var message = !isRelationRow(row) ? (row.type === '' ? 'missing type' : 'type "' + row.type + '" is not allowed in ' + GLOBAL_TAB)
       : validateRow(row) || validateRelationRow(row, rotationNames, null);
+    if (message === null && row.durationInterval && row.durationInterval.unit !== 'clock') message = 'duration in ' + GLOBAL_TAB + ' takes clock units only';
     if (message === null) relationRows.push(row); else errors.push(rowError(row, message));
   });
   var all = setErrors.concat(errors);

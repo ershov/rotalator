@@ -15,7 +15,8 @@ function statusInstant(min) {
 function formatSettingValue(key, value) {
   if (value === null || value === undefined) return '';
   if (key === 'anchor') return formatDateTime(value);
-  if (key === 'period' || key === 'horizon') return formatDuration(value);
+  if (key === 'period') return formatDuration(value);
+  if (typeof value === 'object') return value.text;
   return String(value);
 }
 

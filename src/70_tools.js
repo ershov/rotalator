@@ -10,7 +10,7 @@ var COLUMN_NOTES = {
   type: 'shift, team, join, leave, exclude, include, score, set. The script writes snapshot and error rows.',
   what: 'Payload of the row: one member for shift; a list for team, join, leave, exclude, include, score; key=value settings for set.',
   end: 'YYYY-MM-DDTHH:MM. Optional. Not together with duration.',
-  duration: '1w, 3d, 12h, 1d12h. Optional. Not together with end.',
+  duration: '1w, 3d, 12h, 1d12h, 0.5d, 2sl (shift lengths), 1ts (team size x shift length). Optional. Not together with end.',
   note: 'Free text. Kept on your rows; the script writes notes on generated rows.',
   date: 'YYYY-MM-DD, one holiday per row. Counted by rotations with skip_holidays=true.',
 };
@@ -21,18 +21,13 @@ function recentMonday(t) {
   return dayStart(day - (weekdayOfDay(day) + 6) % 7);
 }
 
-// Whole days as Nd, otherwise the short chained form.
-function templateDuration(min) {
-  return min % MINUTES_PER_DAY === 0 ? min / MINUTES_PER_DAY + 'd' : formatDuration(min);
-}
-
 // Every setting spelled out at its default: period=1w, bare anchor, the rest key=default.
 function templateSetWhat() {
   return Object.keys(SETTINGS).map(function (key) {
     if (key === 'period') return 'period=' + TEMPLATE_PERIOD;
     if (key === 'anchor') return 'anchor';
     var def = SETTINGS[key].def;
-    return key + '=' + (key === 'horizon' ? templateDuration(def) : String(def));
+    return key + '=' + (def !== null && typeof def === 'object' ? def.text : String(def));
   }).join(', ');
 }
 
@@ -79,7 +74,7 @@ function templateRows(firstStart) {
 
 function previousBoundary(grid, t) {
   var b = grid.floor(t);
-  return b < t ? b : grid.step(b, -1);
+  return b < t ? b : grid.offset(b, -grid.period);
 }
 
 function emptyShiftRow(start) {

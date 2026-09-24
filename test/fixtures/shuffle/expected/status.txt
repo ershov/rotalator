@@ -1,0 +1,57 @@
+Rotalator  dry run  2026-09-08T10:00
+
+Tabs
+rotations    primary
+regenerated  primary
+holidays     2
+global       0
+ignored
+
+rotation  primary
+snapshot  2026-09-07T09:00
+horizon   2026-10-19T09:00
+current   alice             until 2026-09-14T09:00
+next      bob               from 2026-09-14T09:00
+
+  member  current  score  projected  last shift        next shift        exclusions
+  alice   x        15     24.38      2026-09-07T09:00  2026-09-28T09:00
+  bob              15     25         2026-08-17T09:00  2026-09-14T09:00
+  carol            19.63  24.63      2026-08-31T09:00  2026-10-05T09:00
+  dave             19     24         2026-08-24T09:00  2026-09-21T09:00
+
+  settings       as of 2026-09-08T10:00  source
+  period         1w                      rotation
+  anchor         2026-06-01T09:00        rotation
+  grid           calendar                default
+  horizon        6w                      rotation
+  skip_weekends  true                    rotation
+  skip_holidays  true                    rotation
+  tolerance      0                       default
+  min_distance   0                       default
+  tiebreak       shuffle                 rotation
+  seed           3                       rotation
+  baseline       median                  default
+  precredit      1ts                     default
+
+start             primary
+2026-06-01T09:00  carol
+2026-06-08T09:00  alice
+2026-06-15T09:00  bob
+2026-06-22T09:00  dave
+2026-06-29T09:00  dave
+2026-07-06T09:00  carol
+2026-07-13T09:00  bob
+2026-07-20T09:00  alice
+2026-07-27T09:00  dave
+2026-08-03T09:00  alice
+2026-08-10T09:00  carol
+2026-08-17T09:00  bob
+2026-08-24T09:00  dave
+2026-08-31T09:00  carol
+2026-09-07T09:00  alice
+2026-09-08T10:00  --now--
+2026-09-14T09:00  bob
+2026-09-21T09:00  dave
+2026-09-28T09:00  alice
+2026-10-05T09:00  carol
+2026-10-12T09:00  bob

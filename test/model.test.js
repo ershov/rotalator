@@ -177,35 +177,40 @@ test('settings data and parseSetArg with values and bare keys', () => {
   const d = U.defaultSettings();
   assert.equal(d.period, null);
   assert.equal(d.anchor, null);
-  assert.equal(d.horizon, 90 * 1440);
+  assert.deepEqual(plain(d.horizon), { text: '90d', unit: 'clock', amount: 90, minutes: 90 * 1440 });
   assert.equal(d.tiebreak, 'order');
   assert.equal(d.baseline, 'median');
-  assert.equal(d.precredit, 'auto');
+  assert.deepEqual(plain(d.precredit), { text: '1ts', unit: 'ts', amount: 1, minutes: null });
+  assert.deepEqual(plain(d.min_distance), { text: '0', unit: 'clock', amount: 0, minutes: 0 });
   assert.equal(d.skip_weekends, false);
 
   const start = dt('2026-10-05T09:00');
-  const ok = U.parseSetArg('period=2w, anchor; horizon=30d, skip_weekends=yes, skip_holidays=FALSE, tolerance=0.5, min_distance=1, tiebreak=Shuffle, seed=-7, baseline=Mean, precredit=3', start);
+  const ok = U.parseSetArg('period=2w, anchor; horizon=30d, skip_weekends=yes, skip_holidays=FALSE, tolerance=0.5, min_distance=1sl, tiebreak=Shuffle, seed=-7, baseline=Mean, precredit=3d', start);
   assert.equal(ok.error, null);
   assert.deepEqual(plain(ok.reset), []);
   assert.deepEqual(plain(ok.values), {
-    period: 20160, anchor: start, horizon: 30 * 1440, skip_weekends: true, skip_holidays: false,
-    tolerance: 0.5, min_distance: 1, tiebreak: 'shuffle', seed: -7, baseline: 'mean', precredit: 3,
+    period: 20160, anchor: start, horizon: { text: '30d', unit: 'clock', amount: 30, minutes: 30 * 1440 }, skip_weekends: true, skip_holidays: false,
+    tolerance: 0.5, min_distance: { text: '1sl', unit: 'sl', amount: 1, minutes: null }, tiebreak: 'shuffle', seed: -7, baseline: 'mean',
+    precredit: { text: '3d', unit: 'clock', amount: 3, minutes: 3 * 1440 },
   });
-  assert.equal(U.parseSetArg('precredit=auto', start).values.precredit, 'auto');
+  assert.match(U.parseSetArg('precredit=auto', start).error, /bad value for precredit: "auto"; use an interval like 2sl, 1ts, 3d or 0/);
+  assert.match(U.parseSetArg('min_distance=2', start).error, /bad value for min_distance: "2"; use an interval/);
+  assert.equal(U.parseSetArg('min_distance=0', start).values.min_distance.minutes, 0);
+  assert.equal(U.parseSetArg('tolerance=1sl', start).values.tolerance.unit, 'sl');
   const bare = U.parseSetArg('horizon, skip_weekends, skip_holidays, tolerance, min_distance, tiebreak, seed, baseline, precredit', start);
   assert.equal(bare.error, null);
   assert.deepEqual(plain(bare.reset), ['horizon', 'skip_weekends', 'skip_holidays', 'tolerance', 'min_distance', 'tiebreak', 'seed', 'baseline', 'precredit']);
   assert.deepEqual(plain(U.parseSetArg('period=1w, anchor', start).reset), []);
   assert.deepEqual(plain(bare.values), {
-    horizon: 90 * 1440, skip_weekends: false, skip_holidays: false, tolerance: 0, min_distance: 0,
-    tiebreak: 'order', seed: 0, baseline: 'median', precredit: 'auto',
+    horizon: plain(d.horizon), skip_weekends: false, skip_holidays: false, tolerance: 0, min_distance: plain(d.min_distance),
+    tiebreak: 'order', seed: 0, baseline: 'median', precredit: plain(d.precredit),
   });
   assert.match(U.parseSetArg('period', start).error, /period requires a value/);
   assert.match(U.parseSetArg('anchor=2026-10-05T09:00', start).error, /anchor takes no value/);
   assert.match(U.parseSetArg('tolerance+=1', start).error, /set expects key or key=value, got "tolerance\+="/);
   assert.match(U.parseSetArg('seed=1, Seed', start).error, /duplicate setting "Seed"/);
   for (const bad of ['period=12h', 'period=0d', 'foo=1', 'foo', 'horizon=0d', 'skip_weekends=maybe',
-    'tolerance=-1', 'min_distance=1.5', 'tiebreak=random', 'seed=1.5', 'baseline=7', 'precredit=-1', 'alice=']) {
+    'tolerance=-1', 'tolerance=1sl2d', 'min_distance=1.5', 'min_distance=2', 'tiebreak=random', 'seed=1.5', 'baseline=7', 'precredit=-1', 'precredit=auto', 'horizon=0', 'alice=']) {
     assert.equal(typeof U.parseSetArg(bad, start).error, 'string', bad);
   }
 });

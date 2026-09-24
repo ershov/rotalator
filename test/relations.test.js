@@ -221,8 +221,8 @@ test('soft repel: min_distance relaxes first, then repel with a warning and note
     ['2026-10-19T09:00', 'alice', 'repel relaxed: alice also on primary'],
   ]);
   assert.deepEqual(plain(out.status.warnings.map((w) => [w.rotation, w.message])), new Array(3).fill(['secondary', 'repel relaxed: alice also on primary']));
-  // With min_distance=1 and two members, the distance is relaxed before repel is dropped.
-  const tight = { name: 'secondary', rows: rows([R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w, min_distance=1'), R('', '2026-10-05T09:00', 'team', 'alice, bob'), R('', '2026-10-05T09:00', 'exclude', 'bob', '', '3w')]), snapshotAt: MON };
+  // With min_distance=1sl and two members, the distance is relaxed before repel is dropped.
+  const tight = { name: 'secondary', rows: rows([R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w, min_distance=1sl'), R('', '2026-10-05T09:00', 'team', 'alice, bob'), R('', '2026-10-05T09:00', 'exclude', 'bob', '', '3w')]), snapshotAt: MON };
   const relaxed = regen([rotation('primary', 'alice, bob'), tight], [REL('repel', '2026-10-05T09:00', 'primary, secondary')]);
   assert.deepEqual(shiftsOf(relaxed, 'secondary').map((s) => [s[1], s[2]]), [
     ['alice', 'repel relaxed: alice also on primary'],
@@ -355,5 +355,5 @@ test('global period and anchor: a rotation may have neither and gets the grid fr
   assert.deepEqual(plain(settings.filter((v) => v.key === 'period' || v.key === 'anchor').map((v) => [v.value, v.source])), [['1w', 'global'], ['2026-10-05T09:00', 'global']]);
   const bad = regen([rotation('primary', 'alice, bob')], [R('', '2026-10-05T09:00', 'set', 'tolerance=abc')]);
   assert.equal(bad.regenerated, false);
-  assert.deepEqual(plain(bad.errors), [{ rotation: '#Global', rowIndex: 2, start: MON, message: 'bad value for tolerance: "abc"' }]);
+  assert.deepEqual(plain(bad.errors), [{ rotation: '#Global', rowIndex: 2, start: MON, message: 'bad value for tolerance: "abc"; use a number of days or an interval like 2sl, 1ts, 3d or 0' }]);
 });

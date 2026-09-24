@@ -1,0 +1,16 @@
+Rotalator  dry run  2026-09-08T10:00
+
+Tabs
+rotations    primary, secondary
+regenerated
+holidays     2
+global       0
+ignored
+
+errors
+rotation  where   message
+primary   row 24  unknown type "vacation"
+primary   row 25  end and duration are mutually exclusive
+
+start
+2026-09-08T10:00

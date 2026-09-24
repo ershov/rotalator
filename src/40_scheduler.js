@@ -26,6 +26,8 @@ function onCountedDay(timeline, t) {
 function advance(rows, now, holidays, globalSetRows) {
   rows = ledgerRows(rows);
   var timeline = new SettingsTimeline(rowsOfType(rows, 'set'), holidays, globalSetRows);
+  var snapshot = firstOfType(rows, ['snapshot']);
+  resolveDurations(rows, timeline, rosterSizeAt(rows, snapshot ? snapshot.start : null, snapshot ? snapshot.what : ''));
   var S = null;
   if (now !== null && now !== undefined) {
     var grid = timeline.gridAt(now);
@@ -42,7 +44,6 @@ function advance(rows, now, holidays, globalSetRows) {
   }
   var roster = firstOfType(rows, ['team', 'join']);
   S = raiseTo(S, roster ? onCountedDay(timeline, roster.start) : null);
-  var snapshot = firstOfType(rows, ['snapshot']);
   S = raiseTo(S, snapshot ? snapshot.start : null);
   return S;
 }
@@ -99,6 +100,38 @@ function resolvedExcludeEnds(rows) {
   return ends;
 }
 
+// Roster size over time from the snapshot roster and the team/join/leave rows after it, for ts intervals
+// that must be resolved before the sweep. Row errors are left to the sweep.
+function rosterSizeAt(rows, previousAt, previousWhat) {
+  var roster = new Roster();
+  roster.fromSnapshotWhat(previousWhat);
+  var initial = roster.size();
+  var points = [];
+  rows.forEach(function (row) {
+    if (row.start === null || (previousAt !== null && row.start < previousAt)) return;
+    if (row.type === 'team') roster.team(whatItems(row), 'median');
+    else if (row.type === 'join') roster.join(whatItems(row), 'median');
+    else if (row.type === 'leave') roster.leave(whatNames(row));
+    else return;
+    points.push({ t: row.start, size: roster.size() });
+  });
+  return function (t) {
+    var size = initial;
+    points.forEach(function (p) { if (p.t <= t) size = p.size; });
+    return size;
+  };
+}
+
+// sl/ts durations become an end on the grid effective at the row's start (DESIGN 3.3).
+function resolveDurations(rows, timeline, sizeAt) {
+  rows.forEach(function (row) {
+    var interval = row.durationInterval;
+    if (row.end !== null || row.start === null || !interval || interval.unit === 'clock') return;
+    var grid = timeline.gridAt(row.start);
+    if (grid) row.end = grid.offset(row.start, resolveInterval(interval, grid, sizeAt(row.start)));
+  });
+}
+
 // frozen (DESIGN 5, run scope): the rotation is swept as it stands so relations see its shifts, but nothing is
 // pruned, no slot is filled and the snapshot stays where it is; it is not written. globalSetRows: #Global.
 function prepareRotation(input, index, holidays, frozen, globalSetRows) {
@@ -120,6 +153,8 @@ function prepareRotation(input, index, holidays, frozen, globalSetRows) {
   rot.previousAt = previous ? previous.start : null;
   rot.previousWhat = previous ? previous.what : '';
   rot.S = S;
+  rot.sizeAt = rosterSizeAt(rows, rot.previousAt, rot.previousWhat);
+  resolveDurations(rows, timeline, rot.sizeAt);
   rot.kept = rows.filter(function (r) { return r.type !== 'snapshot' && !(!frozen && r.type === 'shift' && !r.pinned && r.start > S); });
 
   var shifts = rowsOfType(rot.kept, 'shift');
@@ -130,7 +165,8 @@ function prepareRotation(input, index, holidays, frozen, globalSetRows) {
     if (s.start === S) regenStart = Math.max(regenStart, end);
     return [s.start, end];
   });
-  var horizonAt = S + timeline.at(S).get('horizon');
+  var gridS = timeline.gridAt(S);
+  var horizonAt = gridS.offset(S, resolveInterval(timeline.at(S).get('horizon'), gridS, rot.sizeAt(S)));
   rot.horizonEnd = timeline.gridAt(horizonAt).ceil(horizonAt);
 
   var entries = shifts.map(function (s) {
@@ -214,11 +250,11 @@ function applyStateRow(rot, item) {
   }
 }
 
-// The window is precredit grid steps after S (DESIGN 5.5).
+// The window is the precredit interval after S on the grid's timeline (DESIGN 5.5).
 function precredit(rot, holidays) {
   var settings = rot.timeline.at(rot.S);
-  var n = settings.precreditPeriods(rot.roster.size());
-  var limit = rot.timeline.gridAt(rot.S).step(rot.S, n);
+  var grid = rot.timeline.gridAt(rot.S);
+  var limit = grid.offset(rot.S, resolveInterval(settings.get('precredit'), grid, rot.roster.size()));
   var options = settings.unitsOptions(holidays);
   rot.entries.forEach(function (entry) {
     if (entry.slot || !entry.row.pinned || entry.who === null || entry.start <= rot.S || entry.start >= limit) return;
@@ -260,14 +296,33 @@ function tiebreak(rot, entry, candidates, settings) {
   return null;
 }
 
+// Tolerance in score units at slot start a: a plain number as is; sl the units a regular shift earns there
+// honouring skips, ts that times the roster size, clock units nominal days (DESIGN 3.5).
+function toleranceUnits(tolerance, grid, a, rosterSize, options) {
+  if (typeof tolerance === 'number') return tolerance;
+  if (tolerance.unit === 'clock') return tolerance.minutes / MINUTES_PER_DAY;
+  var shift = units(a, grid.offset(a, grid.period), options);
+  return tolerance.amount * shift * (tolerance.unit === 'ts' ? rosterSize : 1);
+}
+
+// min_distance relaxation ladder: the full distance, then one period less each time, then 0 (DESIGN 5.7).
+function distanceLadder(distance, period) {
+  var ladder = [];
+  for (var d = distance; d > 0; d -= period) ladder.push(d);
+  ladder.push(0);
+  return ladder;
+}
+
 // DESIGN 5.7 and 7. Exclusions are never violated. min_distance steps down with repel kept, then once more
 // without repel (warning and note), then nobody. attract holders are preferred inside the band.
 function assignSlot(rot, entry, holidays, ctx) {
   var settings = rot.timeline.at(entry.start);
   var roster = rot.roster;
   var a = entry.start, b = entry.slotEnd;
-  var minDistance = settings.get('min_distance');
   var grid = rot.timeline.gridAt(a);
+  var options = settings.unitsOptions(holidays);
+  var minDistance = resolveInterval(settings.get('min_distance'), grid, roster.size());
+  var ladder = distanceLadder(minDistance, grid.period);
   var repelled = relatedHolders(ctx, rot, 'repel', a, b);
   var members = roster.members.filter(function (m) { return !roster.isExcluded(m.name, a, b); });
   var pick = null;
@@ -275,22 +330,23 @@ function assignSlot(rot, entry, holidays, ctx) {
   [true, false].forEach(function (keepRepel) {
     if (pick || (!keepRepel && !repelled.size)) return;
     var pool = keepRepel ? members.filter(function (m) { return !repelled.has(m.name); }) : members;
-    for (var d = minDistance; d >= 0 && !pick; d--) {
-      var from = grid.step(a, -d), to = grid.step(b, d);
+    ladder.forEach(function (d) {
+      if (pick) return;
+      var from = grid.offset(a, -d), to = grid.offset(b, d);
       var eligible = pool.filter(function (m) { return !hasShiftOverlapping(rot, m.name, from, to); });
       if (eligible.length) pick = { eligible: eligible, distance: d, repelDropped: !keepRepel };
-    }
+    });
   });
   var notes = [];
   if (pick) {
     var lowest = Math.min.apply(null, pick.eligible.map(function (m) { return m.score; }));
-    var tolerance = settings.get('tolerance');
+    var tolerance = toleranceUnits(settings.get('tolerance'), grid, a, roster.size(), options);
     var candidates = pick.eligible.filter(function (m) { return m.score <= lowest + tolerance; });
     var attracted = relatedHolders(ctx, rot, 'attract', a, b);
     var preferred = candidates.filter(function (m) { return attracted.has(m.name); });
     entry.who = tiebreak(rot, entry, preferred.length ? preferred : candidates, settings);
-    roster.credit(entry.who, units(a, entry.end, settings.unitsOptions(holidays)));
-    if (pick.distance < minDistance) notes.push('min_distance relaxed to ' + pick.distance);
+    roster.credit(entry.who, units(a, entry.end, options));
+    if (pick.distance < minDistance) notes.push('min_distance relaxed to ' + (pick.distance === 0 ? '0' : formatScore(pick.distance / grid.period) + 'sl'));
     if (pick.repelDropped) notes.push('repel relaxed: ' + entry.who + ' also on ' + (repelled.get(entry.who) || []).join(', '));
     notes.forEach(function (n) { rot.warnings.push({ start: a, message: n }); });
   } else {

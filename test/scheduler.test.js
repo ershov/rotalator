@@ -192,7 +192,7 @@ test('pin inside the precredit window skips a turn; outside it does not', () => 
   const farPin = R('x', '2026-11-02T09:00', 'shift', 'alice');
   const outside = run([R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=7w'), TEAM, farPin], '2026-10-05T10:00');
   assert.deepEqual(shifts(outside).map((s) => s[1]), ['alice', 'bob', 'carol', 'alice', 'alice', 'bob', 'carol']);
-  const widened = run([R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=7w, precredit=5'), TEAM, farPin], '2026-10-05T10:00');
+  const widened = run([R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=7w, precredit=5sl'), TEAM, farPin], '2026-10-05T10:00');
   assert.deepEqual(shifts(widened).map((s) => s[1]), ['bob', 'carol', 'alice', 'bob', 'alice', 'carol', 'alice']);
   assert.deepEqual(cellsOf(run(cellsOf(widened), '2026-10-05T10:00')), cellsOf(widened));
 });
@@ -237,19 +237,19 @@ test('exclusion older than the snapshot is clipped and still applies', () => {
 
 test('min_distance keeps rest between shifts and is relaxed with a note', () => {
   const out = run([
-    R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=4w, min_distance=2'),
+    R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=4w, min_distance=2sl'),
     R('', '2026-10-05T09:00', 'team', 'alice, bob'),
   ], '2026-10-05T10:00');
   assert.deepEqual(shifts(out), [
     ['2026-10-05T09:00', 'alice', ''],
     ['2026-10-12T09:00', 'bob', ''],
-    ['2026-10-19T09:00', 'alice', 'min_distance relaxed to 1'],
-    ['2026-10-26T09:00', 'bob', 'min_distance relaxed to 1'],
+    ['2026-10-19T09:00', 'alice', 'min_distance relaxed to 1sl'],
+    ['2026-10-26T09:00', 'bob', 'min_distance relaxed to 1sl'],
   ]);
-  assert.deepEqual(plain(out.status.warnings.map((w) => w.message)), ['min_distance relaxed to 1', 'min_distance relaxed to 1']);
+  assert.deepEqual(plain(out.status.warnings.map((w) => w.message)), ['min_distance relaxed to 1sl', 'min_distance relaxed to 1sl']);
   assert.deepEqual(plain(out.errors), []);
   const three = run([
-    R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=6w, min_distance=1'),
+    R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=6w, min_distance=1sl'),
     R('', '2026-10-05T09:00', 'team', 'alice, bob, carol'),
     R('', '2026-10-19T09:00', 'exclude', 'carol', '', '1w'),
   ], '2026-10-05T10:00');

@@ -52,7 +52,7 @@ pin | start | type | what | end | duration | note
 | `type` | Row type, see below. Case-insensitive. |
 | `what` | The row's payload: a member, a list of items, settings or a message, depending on `type`. |
 | `end` | Same format as `start`. Optional. Cannot be combined with `duration`. |
-| `duration` | Integer plus unit, chained from large to small: `1w`, `3d`, `12h`, `1d12h`, `90m`. Optional. |
+| `duration` | An interval (see Intervals below): `1w`, `3d`, `12h`, `1d12h`, `0.5d`, `2sl`, `1ts`. Optional. |
 | `note` | Free text. Kept on user rows, written by the script on generated rows. |
 
 Every list in `what` uses one grammar: items separated by `,` or `;`, each
@@ -175,15 +175,30 @@ like any ledger error.
 | `period` | required | Regular shift length, `Nd` or `Nw` (`w` is `7d`). |
 | `anchor` | `start` of the `set` row | A grid instant. Shifts start and end at `anchor + k * period`. Also the earliest instant the schedule can begin. Write a bare `anchor` in a `set` row dated at the new grid instant to realign the grid. |
 | `grid` | `calendar` | `calendar`: shifts change every `period` of wall-clock time. `counted`: every `period` of counted days, the days not skipped by `skip_weekends` and `skip_holidays`; with `skip_weekends=true` a daily shift starting on Friday runs until Monday, and `1w` means seven counted days and drifts across weekdays. An anchor inside a skipped day counts as the boundary between the surrounding counted days. |
-| `horizon` | `90d` | Generate shifts up to the first grid boundary at or after `snapshot + horizon`. |
+| `horizon` | `90d` | Interval. Generate shifts up to the first grid boundary at or after the snapshot plus `horizon`. |
 | `skip_weekends` | `false` | Saturdays and Sundays credit zero days. |
 | `skip_holidays` | `false` | Dates in `#Holidays` credit zero days. |
-| `tolerance` | `0` | Days. Members within `tolerance` of the lowest projected score are candidates. |
-| `min_distance` | `0` | Regular shifts (grid steps) of rest required on both sides of a slot. Relaxed one step at a time when nobody is eligible. |
+| `tolerance` | `0` | Members within `tolerance` of the lowest projected score are candidates. A plain number is days of score; `1sl` is what one regular shift earns at that point (honouring skipped days), `1ts` one full cycle, clock units are nominal days. |
+| `min_distance` | `0` | Interval of rest required on both sides of a slot: `2sl` is two regular shifts, `3d` three days. Relaxed one shift length at a time when nobody is eligible. A plain number other than `0` is an error. |
 | `tiebreak` | `order` | `order`: walk the roster cyclically after the previous assignee. `shuffle`: deterministic hash of seed, rotation, slot start and member. |
 | `seed` | `0` | Integer mixed into the shuffle hash. |
 | `baseline` | `median` | Default score for joiners: `median`, `mean`, `min`, `max`. |
-| `precredit` | `auto` | Number of regular shifts after the snapshot within which pinned shifts are credited before slots are assigned. `auto` is the roster size. `0` disables. |
+| `precredit` | `1ts` | Interval after the snapshot within which pinned shifts are credited before slots are assigned; `1ts` is one full cycle of the current roster. `0` disables. |
+
+### Intervals
+
+`duration`, `horizon`, `min_distance`, `precredit` and a suffixed `tolerance`
+take an interval: an amount and a unit. Clock units are `w`, `d`, `h`, `m`; a
+single token may be fractional (`1.5w`, `0.5d`) and integer tokens chain from
+large to small (`1d12h`). Two grid units stand alone: `sl` is one shift
+length, the `period` in force at that point, and `ts` is the team size times
+the shift length, one full cycle of the roster as it is at that point
+(`0.5ts`, `2sl`). `0` is the zero interval; clock intervals must come to
+whole minutes. From a grid instant `1sl` reaches the next boundary; from any
+other instant it is one period along the grid timeline. With `grid=counted`,
+intervals count counted days, so `2d` is two working days, and with
+`skip_weekends` the default `horizon=90d` spans about 18 calendar weeks.
+`period` itself takes clock units only.
 
 The first row of a rotation must be a `set` row with at least `period`,
 followed by a `team` row. Dating the `set` row at the intended first shift

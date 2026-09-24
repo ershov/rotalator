@@ -96,8 +96,53 @@ function parseDurationUnits(text, units) {
   return total;
 }
 
+var INTERVAL_TOKEN_RE = /^(\d+(?:\.\d+)?)\s*(sl|ts|w|d|h|m)\s*/;
+
+// Interval (DESIGN 3.3): { text, unit, amount, minutes }. unit 'clock' has whole minutes (a single token may be
+// fractional if it still yields whole minutes, chained tokens are integers in descending order); 'sl' (shift length) and 'ts' (team size times
+// shift length) stand alone with a fractional amount and are resolved at use time. A plain 0 is the zero interval.
+function parseInterval(text) {
+  if (typeof text !== 'string') return null;
+  var rest = text.trim();
+  if (rest === '') return null;
+  if (/^0+(\.0+)?$/.test(rest)) return { text: '0', unit: 'clock', amount: 0, minutes: 0 };
+  var tokens = [];
+  while (rest !== '') {
+    var m = INTERVAL_TOKEN_RE.exec(rest);
+    if (!m) return null;
+    tokens.push({ amount: Number(m[1]), unit: m[2], integer: m[1].indexOf('.') < 0 });
+    rest = rest.slice(m[0].length);
+  }
+  var single = tokens[0];
+  if (tokens.length === 1 && (single.unit === 'sl' || single.unit === 'ts')) {
+    return { text: formatAmount(single.amount) + single.unit, unit: single.unit, amount: single.amount, minutes: null };
+  }
+  if (tokens.length === 1) {
+    var minutes = single.amount * UNIT_MINUTES[single.unit];
+    if (!Number.isInteger(minutes)) return null;
+    return { text: formatAmount(single.amount) + single.unit, unit: 'clock', amount: single.amount, minutes: minutes };
+  }
+  var total = 0;
+  var lastUnit = -1;
+  for (var i = 0; i < tokens.length; i++) {
+    var t = tokens[i];
+    var u = UNIT_ORDER.indexOf(t.unit);
+    if (u < 0 || !t.integer || u <= lastUnit) return null;
+    lastUnit = u;
+    total += t.amount * UNIT_MINUTES[t.unit];
+  }
+  return { text: formatDuration(total), unit: 'clock', amount: null, minutes: total };
+}
+
+// Shortest decimal form of a non-negative amount, at most two decimals.
+function formatAmount(n) {
+  return String(Math.round(n * 100) / 100);
+}
+
+// Clock intervals as minutes; null for sl/ts or unparseable text.
 function parseDuration(text) {
-  return parseDurationUnits(text, 'wdhm');
+  var interval = parseInterval(text);
+  return interval && interval.unit === 'clock' ? interval.minutes : null;
 }
 
 function parsePeriod(text) {

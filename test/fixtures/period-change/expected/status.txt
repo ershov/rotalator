@@ -1,0 +1,71 @@
+Rotalator  dry run  2026-09-08T10:00
+
+Tabs
+rotations    primary
+regenerated  primary
+holidays     2
+global       0
+ignored
+
+rotation  primary
+snapshot  2026-09-07T09:00
+horizon   2026-10-20T09:00
+current   carol             until 2026-09-14T09:00
+next      dave              from 2026-09-14T09:00
+
+  member  current  score  projected  last shift        next shift        exclusions
+  alice            28     36         2026-08-24T09:00  2026-09-22T09:00
+  bob              28     36         2026-08-31T09:00  2026-09-24T09:00
+  carol   x        21     34         2026-09-07T09:00  2026-09-26T09:00
+  dave             21     35         2026-08-17T09:00  2026-09-14T09:00
+
+  settings       as of 2026-09-08T10:00                              source
+  period         1w                                                  rotation
+  anchor         2026-06-01T09:00                                    rotation
+  grid           calendar                                            default
+  horizon        6w                                                  rotation
+  skip_weekends  false                                               default
+  skip_holidays  false                                               default
+  tolerance      0                                                   default
+  min_distance   0                                                   default
+  tiebreak       order                                               default
+  seed           0                                                   default
+  baseline       median                                              default
+  precredit      1ts                                                 default
+  note           a set row at 2026-09-16T09:00 changes these values
+
+start             primary
+2026-06-01T09:00  alice
+2026-06-08T09:00  bob
+2026-06-15T09:00  carol
+2026-06-22T09:00  dave
+2026-06-29T09:00  alice
+2026-07-06T09:00  bob
+2026-07-13T09:00  carol
+2026-07-20T09:00  dave
+2026-07-27T09:00  alice
+2026-08-03T09:00  bob
+2026-08-10T09:00  carol
+2026-08-17T09:00  dave
+2026-08-24T09:00  alice
+2026-08-31T09:00  bob
+2026-09-07T09:00  carol
+2026-09-08T10:00  --now--
+2026-09-14T09:00  dave
+2026-09-16T09:00  dave
+2026-09-18T09:00  dave
+2026-09-20T09:00  dave
+2026-09-22T09:00  alice
+2026-09-24T09:00  bob
+2026-09-26T09:00  carol
+2026-09-28T09:00  dave
+2026-09-30T09:00  alice
+2026-10-02T09:00  bob
+2026-10-04T09:00  carol
+2026-10-06T09:00  dave
+2026-10-08T09:00  alice
+2026-10-10T09:00  bob
+2026-10-12T09:00  carol
+2026-10-14T09:00  dave
+2026-10-16T09:00  alice
+2026-10-18T09:00  bob

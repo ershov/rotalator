@@ -61,7 +61,9 @@ test('parseDuration', () => {
   assert.equal(U.parseDuration('1w2d3h4m'), 10080 + 2880 + 180 + 4);
   assert.equal(U.parseDuration(' 1d 12h '), 2160);
   assert.equal(U.parseDuration('0d'), 0);
-  for (const bad of ['', '3', 'd', '3x', '12h1d', '1d1d', '1.5d', '-1d', '1D', null]) {
+  assert.equal(U.parseDuration('1.5d'), 2160);
+  assert.equal(U.parseDuration('0.5h'), 30);
+  for (const bad of ['', '3', 'd', '3x', '12h1d', '1d1d', '1.5d12h', '-1d', '1D', '2sl', '1ts', null]) {
     assert.equal(U.parseDuration(bad), null, String(bad));
   }
 });

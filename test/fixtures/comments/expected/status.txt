@@ -31,7 +31,7 @@ next      dave              from 2026-09-14T09:00
   tiebreak       order                   default
   seed           0                       default
   baseline       median                  default
-  precredit      auto                    default
+  precredit      1ts                     default
 
 warnings
 rotation  start  message

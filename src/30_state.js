@@ -16,11 +16,6 @@ class Settings {
     return this.values.period === null ? null : new Grid(this.values, holidays);
   }
 
-  // Number of regular shifts after the snapshot within which pins are pre-credited.
-  precreditPeriods(rosterSize) {
-    return this.values.precredit === 'auto' ? rosterSize : this.values.precredit;
-  }
-
   unitsOptions(holidays) {
     return { skip_weekends: this.values.skip_weekends, skip_holidays: this.values.skip_holidays, holidays: holidays };
   }

@@ -96,8 +96,19 @@ are kept sorted by `start`; the script re-sorts on every write.
   always writes the canonical form, so a midnight instant comes back as the
   bare date. Text sorts correctly as a string (the date is a prefix of the
   timed form and the script re-sorts anyway) and survives CSV round trips.
-- Duration and period: an integer followed by `w`, `d`, `h` or `m`, optionally
-  chained: `1w`, `3d`, `12h`, `1d12h`. Period accepts only `w` and `d`.
+- Interval (`duration`, `horizon`, `min_distance`, `precredit`, suffixed
+  `tolerance`): an amount followed by a unit. Clock units `w`, `d`, `h`, `m`:
+  a single token may be fractional (`1.5w`, `0.5d`), integer tokens chain from
+  large to small (`1d12h`). Grid units stand alone and may be fractional:
+  `sl` is one shift length, the `period` in force at the instant the interval
+  is applied; `ts` is the team size at that instant times the shift length,
+  one full cycle (`0.5ts`, `2sl`). A plain `0` is the zero interval. Intervals
+  are applied along the grid's timeline (4): `t' = instant(coord(t) + m)`,
+  the plain sum in calendar mode, counted minutes in counted mode, so `2d` is
+  two counted days there; from a grid instant `1sl` reaches the next boundary,
+  from any other instant it is one period along the grid timeline. Clock
+  intervals must come to whole minutes (`0.5h`, not `0.01d`).
+- Period: an integer followed by `w` or `d`, optionally chained; `w` is `7d`.
 - Items: every list-taking `what` uses one grammar. Items are separated by
   `,` or `;`, whitespace trimmed; `:` is not a separator because times contain
   it. Each item is `name`, `name=value`, `name+=number` or `name-=number`.
@@ -212,15 +223,15 @@ removed on read, so they are purely diagnostic and never accumulate. See 6.
 | period | required | `Nd` or `Nw`; `w` is `7d`. Always `period=value`. |
 | anchor | start of the `set` row | A grid instant. Also the earliest instant the schedule can begin. Written as a bare `anchor`; it takes no value and the row's `start` is the anchor. |
 | grid | calendar | `calendar`: a boundary every `period` of wall-clock time. `counted`: a boundary every `period` of counted days, the days not skipped by `skip_weekends` and `skip_holidays` (see 4); a shift whose boundary would fall in skipped days runs through them to the next counted day. `1w` is then seven counted days and drifts across weekdays when weekends are skipped. |
-| horizon | 90d | Generate slots up to the first grid boundary at or after `snapshot + horizon`. |
+| horizon | 90d | Interval. Generate slots up to the first grid boundary at or after the snapshot plus `horizon`. |
 | skip_weekends | false | Saturdays and Sundays credit zero units. |
 | skip_holidays | false | Dates in `#Holidays` credit zero units. |
-| tolerance | 0 | Days. Candidates are members within `tolerance` of the lowest projected score. |
-| min_distance | 0 | Grid steps (regular shifts) of rest required on both sides of a slot. |
+| tolerance | 0 | Candidates are members within `tolerance` of the lowest projected score. A plain number is score units (days). With a unit: `sl` is the units a regular shift earns at the slot's start honouring skips, `ts` that times the roster size, clock units nominal days (`1w` is 7). |
+| min_distance | 0 | Interval of rest required on both sides of a slot, `[a - D, b + D)`. `2sl` is two regular shifts; a plain number other than `0` is an error. |
 | tiebreak | order | `order` or `shuffle`. |
 | seed | 0 | Integer mixed into the shuffle hash. |
 | baseline | median | Default for joiners: `median`, `mean`, `min`, `max`. |
-| precredit | auto | Grid steps (regular shifts) after the snapshot within which pinned shifts are pre-credited. `auto` means the roster size. `0` disables. |
+| precredit | 1ts | Interval after the snapshot within which pinned shifts are pre-credited: one full cycle by default. `0` disables. |
 
 A bare key restores the default in this table (`tolerance`, `tiebreak`,
 `precredit`, ...); a bare `anchor` re-anchors the grid at the row's `start`
@@ -295,9 +306,9 @@ with no error: a Saturday anchor at 09:00 therefore puts the boundaries at
 00:00 of counted days. Boundaries are `anchor + k*period` in counted minutes,
 mapped back to wall-clock instants, so with `skip_weekends` a daily shift
 starting on Friday 09:00 ends on Monday 09:00 and credits one unit, and `1w`
-means seven counted days and drifts across weekdays. Grid steps
-(`min_distance`, `precredit`) are counted along the same timeline. Scoring is
-identical in both modes: skipped days credit zero.
+means seven counted days and drifts across weekdays. Every interval
+(`horizon`, `min_distance`, `precredit`, `duration`) is applied along the same
+timeline. Scoring is identical in both modes: skipped days credit zero.
 
 ## 5. Algorithm
 
@@ -364,7 +375,10 @@ longer one needs `duration` or `end`.
 
 Regeneration range: from `regenStart` to `horizonEnd`. `regenStart` is the
 claim end of the current shift, or `S` itself when no shift starts at `S`.
-`horizonEnd` is the first grid boundary at or after `S + horizon`.
+`horizonEnd` is the first grid boundary at or after `S` plus the `horizon`
+interval on the grid's timeline. An `sl` or `ts` `duration` is resolved into
+an `end` on the grid effective at the row's `start`, with the roster size at
+that instant, before claims are computed.
 
 Every uncovered span inside the range is split at grid boundaries into slots.
 The first slot of a span may be short when it starts after a substitution or a
@@ -372,11 +386,12 @@ pinned shift with an odd end. Boundaries never move because of irregular rows.
 
 ### 5.5 Pre-credit
 
-Pinned shifts with `start` in `(S, S')`, where `S'` is `precredit` grid steps
-after `S`, whose assignee is on the roster are credited when the sweep
+Pinned shifts with `start` in `(S, S')`, where `S'` is `S` plus the
+`precredit` interval on the grid's timeline (`1ts`: the roster size at `S`
+times the period), whose assignee is on the roster are credited when the sweep
 reaches `S`, after the state rows at `S` and after the snapshot is recorded,
 and skipped when the sweep reaches them. Doing it at `S` lets a fresh ledger's
-`team` row dated `S` and `precredit = auto` work. This lets someone who
+`team` row dated `S` count for `ts`. This lets someone who
 volunteered for a shift inside the next cycle skip a turn before it. Pins
 further out are credited when reached, and the greedy compensates afterwards.
 
@@ -402,22 +417,24 @@ that extend past it are clipped.
 
 1. Eligible: on the roster, no exclusion overlapping `[a, b)`, not repelled
    (7), and no shift of theirs, kept or already generated, overlapping
-   `[a', b')` where `a'` is `min_distance` grid steps before `a` and `b'` as
-   many steps after `b` (`a - D` and `b + D` with `D = min_distance * period`
-   in calendar mode).
-2. Candidates: eligible members with `score <= min(score) + tolerance`; when
-   some of them are attracted (7), only those.
+   `[a - D, b + D)` where `D` is the `min_distance` interval resolved at `a`
+   (`sl` and `ts` with the period and roster size at `a`) and the subtraction
+   and addition run along the grid's timeline.
+2. Candidates: eligible members with `score <= min(score) + tolerance`, the
+   tolerance resolved at `a` (3.5); when some of them are attracted (7), only
+   those.
 3. Tiebreak `order`: walk the roster cyclically starting after the assignee of
    the previous shift in this rotation and take the first candidate. With no
    previous shift, start at the top.
 4. Tiebreak `shuffle`: lowest FNV-1a 32-bit hash of
    `seed|rotation|a|member`, ties by roster order.
-5. Relaxation: if nobody is eligible, decrement `min_distance` by one and
-   retry. At zero with nobody eligible, drop repel and walk `min_distance`
-   down again; a member chosen this way gets the warning `repel relaxed: <who>
+5. Relaxation: if nobody is eligible, shorten `D` by one period and retry,
+   down to zero. At zero with nobody eligible, drop repel and walk `D` down
+   again; a member chosen this way gets the warning `repel relaxed: <who>
    also on <rotation>`. Still nobody: emit a `shift` with nobody and an
    `error` row at `a`. Exclusions are never violated. Any relaxation used is
-   recorded in the generated shift's `note` and in the `#Status` warnings.
+   recorded in the generated shift's `note` (`min_distance relaxed to 1sl`,
+   the remaining distance in shift lengths) and in the `#Status` warnings.
 
 With `tolerance = 0` and `tiebreak = order` this is plain lowest-score-first
 with a stable order for ties.

@@ -64,9 +64,19 @@ function parseNonNegativeNumber(text) {
   return n === null || n < 0 ? null : n;
 }
 
-function parsePositiveDuration(text) {
-  var n = parseDuration(text);
-  return n === null || n <= 0 ? null : n;
+function intervalIsPositive(interval) {
+  return interval.unit === 'clock' ? interval.minutes > 0 : interval.amount > 0;
+}
+
+function parsePositiveInterval(text) {
+  var interval = parseInterval(text);
+  return interval && intervalIsPositive(interval) ? interval : null;
+}
+
+// tolerance: a plain number is score units (days); with a unit it is an interval resolved at use time.
+function parseTolerance(text) {
+  var n = parseNonNegativeNumber(text);
+  return n !== null ? n : parseInterval(text);
 }
 
 function parseBoolean(text) {
@@ -91,25 +101,25 @@ function parseBaseline(text) {
   return kw !== null ? kw : parseNumber(text);
 }
 
-function parsePrecredit(text) {
-  return text.toLowerCase() === 'auto' ? 'auto' : parseNonNegativeInteger(text);
-}
+var INTERVAL_HINT = 'an interval like 2sl, 1ts, 3d or 0';
+var POSITIVE_INTERVAL_HINT = 'a positive interval like 2sl, 1ts or 3d';
 
 // def: initial value. bare: what a value-less key means: 'default' restores def, 'start' takes the row's
-// start, 'none' is an error. parse null: the key takes no value.
+// start, 'none' is an error. parse null: the key takes no value. hint: accepted forms named in errors.
+// Interval keys reject a plain number other than 0, so the old "number of shifts" reading is caught.
 var SETTINGS = {
-  period:        { parse: parsePeriod,             def: null,               bare: 'none' },
-  anchor:        { parse: null,                    def: null,               bare: 'start' },
-  grid:          { parse: parseKeyword(GRID_MODES), def: 'calendar',         bare: 'default' },
-  horizon:       { parse: parsePositiveDuration,   def: 90 * MINUTES_PER_DAY, bare: 'default' },
-  skip_weekends: { parse: parseBoolean,            def: false,              bare: 'default' },
-  skip_holidays: { parse: parseBoolean,            def: false,              bare: 'default' },
-  tolerance:     { parse: parseNonNegativeNumber,  def: 0,                  bare: 'default' },
-  min_distance:  { parse: parseNonNegativeInteger, def: 0,                  bare: 'default' },
-  tiebreak:      { parse: parseKeyword(TIEBREAKS), def: 'order',            bare: 'default' },
-  seed:          { parse: parseInteger,            def: 0,                  bare: 'default' },
-  baseline:      { parse: parseBaselineKeyword,    def: 'median',           bare: 'default' },
-  precredit:     { parse: parsePrecredit,          def: 'auto',             bare: 'default' },
+  period:        { parse: parsePeriod,             def: null,                 bare: 'none' },
+  anchor:        { parse: null,                    def: null,                 bare: 'start' },
+  grid:          { parse: parseKeyword(GRID_MODES), def: 'calendar',           bare: 'default' },
+  horizon:       { parse: parsePositiveInterval,   def: parseInterval('90d'), bare: 'default', hint: POSITIVE_INTERVAL_HINT },
+  skip_weekends: { parse: parseBoolean,            def: false,                bare: 'default' },
+  skip_holidays: { parse: parseBoolean,            def: false,                bare: 'default' },
+  tolerance:     { parse: parseTolerance,          def: 0,                    bare: 'default', hint: 'a number of days or ' + INTERVAL_HINT },
+  min_distance:  { parse: parseInterval,           def: parseInterval('0'),   bare: 'default', hint: INTERVAL_HINT },
+  tiebreak:      { parse: parseKeyword(TIEBREAKS), def: 'order',              bare: 'default' },
+  seed:          { parse: parseInteger,            def: 0,                    bare: 'default' },
+  baseline:      { parse: parseBaselineKeyword,    def: 'median',             bare: 'default' },
+  precredit:     { parse: parseInterval,           def: parseInterval('1ts'), bare: 'default', hint: INTERVAL_HINT },
 };
 
 function defaultSettings() {
@@ -141,7 +151,7 @@ function parseSetArg(text, start) {
     } else {
       if (!spec.parse) return fail(it.name + ' takes no value; the row start is the ' + it.name);
       parsed = spec.parse(it.value);
-      if (parsed === null) return fail('bad value for ' + it.name + ': "' + it.value + '"');
+      if (parsed === null) return fail('bad value for ' + it.name + ': "' + it.value + '"' + (spec.hint ? '; use ' + spec.hint : ''));
     }
     out.values[key] = parsed;
   }
@@ -189,7 +199,8 @@ function cellText(cell) {
   return cell === null || cell === undefined || cell === false ? '' : String(cell).trim();
 }
 
-// duration is resolved into end here so downstream code only reads end.
+// A clock duration is resolved into end here; an sl/ts duration (durationInterval) is resolved by the
+// scheduler once the grid and roster at start are known.
 function rowFromArray(cells, rowIndex) {
   var pin = cellText(cells[0]);
   var startText = cellText(cells[1]);
@@ -197,7 +208,8 @@ function rowFromArray(cells, rowIndex) {
   var durationText = cellText(cells[5]);
   var start = parseDateTime(startText);
   var end = parseDateTime(endText);
-  var duration = parseDuration(durationText);
+  var interval = parseInterval(durationText);
+  var duration = interval && interval.unit === 'clock' ? interval.minutes : null;
   if (end === null && duration !== null && start !== null) end = start + duration;
   return {
     rowIndex: rowIndex,
@@ -210,6 +222,7 @@ function rowFromArray(cells, rowIndex) {
     end: end,
     endText: endText,
     duration: duration,
+    durationInterval: interval,
     durationText: durationText,
     note: cellText(cells[6]),
   };
@@ -218,7 +231,7 @@ function rowFromArray(cells, rowIndex) {
 function makeRow(fields) {
   var row = {
     rowIndex: null, pin: '', pinned: false, start: null, startText: '', type: '', what: '',
-    end: null, endText: '', duration: null, durationText: '', note: '',
+    end: null, endText: '', duration: null, durationInterval: null, durationText: '', note: '',
   };
   for (var k in fields) row[k] = fields[k];
   if (fields.pin && !('pinned' in fields)) row.pinned = true;
@@ -228,7 +241,7 @@ function makeRow(fields) {
 
 // Unparseable cells are written back verbatim. An end derived from duration is not written.
 function rowToArray(row) {
-  var duration = row.duration !== null ? formatDuration(row.duration) : row.durationText;
+  var duration = row.durationInterval ? row.durationInterval.text : row.duration !== null ? formatDuration(row.duration) : row.durationText;
   var derivedEnd = duration !== '' && row.endText === '';
   var end = derivedEnd ? '' : row.end !== null ? formatDateTime(row.end) : row.endText;
   return [
@@ -358,7 +371,7 @@ function validateRow(row) {
   if (row.start === null) return row.startText === '' ? 'missing start' : 'bad start "' + row.startText + '"';
   if (row.endText !== '' && row.durationText !== '') return 'end and duration are mutually exclusive';
   if (row.endText !== '' && parseDateTime(row.endText) === null) return 'bad end "' + row.endText + '"';
-  if (row.durationText !== '' && (row.duration === null || row.duration <= 0)) return 'bad duration "' + row.durationText + '"';
+  if (row.durationText !== '' && (!row.durationInterval || !intervalIsPositive(row.durationInterval))) return 'bad duration "' + row.durationText + '"; use ' + POSITIVE_INTERVAL_HINT;
   if (!spec.extent && (row.endText !== '' || row.durationText !== '')) return row.type + ' does not take end or duration';
   if (row.end !== null && row.end <= row.start) return 'end must be after start';
   if (spec.required && row.what === '') return row.type + ' requires what';

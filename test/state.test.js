@@ -47,11 +47,13 @@ test('SettingsTimeline: period change sets anchor, bare anchor re-anchors, grid 
   assert.equal(tl.at(MON).get('tolerance'), 1);
 });
 
-test('Settings precredit auto resolves from roster size', () => {
-  assert.equal(new U.Settings().precreditPeriods(4), 4);
-  const tl = new U.SettingsTimeline([setRow('2026-10-05T09:00', 'period=1w, precredit=2'), setRow('2026-10-06T09:00', 'precredit=0')]);
-  assert.equal(tl.at(MON).precreditPeriods(4), 2);
-  assert.equal(tl.at(MON + D).precreditPeriods(4), 0);
+test('interval settings are kept as written and resolved against the grid and roster size', () => {
+  const tl = new U.SettingsTimeline([setRow('2026-10-05T09:00', 'period=1w, precredit=2sl'), setRow('2026-10-06T09:00', 'precredit=0')]);
+  const grid = tl.gridAt(MON);
+  assert.equal(U.resolveInterval(new U.Settings().get('precredit'), grid, 4), 4 * W);
+  assert.equal(U.resolveInterval(tl.at(MON).get('precredit'), grid, 4), 2 * W);
+  assert.equal(U.resolveInterval(tl.at(MON + D).get('precredit'), grid, 4), 0);
+  assert.equal(tl.at(MON).get('precredit').text, '2sl');
 });
 
 test('SettingsTimeline: global set rows layer under the rotation; bare keys return to the global value', () => {
