@@ -1,11 +1,15 @@
 Rotalator  dry run  2026-09-08T10:00
 
-tabs
+Tabs
 rotations    primary, secondary
 regenerated  primary, secondary
 holidays     2
 global       1
 ignored
+
+Relations  primary  secondary
+primary             -
+secondary  -
 
 rotation  primary
 snapshot  2026-09-07T09:00
@@ -17,7 +21,7 @@ next      bob               from 2026-09-14T09:00
   alice   x        49     70         2026-09-07T09:00  2026-09-21T09:00
   bob              49     70         2026-08-31T09:00  2026-09-14T09:00
 
-  settings       as of 2026-09-08T10:00
+  settings       as of 2026-09-08T10:00  source
   period         1w                      rotation
   anchor         2026-06-01T09:00        rotation
   grid           calendar                default
@@ -41,7 +45,7 @@ next      alice             from 2026-09-14T09:00
   alice            49     77         2026-08-31T09:00  2026-09-14T09:00
   bob     x        49     63         2026-09-07T09:00  2026-10-05T09:00
 
-  settings       as of 2026-09-08T10:00
+  settings       as of 2026-09-08T10:00  source
   period         1w                      rotation
   anchor         2026-06-01T09:00        rotation
   grid           calendar                default

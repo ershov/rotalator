@@ -1,6 +1,6 @@
 Rotalator  dry run  2026-09-08T10:00
 
-tabs
+Tabs
 rotations    primary
 regenerated  primary
 holidays     2
@@ -18,7 +18,7 @@ next      alice             from 2026-09-14T09:00
   bob              35     42         2026-08-31T09:00  2026-09-28T09:00
   carol   x        28     42         2026-09-07T09:00  2026-10-05T09:00
 
-  settings       as of 2026-09-08T10:00
+  settings       as of 2026-09-08T10:00  source
   period         1w                      rotation
   anchor         2026-06-01T09:00        rotation
   grid           calendar                default

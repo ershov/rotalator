@@ -443,25 +443,38 @@ set) and the start of the next `set` row after `now`, if any, since later
 rows change the values from there, plus the current shift (the entry covering
 `now`) and the next one (first start after `now`). `now` reaches
 `regenerate` as an optional input used only for status; the ledgers never
-depend on it, and `S` stands in when it is absent. The `#Status` tab is this
-data as text: a title line, the tabs block, then per rotation `rotation`,
-`snapshot`, `horizon`, `current | <member> | until <end>` and `next |
-<member> | from <start>` key/value rows in column A, the member table
-indented to column B (`member`, `current` with `x` for the member on call,
-`score`, `projected`, `last shift`, `next shift`, `exclusions`), and an
-indented `settings` block of `key | value` rows with a `note` row when a
-later `set` row exists. A warnings table follows only when there are
-warnings, an errors table only when there are errors. The `#All shifts` tab
+depend on it, and `S` stands in when it is absent. The status also carries
+the relation states in force at `now` as `{ reader, target, kind }` entries
+for every ordered pair, a mutual state appearing twice. The `#Status` tab is
+this data as text, 17 columns wide: a title line; a `Tabs` block of key/value
+rows; a `Relations` matrix with one column and one row per rotation in tab
+order, `+` where the row's rotation attracts the column's and `-` where it
+repels it (mutual states fill both cells, one-sided ones only the reader's
+row), omitted with a single rotation or without relations; then per rotation
+one horizontal block of three column groups separated by two empty columns:
+the key/value rows `rotation`, `snapshot`, `horizon`, `current | <member> |
+until <end>` and `next | <member> | from <start>` (columns A to C), the
+member table (`member`, `current` with `x` for the member on call, `score`,
+`projected`, `last shift`, `next shift`, `exclusions`, columns F to L) and
+the settings table (`settings | as of <now> | source`, then `key | value |
+source` rows and a `note` row when a later `set` row exists, columns O to
+Q), groups padded to the tallest and the block's first row serving as the
+header of all three. The CLI `--status` prints the same data vertically: the
+three groups of each rotation one after another, tables indented by one
+cell, as `statusRowsVertical` arranges them from the shared group builder. A
+warnings table follows only when there are warnings, an errors table only
+when there are errors. The `#All shifts` tab
 has the columns `pin | start | end | rotation | who | note`: `pin` the
 ledger row's own pin text, `end` the scored end, every shift of every
 rotation sorted by `start` then rotation order, and a divider row between
 past and future shifts with `start` = `now` and `now` in the rotation cell
 (omitted when `now` is unknown). `statusRows` and `shiftsRows` return
 `{ rows, headerRows, dividerRows, currentRows }`: the row indexes of the
-title, block and table header rows, of the divider and of each rotation's
-current shift (empty when `now` is unknown), so adapters format them without
-knowing the layout while the CLI prints rows only. Both tabs are rewritten in
-full on every run, including dry runs.
+title, `Tabs` and `Relations` headers, each rotation block's first row, the
+warnings and errors headers and the `#All shifts` header, of the divider and
+of each rotation's current shift (empty when `now` is unknown), so adapters
+format them without knowing the layout while the CLI prints rows only. Both
+tabs are rewritten in full on every run, including dry runs.
 
 ### 5.9 Properties
 

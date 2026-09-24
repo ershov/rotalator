@@ -10,6 +10,9 @@ var DEFAULT_ROTATION_TAB = 'On-Call';
 var LEDGER_COLUMN_WIDTHS = { pin: 40, start: 150, type: 80, what: 320, end: 150, duration: 80, note: 640 };
 var HOLIDAYS_COLUMN_WIDTHS = { date: 110, note: 640 };
 var SHIFTS_COLUMN_WIDTHS = { pin: 40, start: 150, end: 150, rotation: 120, who: 120, note: 640 };
+// #Status: keys | names or dates | dates | gap | gap | member | mark | score | projected | last | next |
+// exclusions | gap | gap | setting | value | source.
+var STATUS_COLUMN_WIDTHS = [100, 150, 150, 60, 60, 120, 60, 100, 100, 150, 150, 150, 60, 60, 100, 150, 100];
 
 // Pastel palette (DESIGN 10.1).
 var COLOR_HEADER = '#eeeeee';
@@ -290,7 +293,7 @@ function tabLayout(sheet) {
   var name = sheet.getName();
   if (name === HOLIDAYS_TAB) return { header: HOLIDAYS_HEADER, widths: HOLIDAYS_COLUMN_WIDTHS, notes: true, freeze: true };
   if (name === ALL_SHIFTS_TAB) return { header: SHIFTS_HEADER, widths: SHIFTS_COLUMN_WIDTHS, notes: false, freeze: true };
-  if (name === STATUS_TAB) return { header: null, widths: null, notes: false, freeze: false };
+  if (name === STATUS_TAB) return { header: null, widths: STATUS_COLUMN_WIDTHS, notes: false, freeze: false };
   if (isSystemTab(name) && !isKnownSystemTab(name)) return null;
   if (!isSystemTab(name) && !isEmptySheet(sheet) && !isLedgerHeader(sheet.getRange(1, 1, 1, LEDGER_HEADER.length).getValues()[0])) return null;
   return { header: LEDGER_HEADER, widths: LEDGER_COLUMN_WIDTHS, notes: true, freeze: true };
@@ -314,6 +317,7 @@ function formatTab(sheet) {
   sheet.getRange(1, 1, sheet.getMaxRows(), sheet.getMaxColumns()).setFontFamily(FONT_FAMILY);
   var width = layout.header ? layout.header.length : STATUS_WIDTH;
   sheet.getRange('A:' + String.fromCharCode(64 + width)).setNumberFormat('@');
+  if (!layout.header && layout.widths) layout.widths.forEach(function (w, i) { sheet.setColumnWidth(i + 1, w); });
   if (layout.header && !isEmptySheet(sheet)) {
     var header = sheet.getRange(1, 1, 1, width);
     header.setFontWeight('bold').setBackground(COLOR_HEADER);

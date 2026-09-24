@@ -285,20 +285,24 @@ preview tab is created right after its rotation tab.
 ## #Status and #All shifts tabs
 
 `#Status` starts with the run instant and mode (`run` or `dry run`), then a
-`tabs` block: the rotations found, the rotations regenerated in this run, the
+`Tabs` block: the rotations found, the rotations regenerated in this run, the
 number of holidays and `#Global` rows read, and the tabs ignored (a disabled
-`#<rotation>` appears there). For each rotation it shows `rotation`,
-`snapshot`, `horizon`, `current` (who is on call now and until when) and
-`next` (who follows and from when), then a member table with one line per
-member: an `x` in `current` for the member on call, score at the snapshot,
-projected score at the horizon end, last shift (latest start at or before the
-snapshot), next shift (first start after it), and exclusions active at the
-snapshot with their end or `open`. A `settings`
-block lists every setting with its value in effect at the run instant,
-including defaults for keys never set; when a later `set` row exists, a `note`
-row names its start, since the values change from there. A warnings table
-appears when `min_distance` or a `repel` was relaxed or a slot was
-unassignable. After a
+`#<rotation>` appears there). With several rotations and at least one
+relation in force now, a `Relations` matrix follows: one row and one column
+per rotation, `+` where the row's rotation attracts the column's, `-` where
+it repels it; a mutual relation marks both cells, a one-sided one only the
+row of the rotation whose tab holds it. Then one block per rotation, laid
+out side by side: on the left `rotation`, `snapshot`, `horizon`, `current`
+(who is on call now and until when) and `next` (who follows and from when);
+in the middle a member table with one line per member: an `x` in `current`
+for the member on call, score at the snapshot, projected score at the horizon
+end, last shift (latest start at or before the snapshot), next shift (first
+start after it), and exclusions active at the snapshot with their end or
+`open`; on the right a `settings` table with every setting, its value in
+effect at the run instant and its source (`rotation`, `global` or
+`default`); when a later `set` row exists, a `note` row names its start,
+since the values change from there. A warnings table appears when
+`min_distance` or a `repel` was relaxed or a slot was unassignable. After a
 validation error the tab lists the errors instead of rotations.
 
 `#All shifts` is one table of every shift of every rotation, sorted by start:
@@ -421,7 +425,9 @@ bin/rotalator help
 
 `run` regenerates the ledgers in `DIR`. Without `--write` they are printed as
 CSV and nothing is changed. `--status` appends the `#Status` and `#All shifts`
-tables as plain text. `--rotation NAME`, repeatable, regenerates only the named
+tables as plain text, the former with each rotation's key/value rows, member
+table and settings table stacked vertically instead of the spreadsheet's
+side-by-side blocks. `--rotation NAME`, repeatable, regenerates only the named
 rotations: the others are read so that relations still see their shifts, but
 they are neither printed nor written, and the `tabs` block of the status shows
 which rotations were regenerated. An unknown name stops the run with nothing

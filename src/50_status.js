@@ -1,6 +1,9 @@
 // Status data and the 2D text arrays for the #Status and #All shifts tabs (DESIGN 5.8).
 
-var STATUS_WIDTH = 8;
+var STATUS_WIDTH = 17;
+var STATUS_GAP = 2;
+var STATUS_KEYS_WIDTH = 3;
+var STATUS_SETTINGS_WIDTH = 3;
 var SHIFTS_HEADER = ['pin', 'start', 'end', 'rotation', 'who', 'note'];
 var MEMBER_HEADER = ['member', 'current', 'score', 'projected', 'last shift', 'next shift', 'exclusions'];
 
@@ -92,19 +95,41 @@ function shiftsView(rots) {
   return out.sort(function (a, b) { return a.start - b.start; });
 }
 
+// Pair states in force at `at`: { reader, target, kind } for every ordered pair, mutual states twice.
+function relationsView(rots, relations, at) {
+  var out = [];
+  if (!relations || at === null) return out;
+  var names = rots.map(function (r) { return r.name; });
+  names.forEach(function (reader) {
+    names.forEach(function (target) {
+      if (reader === target) return;
+      var kind = relations.kindFor(reader, target, at);
+      if (kind !== null) out.push({ reader: reader, target: target, kind: kind });
+    });
+  });
+  return out;
+}
+
 // rots: swept rotations, or [] when a validation error stopped the run. now: optional run instant.
-function buildStatus(rots, warnings, errors, now) {
+// relations: the Relations of the sweep, or null.
+function buildStatus(rots, warnings, errors, now, relations) {
+  var at = now === null || now === undefined ? null : now;
   return {
-    at: now === null || now === undefined ? null : now,
+    at: at,
     rotations: rots.map(function (rot) { return rotationStatus(rot, now); }),
+    relations: relationsView(rots, relations, at),
     warnings: warnings,
     errors: errors,
     shifts: shiftsView(rots),
   };
 }
 
+function padCells(cells, width) {
+  return cells.concat(new Array(Math.max(0, width - cells.length)).fill(''));
+}
+
 function padStatusRow(cells) {
-  return cells.concat(new Array(Math.max(0, STATUS_WIDTH - cells.length)).fill(''));
+  return padCells(cells, STATUS_WIDTH);
 }
 
 function formatExclusions(list) {
@@ -113,9 +138,78 @@ function formatExclusions(list) {
   }).join('; ');
 }
 
+// Column groups side by side: each padded to its width and to the tallest group, STATUS_GAP empty columns between.
+function sideBySide(groups) {
+  var height = Math.max.apply(null, groups.map(function (g) { return g.rows.length; }));
+  var out = [];
+  for (var i = 0; i < height; i++) {
+    var row = [];
+    groups.forEach(function (g, k) {
+      if (k > 0) row = row.concat(new Array(STATUS_GAP).fill(''));
+      row = row.concat(padCells(g.rows[i] || [], g.width));
+    });
+    out.push(row);
+  }
+  return out;
+}
+
+// One rotation as three groups of rows: key/value rows, member table, settings table (DESIGN 5.8).
+function rotationGroups(rot) {
+  var keys = [
+    ['rotation', rot.name],
+    ['snapshot', statusInstant(rot.snapshotAt)],
+    ['horizon', statusInstant(rot.horizonEnd)],
+    ['current', rot.current ? rot.current.who : '', rot.current ? 'until ' + statusInstant(rot.current.end) : ''],
+    ['next', rot.next ? rot.next.who : '', rot.next ? 'from ' + statusInstant(rot.next.start) : ''],
+  ];
+  var members = [MEMBER_HEADER.slice()].concat(rot.roster.map(function (m) {
+    return [m.name, rot.current && rot.current.who === m.name ? 'x' : '',
+      m.score === null ? '' : formatScore(m.score), formatScore(m.projected),
+      statusInstant(m.lastShift), statusInstant(m.nextShift), formatExclusions(m.exclusions)];
+  }));
+  var settings = [['settings', 'as of ' + statusInstant(rot.settings.at), 'source']].concat(
+    rot.settings.values.map(function (s) { return [s.key, s.value, s.source]; }));
+  if (rot.settings.nextSetAt !== null) settings.push(['note', 'a set row at ' + statusInstant(rot.settings.nextSetAt) + ' changes these values']);
+  return { keys: keys, members: members, settings: settings };
+}
+
+// Spreadsheet arrangement: the three groups side by side, first row is the header of all three.
+function horizontalBlock(rot) {
+  var g = rotationGroups(rot);
+  var rows = sideBySide([
+    { rows: g.keys, width: STATUS_KEYS_WIDTH },
+    { rows: g.members, width: MEMBER_HEADER.length },
+    { rows: g.settings, width: STATUS_SETTINGS_WIDTH },
+  ]);
+  return { rows: rows, headers: [0] };
+}
+
+// CLI arrangement: the groups one after another, tables indented by one cell, each group's first row a header.
+function verticalBlock(rot) {
+  var g = rotationGroups(rot);
+  var indent = function (row) { return [''].concat(row); };
+  var rows = g.keys.concat([[]], g.members.map(indent), [[]], g.settings.map(indent));
+  return { rows: rows, headers: [0, g.keys.length + 1, g.keys.length + g.members.length + 2] };
+}
+
+// Relations matrix rows: header with every rotation, then per reader a row with + (attract) or - (repel).
+function relationsMatrix(status) {
+  var names = status.rotations.map(function (r) { return r.name; });
+  var marks = { attract: '+', repel: '-' };
+  var rows = [['Relations'].concat(names)];
+  names.forEach(function (reader) {
+    rows.push([reader].concat(names.map(function (target) {
+      var rel = status.relations.find(function (r) { return r.reader === reader && r.target === target; });
+      return rel ? marks[rel.kind] || '' : '';
+    })));
+  });
+  return rows;
+}
+
 // Rows of the #Status tab plus presentation metadata: headerRows and dividerRows are row indexes for the
-// adapter to format. status.now, status.mode and status.tabs are set by the runner.
-function statusRows(status) {
+// adapter to format. status.now, status.mode and status.tabs are set by the runner. block: horizontalBlock
+// for the spreadsheet, verticalBlock for the CLI.
+function statusRowsWith(status, block) {
   var rows = [];
   var headerRows = [];
   var push = function (cells) { rows.push(padStatusRow(cells)); };
@@ -123,31 +217,21 @@ function statusRows(status) {
   header(['Rotalator', status.mode || '', status.now || '']);
   if (status.tabs) {
     push([]);
-    header(['tabs']);
+    header(['Tabs']);
     push(['rotations', status.tabs.rotations.join(', ')]);
     push(['regenerated', status.tabs.regenerated.join(', ')]);
     push(['holidays', String(status.tabs.holidays)]);
     push(['global', String(status.tabs.global)]);
     push(['ignored', status.tabs.ignored.join(', ')]);
   }
+  if (status.rotations.length > 1 && (status.relations || []).length) {
+    push([]);
+    relationsMatrix(status).forEach(function (row, i) { if (i === 0) header(row); else push(row); });
+  }
   status.rotations.forEach(function (rot) {
     push([]);
-    header(['rotation', rot.name]);
-    push(['snapshot', statusInstant(rot.snapshotAt)]);
-    push(['horizon', statusInstant(rot.horizonEnd)]);
-    push(['current', rot.current ? rot.current.who : '', rot.current ? 'until ' + statusInstant(rot.current.end) : '']);
-    push(['next', rot.next ? rot.next.who : '', rot.next ? 'from ' + statusInstant(rot.next.start) : '']);
-    push([]);
-    header([''].concat(MEMBER_HEADER));
-    rot.roster.forEach(function (m) {
-      push(['', m.name, rot.current && rot.current.who === m.name ? 'x' : '',
-        m.score === null ? '' : formatScore(m.score), formatScore(m.projected),
-        statusInstant(m.lastShift), statusInstant(m.nextShift), formatExclusions(m.exclusions)]);
-    });
-    push([]);
-    header(['', 'settings', 'as of ' + statusInstant(rot.settings.at)]);
-    rot.settings.values.forEach(function (s) { push(['', s.key, s.value, s.source]); });
-    if (rot.settings.nextSetAt !== null) push(['', 'note', 'a set row at ' + statusInstant(rot.settings.nextSetAt) + ' changes these values']);
+    var b = block(rot);
+    b.rows.forEach(function (row, i) { if (b.headers.indexOf(i) >= 0) header(row); else push(row); });
   });
   if (status.warnings.length) {
     push([]);
@@ -165,6 +249,14 @@ function statusRows(status) {
     });
   }
   return { rows: rows, headerRows: headerRows, dividerRows: [], currentRows: [] };
+}
+
+function statusRows(status) {
+  return statusRowsWith(status, horizontalBlock);
+}
+
+function statusRowsVertical(status) {
+  return statusRowsWith(status, verticalBlock);
 }
 
 // Rows of the #All shifts tab: header, shifts by start with the ledger's own pin marker, and a divider row at

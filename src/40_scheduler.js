@@ -431,6 +431,6 @@ function regenerate(input) {
     regenerated: true,
     global: { rows: global.rows, errors: global.errors },
     errors: problems.concat(global.errors),
-    status: buildStatus(rots, collectErrors(rots, 'warnings').concat(slotProblems), rowProblems.concat(global.errors), input.now),
+    status: buildStatus(rots, collectErrors(rots, 'warnings').concat(slotProblems), rowProblems.concat(global.errors), input.now, ctx.relations),
   };
 }

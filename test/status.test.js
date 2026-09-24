@@ -63,41 +63,41 @@ test('status: shifts view lists every shift by start then rotation order', () =>
 test('statusRows and shiftsRows: rows, header and divider metadata', () => {
   const { status } = runStorage(new MemoryStorage({ ledgers, ignored: ['Notes', '#old'] }), NOW);
   const out = U.statusRows(status);
-  const rows = trim(out.rows);
-  assert.ok(structuredClone(out.rows).every((r) => r.length === 8));
+  const rows = structuredClone(out.rows);
+  assert.ok(rows.every((r) => r.length === 17));
   assert.deepEqual(structuredClone(out.dividerRows), []);
-  assert.deepEqual(rows.slice(0, 8), [
+  assert.deepEqual(trim(rows.slice(0, 9)), [
     ['Rotalator', 'dry run', NOW],
     [],
-    ['tabs'],
+    ['Tabs'],
     ['rotations', 'primary, secondary'],
     ['regenerated', 'primary, secondary'],
     ['holidays', '0'],
     ['global', '0'],
     ['ignored', 'Notes, #old'],
-  ]);
-  assert.deepEqual(rows.slice(8, 16), [
     [],
-    ['rotation', 'primary'],
-    ['snapshot', '2026-10-05T09:00'],
-    ['horizon', '2026-10-26T09:00'],
-    ['current', 'alice', 'until 2026-10-12T09:00'],
-    ['next', 'carol', 'from 2026-10-12T09:00'],
-    [],
-    ['', 'member', 'current', 'score', 'projected', 'last shift', 'next shift', 'exclusions'],
   ]);
-  assert.deepEqual(rows[16], ['', 'alice', 'x', '', '7', '2026-10-05T09:00']);
-  assert.deepEqual(rows[17], ['', 'bob', '', '', '0', '', '', '2026-10-05T09:00 to 2026-10-15T09:00']);
-  assert.deepEqual(rows.slice(19, 23), [
-    [],
-    ['', 'settings', 'as of 2026-10-05T10:00'],
-    ['', 'period', '1w', 'rotation'],
-    ['', 'anchor', '2026-10-05T09:00', 'rotation'],
-  ]);
-  const headers = structuredClone(out.headerRows);
-  assert.deepEqual(headers.slice(0, 5), [0, 2, 9, 15, 20]);
-  assert.ok(headers.every((i) => rows[i].some((c) => c !== '')));
-  assert.equal(headers.length, 2 + 2 * 3);
+  assert.ok(!rows.some((r) => r[0] === 'Relations'), 'no matrix without relations');
+  // Block of primary: keys in columns A to C, member table from F, settings from O; 13 rows (settings tallest).
+  assert.deepEqual(rows[9].slice(0, 2), ['rotation', 'primary']);
+  assert.deepEqual(rows[9].slice(3, 5), ['', '']);
+  assert.deepEqual(rows[9].slice(5, 12), ['member', 'current', 'score', 'projected', 'last shift', 'next shift', 'exclusions']);
+  assert.deepEqual(rows[9].slice(12, 17), ['', '', 'settings', 'as of 2026-10-05T10:00', 'source']);
+  assert.deepEqual(rows[10].slice(0, 3), ['snapshot', '2026-10-05T09:00', '']);
+  assert.deepEqual(rows[11].slice(0, 2), ['horizon', '2026-10-26T09:00']);
+  assert.deepEqual(rows[12].slice(0, 3), ['current', 'alice', 'until 2026-10-12T09:00']);
+  assert.deepEqual(rows[13].slice(0, 3), ['next', 'carol', 'from 2026-10-12T09:00']);
+  assert.deepEqual(rows[14].slice(0, 3), ['', '', '']);
+  assert.deepEqual(rows[10].slice(5, 9), ['alice', 'x', '', '7']);
+  assert.deepEqual(rows[11].slice(5, 12), ['bob', '', '', '0', '', '', '2026-10-05T09:00 to 2026-10-15T09:00']);
+  assert.deepEqual(rows[13].slice(5, 12), ['', '', '', '', '', '', '']);
+  assert.deepEqual(rows[10].slice(14, 17), ['period', '1w', 'rotation']);
+  assert.deepEqual(rows[11].slice(14, 17), ['anchor', '2026-10-05T09:00', 'rotation']);
+  assert.deepEqual(rows[12].slice(14, 17), ['grid', 'calendar', 'default']);
+  assert.deepEqual(rows[21].slice(14, 17), ['precredit', 'auto', 'default']);
+  assert.deepEqual(trim([rows[22]]), [[]]);
+  assert.deepEqual(rows[23].slice(0, 2), ['rotation', 'secondary']);
+  assert.deepEqual(structuredClone(out.headerRows), [0, 2, 9, 23]);
   assert.ok(!rows.some((r) => r[0] === 'warnings'), 'no warnings block without warnings');
   assert.ok(!rows.some((r) => r[0] === 'errors'), 'no errors block without errors');
   assert.equal(U.formatExclusions([{ from: dt('2026-10-05T09:00'), to: null }]), '2026-10-05T09:00 to open');
@@ -118,6 +118,62 @@ test('statusRows and shiftsRows: rows, header and divider metadata', () => {
   const bare = U.shiftsRows(noNow.status);
   assert.deepEqual(structuredClone(bare.dividerRows), []);
   assert.equal(structuredClone(bare.rows).length, 4);
+});
+
+test('statusRowsVertical: the CLI stacks the three groups of a rotation', () => {
+  const { status } = runStorage(new MemoryStorage({ ledgers }), NOW);
+  const out = U.statusRowsVertical(status);
+  const rows = trim(out.rows);
+  const i = rows.findIndex((r) => r[0] === 'rotation' && r[1] === 'primary');
+  assert.deepEqual(rows.slice(i, i + 7), [
+    ['rotation', 'primary'],
+    ['snapshot', '2026-10-05T09:00'],
+    ['horizon', '2026-10-26T09:00'],
+    ['current', 'alice', 'until 2026-10-12T09:00'],
+    ['next', 'carol', 'from 2026-10-12T09:00'],
+    [],
+    ['', 'member', 'current', 'score', 'projected', 'last shift', 'next shift', 'exclusions'],
+  ]);
+  assert.deepEqual(rows[i + 7].slice(0, 5), ['', 'alice', 'x', '', '7']);
+  assert.deepEqual(rows[i + 11], ['', 'settings', 'as of 2026-10-05T10:00', 'source']);
+  assert.deepEqual(rows[i + 12], ['', 'period', '1w', 'rotation']);
+  const headers = structuredClone(out.headerRows);
+  assert.ok([i, i + 6, i + 11].every((h) => headers.includes(h)));
+  assert.match(statusText(status), /\nrotation  primary\nsnapshot  2026-10-05T09:00\n/);
+  assert.ok(!statusText(status).includes('rotation  primary   '), 'no horizontal block in the CLI text');
+});
+
+test('status: relations matrix from pair states at now', () => {
+  const three = structuredClone(ledgers);
+  three.primary.push(R('', '2026-10-05T09:00', 'repel', 'secondary'));
+  three.tertiary = [R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w'), R('', '2026-10-05T09:00', 'team', 'erin')];
+  const global = [R('', '2026-10-05T09:00', 'attract', 'secondary, tertiary', '', '1w')];
+  const { status, errors } = runStorage(new MemoryStorage({ ledgers: three, global }), NOW);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(status.relations, [
+    { reader: 'primary', target: 'secondary', kind: 'repel' },
+    { reader: 'secondary', target: 'tertiary', kind: 'attract' },
+    { reader: 'tertiary', target: 'secondary', kind: 'attract' },
+  ]);
+  const out = U.statusRows(status);
+  const rows = trim(out.rows);
+  const i = rows.findIndex((r) => r[0] === 'Relations');
+  assert.deepEqual(rows.slice(i - 1, i + 5), [
+    [],
+    ['Relations', 'primary', 'secondary', 'tertiary'],
+    ['primary', '', '-'],
+    ['secondary', '', '', '+'],
+    ['tertiary', '', '+'],
+    [],
+  ]);
+  assert.ok(structuredClone(out.headerRows).includes(i));
+  // After the global row expires only the one-sided repel remains.
+  const later = runStorage(new MemoryStorage({ ledgers: three, global }), '2026-10-13T10:00').status;
+  assert.deepEqual(later.relations, [{ reader: 'primary', target: 'secondary', kind: 'repel' }]);
+  // Without now the view is empty and the matrix omitted; a single rotation never shows one.
+  const noNow = U.regenerate({ rotations: Object.keys(three).map((name) => ({ name, rows: U.rowsFromCells(three[name]), snapshotAt: null })), holidays: [], global: U.rowsFromCells(global) });
+  assert.deepEqual(structuredClone(noNow.status.relations), []);
+  assert.ok(!trim(U.statusRows(noNow.status).rows).some((r) => r[0] === 'Relations'));
 });
 
 test('status: effective settings at now, every key, note on a later set row', () => {
@@ -141,7 +197,7 @@ test('status: effective settings at now, every key, note on a later set row', ()
     { key: 'precredit', value: 'auto', source: 'default' },
   ]);
   const rows = trim(U.statusRows(runStorage(new MemoryStorage({ ledgers: withLater }), NOW).status).rows);
-  assert.deepEqual(rows.find((r) => r[1] === 'note'), ['', 'note', 'a set row at 2026-10-19T09:00 changes these values']);
+  assert.deepEqual(rows.find((r) => r[14] === 'note').slice(14), ['note', 'a set row at 2026-10-19T09:00 changes these values']);
 
   const after = runStorage(new MemoryStorage({ ledgers: withLater }), '2026-10-20T10:00').status.rotations[0].settings;
   assert.equal(after.nextSetAt, null);
