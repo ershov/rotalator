@@ -165,7 +165,7 @@ therefore needs `duration` or `end`. Its claim (see 5.4) ends at the explicit
 starting after the snapshot belong to the script and are regenerated every
 run. Any user edit to a future shift must be pinned or it is lost. After each
 run the script pins the shifts up to `now + autopin` itself (5.8), so with
-the default `autopin=0` every shift that has started is pinned and only the
+the default `autopin=a:0` every shift that has started is pinned and only the
 future floats.
 
 **team.** Sets the full roster. `alice, bob, carol=median, dave=12, erin+=2`.
@@ -238,7 +238,7 @@ removed on read, so they are purely diagnostic and never accumulate. See 6.
 | seed | 0 | Integer mixed into the shuffle hash. |
 | baseline | median | Default for joiners: `median`, `mean`, `min`, `max`. |
 | precredit | 1ts | Interval after the snapshot within which pinned shifts are pre-credited: one full cycle by default. `0` disables. |
-| autopin | 0 | `false`, or a signed interval relative to `now` (`0`, `2w`, `-2w`, `1sl`, `0.5ts`), optionally `marker:interval` (`a:2w`; the marker is everything before the last colon, default `a`). After the schedule step, every `shift` row starting at or before `now + autopin` whose pin cell is empty gets the marker (5.8). |
+| autopin | a:0 | `false`, or a signed interval relative to `now` (`0`, `2w`, `-2w`, `1sl`, `0.5ts`), optionally `marker:interval` (`a:2w`; the marker is everything before the last colon, default `a`, so the default is spelled `a:0`). After the schedule step, every `shift` row starting at or before `now + autopin` whose pin cell is empty gets the marker (5.8). |
 
 A bare key restores the default in this table (`tolerance`, `tiebreak`,
 `precredit`, ...); a bare `anchor` re-anchors the grid at the row's `start`

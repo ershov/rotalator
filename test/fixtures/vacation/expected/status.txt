@@ -32,7 +32,7 @@ next      dave              from 2026-09-14T09:00
   seed           0                       default
   baseline       median                  default
   precredit      1ts                     default
-  autopin        0                       default
+  autopin        a:0                     default
 
 start             primary
 2026-06-01T09:00  alice

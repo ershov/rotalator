@@ -108,7 +108,8 @@ var AUTOPIN_HINT = 'false, or an interval relative to now like 0, 2w, -2w or 1sl
 var AUTOPIN_MARKER = 'a';
 
 // autopin (DESIGN 3.5): false, or [marker:]interval where the interval may carry a sign and the marker is
-// everything before the last colon. Returns false, { marker, sign, interval, text } or null.
+// everything before the last colon. Returns false, { marker, sign, interval, text } or null; text keeps the
+// marker only when it was written (the default is spelled a:0).
 function parseAutopin(text) {
   var t = text.trim();
   if (t.toLowerCase() === 'false') return false;
@@ -119,12 +120,13 @@ function parseAutopin(text) {
     t = t.slice(colon + 1).trim();
     if (marker === '') return null;
   }
+  var written = colon >= 0;
   var sign = 1;
   if (t.charAt(0) === '-') { sign = -1; t = t.slice(1).trim(); }
   var interval = parseInterval(t);
   if (interval === null) return null;
   var signed = (sign < 0 && interval.text !== '0' ? '-' : '') + interval.text;
-  return { marker: marker, sign: sign, interval: interval, text: (marker === AUTOPIN_MARKER ? '' : marker + ':') + signed };
+  return { marker: marker, sign: sign, interval: interval, text: (written ? marker + ':' : '') + signed };
 }
 
 // def: initial value. bare: what a value-less key means: 'default' restores def, 'start' takes the row's
@@ -143,7 +145,7 @@ var SETTINGS = {
   seed:          { parse: parseInteger,            def: 0,                    bare: 'default' },
   baseline:      { parse: parseBaselineKeyword,    def: 'median',             bare: 'default' },
   precredit:     { parse: parseInterval,           def: parseInterval('1ts'), bare: 'default', hint: INTERVAL_HINT },
-  autopin:       { parse: parseAutopin,            def: parseAutopin('0'),    bare: 'default', hint: AUTOPIN_HINT },
+  autopin:       { parse: parseAutopin,            def: parseAutopin('a:0'),  bare: 'default', hint: AUTOPIN_HINT },
 };
 
 function defaultSettings() {

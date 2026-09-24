@@ -185,7 +185,7 @@ like any ledger error.
 | `seed` | `0` | Integer mixed into the shuffle hash. |
 | `baseline` | `median` | Default score for joiners: `median`, `mean`, `min`, `max`. |
 | `precredit` | `1ts` | Interval after the snapshot within which pinned shifts are credited before slots are assigned; `1ts` is one full cycle of the current roster. `0` disables. |
-| `autopin` | `0` | After each run, every shift starting up to `now + autopin` whose pin cell is empty gets the marker `a`: `0` pins the shifts that have started, `2w` also the next two weeks, `-2w` leaves the last two weeks unpinned, `1sl` and `0.5ts` are grid units, `false` pins nothing. `a:2w` (anything before the last colon) sets the marker. Existing pins are kept. |
+| `autopin` | `a:0` | After each run, every shift starting up to `now + autopin` whose pin cell is empty gets the marker `a`: `0` pins the shifts that have started, `2w` also the next two weeks, `-2w` leaves the last two weeks unpinned, `1sl` and `0.5ts` are grid units, `false` pins nothing. `a:2w` (anything before the last colon) sets the marker. Existing pins are kept. |
 
 ### Intervals
 
@@ -285,7 +285,7 @@ cycle) and every run pins the shifts up to two weeks ahead, so team or
 settings changes only reshape the schedule beyond that window and people can
 rely on what they see. Unpinning a shift inside the window by hand is undone
 on the next run; lower `autopin` (or set it to `false`) to let near-future
-shifts float again. The default `0` pins only the shifts that have started.
+shifts float again. The default `a:0` pins only the shifts that have started.
 
 **Swap two shifts.** Exchange the `what` of both rows and pin both.
 

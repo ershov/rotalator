@@ -36,7 +36,7 @@ test('default autopin 0 pins past shifts and the current one, not the future; ot
   const unpinned = run([SET('autopin=false'), TEAM, ...HISTORY]);
   const shiftsWithout = (o) => cellsOf(o).filter((c) => c[2] === 'shift').map((c) => c.slice(1));
   assert.deepEqual(shiftsWithout(out), shiftsWithout(unpinned), 'only the pin column differs');
-  assert.equal(out.status.rotations[0].settings.values.find((v) => v.key === 'autopin').value, '0');
+  assert.equal(out.status.rotations[0].settings.values.find((v) => v.key === 'autopin').value, 'a:0');
 });
 
 test('autopin=false pins nothing; existing pins are kept whatever the value', () => {

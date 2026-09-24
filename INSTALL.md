@@ -285,7 +285,7 @@ as separator and keeping text as text):
 
 ```
 pin,start,type,what,end,duration,note
-,2026-06-01,set,"period=1w, horizon=12w, precredit=1ts, autopin=0",,,
+,2026-06-01,set,"period=1w, horizon=12w, precredit=1ts, autopin=a:0",,,
 ,2026-06-01,team,"alice, bob, carol, dave",,,
 ```
 
