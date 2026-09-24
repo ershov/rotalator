@@ -86,22 +86,23 @@ Reload the spreadsheet and continue with section 4.
 1. **Rotalator > Set Up Spreadsheet**. Authorise when asked (see
    Troubleshooting). The command is idempotent and never rewrites existing
    data. It:
-   - creates the missing system tabs `#Holidays`, `#Links`, `#Status` and
-     `#All shifts` with their headers;
+   - creates the missing system tabs `#Holidays`, `#Global`, `#Status` and
+     `#All shifts` with their headers (`#Global` also gets a comment row that
+     explains it);
    - creates a first rotation tab `On-Call` from the template when the
      spreadsheet has no rotation yet;
-   - on every rotation, `#Holidays`, `#Links` and `#All shifts` tab: Roboto
+   - on every rotation, `#Holidays`, `#Global` and `#All shifts` tab: Roboto
      Mono font, plain text format on the whole ledger columns (`A:G`), which
      should carry over to rows added later (to be confirmed on a live
      spreadsheet, see the appendix), bold grey frozen header, column widths,
      a note on each header cell explaining the column, spare empty columns
      beyond the last one removed;
-   - on rotation tabs and `#Links`: conditional row colours by `type`
+   - on rotation tabs and `#Global`: conditional row colours by `type`
      (errors red, `set` and `score` blue, roster changes teal, `snapshot`
-     green, comment rows yellow; in `#Links` `link` green and `unlink` grey).
+     green, comment rows yellow; in `#Global` `link` green and `unlink` grey).
      The tab's existing conditional format rules are replaced;
    - colours the `#` tabs: blue for tabs the script writes, grey for
-     `#Holidays` and `#Links`, which you edit.
+     `#Holidays` and `#Global`, which you edit.
    Tabs without the ledger header that already have content are left alone.
 2. Open `On-Call` (or rename it: the tab name is the rotation name). Row 2 is
    a `set` row listing every setting at its default, dated the most recent
@@ -112,8 +113,13 @@ Reload the spreadsheet and continue with section 4.
    your members. Rows with an empty `type` are comments: put notes anywhere in
    the ledger, the script keeps them in place.
 3. More rotations: add a tab, name it, and choose **Rotalator > Set Up Tab**
-   with the tab active. It only fills empty tabs. On `#Holidays` or `#Links`
+   with the tab active. It only fills empty tabs. On `#Holidays` or `#Global`
    it writes the header row; on tabs the script writes it does nothing.
+   Settings shared by every rotation can go into a `set` row in `#Global`
+   instead of each tab (see the README); a rotation's own `set` row still
+   wins for the keys it names. A rotation that takes everything from
+   `#Global` starts with an empty `set` row dated at its first shift; avoid a
+   bare `anchor` there, which would pin the anchor locally.
 4. Existing history, optional: type the past shifts as `shift` rows with
    `start` and the member in `what`, or let **Fill Shifts Grid** lay out the
    dates for you (section 5) and fill in the names. A shift row without `end`
@@ -203,17 +209,19 @@ tab must have the ledger header and a name without `#`. Switch to the
 rotation tab and run again.
 
 **My conditional formatting disappeared.** Set Up Spreadsheet and Set Up Tab
-replace the conditional format rules of rotation tabs and `#Links` with the
+replace the conditional format rules of rotation tabs and `#Global` with the
 script's set. Keep custom rules on other tabs.
 
 **Fill Shifts Grid says a row has content but no start.** An undated row has
 a `type` other than `shift`. Date it, clear its `type` to make it a comment,
 or clear the row, then run again.
 
-**Error row `first row must be a set row with period`.** The earliest row by
-`start` must be a `set` row containing `period=`. Typical causes: a shift or
-team row dated earlier than the `set` row, a mistyped year in the `set` row,
-or `period` missing from its `what`.
+**Error row `first row must be a set row (period own or from #Global)`.**
+The earliest row by `start` must be a `set` row, and a `period=` must be in
+force there, either in that row or from a `#Global` `set` row dated at or
+before it. Typical causes: a shift or team row dated earlier than the `set`
+row, a mistyped year in the `set` row, or `period` missing from its `what`
+and from `#Global`.
 
 **A rotation tab is not picked up.** Its first row must be exactly the seven
 header cells and its name must not start with `#`. The `tabs` block in
@@ -260,8 +268,8 @@ Everything **Set Up Spreadsheet** and **Set Up Tab** do can be typed by hand.
    the first shift so it becomes the grid anchor. Row 3: a `team` row with
    the roster, same `start`.
 5. Add a `#Holidays` tab with the header `date | note` in row 1, and
-   optionally a `#Links` tab with the same seven-cell header as a ledger (see
-   the README for `link` rows).
+   optionally a `#Global` tab with the same seven-cell header as a ledger (see
+   the README for global `set` rows and `link` rows).
 6. Optional: freeze row 1 (**View > Freeze > 1 row**) and add a checkbox to
    the `pin` column (**Insert > Checkbox**). An unticked checkbox counts as
    empty.

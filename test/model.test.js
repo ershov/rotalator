@@ -31,19 +31,19 @@ test('LEDGER_HEADER and isLedgerHeader', () => {
 
 test('tab names: system prefix, known system tabs, preview names', () => {
   assert.equal(U.HOLIDAYS_TAB, '#Holidays');
-  assert.equal(U.LINKS_TAB, '#Links');
+  assert.equal(U.GLOBAL_TAB, '#Global');
   assert.equal(U.STATUS_TAB, '#Status');
   assert.equal(U.ALL_SHIFTS_TAB, '#All shifts');
   assert.equal(U.isSystemTab('#primary'), true);
   assert.equal(U.isSystemTab('primary'), false);
   assert.equal(U.isSystemTab('.old'), false);
-  for (const name of ['#Holidays', '#Links', '#Status', '#All shifts', '#Preview primary', '#Preview Links']) {
+  for (const name of ['#Holidays', '#Global', '#Status', '#All shifts', '#Preview primary', '#Preview Global']) {
     assert.equal(U.isKnownSystemTab(name), true, name);
   }
   assert.equal(U.isKnownSystemTab('#primary'), false);
   assert.equal(U.isKnownSystemTab('primary'), false);
   assert.equal(U.previewTabName('primary'), '#Preview primary');
-  assert.equal(U.previewTabName('#Links'), '#Preview Links');
+  assert.equal(U.previewTabName('#Global'), '#Preview Global');
 });
 
 test('rowFromArray parses fields and resolves duration into end', () => {
@@ -186,6 +186,7 @@ test('settings data and parseSetArg with values and bare keys', () => {
   const start = dt('2026-10-05T09:00');
   const ok = U.parseSetArg('period=2w, anchor; horizon=30d, skip_weekends=yes, skip_holidays=FALSE, tolerance=0.5, min_distance=1, tiebreak=Shuffle, seed=-7, baseline=Mean, precredit=3', start);
   assert.equal(ok.error, null);
+  assert.deepEqual(plain(ok.reset), []);
   assert.deepEqual(plain(ok.values), {
     period: 20160, anchor: start, horizon: 30 * 1440, skip_weekends: true, skip_holidays: false,
     tolerance: 0.5, min_distance: 1, tiebreak: 'shuffle', seed: -7, baseline: 'mean', precredit: 3,
@@ -193,6 +194,8 @@ test('settings data and parseSetArg with values and bare keys', () => {
   assert.equal(U.parseSetArg('precredit=auto', start).values.precredit, 'auto');
   const bare = U.parseSetArg('horizon, skip_weekends, skip_holidays, tolerance, min_distance, tiebreak, seed, baseline, precredit', start);
   assert.equal(bare.error, null);
+  assert.deepEqual(plain(bare.reset), ['horizon', 'skip_weekends', 'skip_holidays', 'tolerance', 'min_distance', 'tiebreak', 'seed', 'baseline', 'precredit']);
+  assert.deepEqual(plain(U.parseSetArg('period=1w, anchor', start).reset), []);
   assert.deepEqual(plain(bare.values), {
     horizon: 90 * 1440, skip_weekends: false, skip_holidays: false, tolerance: 0, min_distance: 0,
     tiebreak: 'order', seed: 0, baseline: 'median', precredit: 'auto',
@@ -249,7 +252,6 @@ test('validateLedger reports each stateless rule with row references', () => {
     [R('', '2026-10-06T09:00', 'include', ''), /include requires what/],
     [R('', '2026-10-06T09:00', 'team', ''), /team requires what/],
     [R('', '2026-10-06T09:00', 'score', ''), /score requires what/],
-    [R('', '2026-10-06T09:00', 'set', ''), /set requires what/],
     [R('', '2026-10-06T09:00', 'shift', 'alice, bob'), /shift takes exactly one member id/],
     [R('', '2026-10-06T09:00', 'shift', 'alice=1'), /shift takes exactly one member id/],
     [R('', '2026-10-06T09:00', 'shift', 'a+b'), /shift takes exactly one member id/],
@@ -286,8 +288,13 @@ test('validateLedger reports each stateless rule with row references', () => {
 });
 
 test('validateLedger rotation-level rules', () => {
-  assert.match(messagesOf([TEAM, SET.with(1, '2026-10-06T09:00')])[0], /r: first row must be a set row with period/);
-  assert.match(messagesOf([R('', '2026-10-05T09:00', 'set', 'tolerance=1'), TEAM])[0], /first row must be a set row with period/);
+  assert.match(messagesOf([TEAM, SET.with(1, '2026-10-06T09:00')])[0], /r: first row must be a set row \(period own or from #Global\)/);
+  assert.match(messagesOf([R('', '2026-10-05T09:00', 'set', 'tolerance=1'), TEAM])[0], /first row must be a set row \(period own or from #Global\)/);
+  assert.match(messagesOf([R('', '2026-10-05T09:00', 'set', ''), TEAM])[0], /first row must be a set row \(period own or from #Global\)/);
+  const globalPeriod = [U.makeRow({ type: 'set', start: dt('2026-09-01T00:00'), what: 'period=1w' })];
+  const emptyFirst = [R('', '2026-10-05T09:00', 'set', ''), TEAM].map((cells, i) => U.rowFromArray(cells, i + 2));
+  assert.deepEqual(plain(U.validateLedger(emptyFirst, 'r', globalPeriod).errors), []);
+  assert.deepEqual(messagesOf([SET, TEAM, R('', '2026-10-06T09:00', 'set', '')]), []);
   assert.match(messagesOf([])[0], /r: ledger is empty/);
   assert.deepEqual(messagesOf([R('', '2026-10-05T09:00', 'set', 'anchor, period=1w'), TEAM]), []);
   const twoSnapshots = messagesOf([SET, TEAM,

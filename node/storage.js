@@ -4,12 +4,12 @@ const path = require('node:path');
 const { load } = require('./load.js');
 
 // Storage interface of DESIGN 8. Ledgers are cell arrays without the header row; holidays are date texts
-// (null for a blank row); ignored are tab names reported in #Status.
+// (null for a blank row); global holds the #Global rows; ignored are tab names reported in #Status.
 class MemoryStorage {
-  constructor({ ledgers = {}, holidays = [], links = [], ignored = [] } = {}) {
+  constructor({ ledgers = {}, holidays = [], global = [], ignored = [] } = {}) {
     this.ledgers = structuredClone(ledgers);
     this.holidays = holidays.slice();
-    this.links = structuredClone(links);
+    this.global = structuredClone(global);
     this.ignored = ignored.slice();
     this.status = null;
   }
@@ -26,16 +26,16 @@ class MemoryStorage {
     return this.holidays.slice();
   }
 
-  readLinks() {
-    return structuredClone(this.links);
+  readGlobal() {
+    return structuredClone(this.global);
   }
 
   writeLedger(rotation, rows) {
     this.ledgers[rotation] = structuredClone(rows);
   }
 
-  writeLinks(rows) {
-    this.links = structuredClone(rows);
+  writeGlobal(rows) {
+    this.global = structuredClone(rows);
   }
 
   writeStatus(data) {
@@ -44,7 +44,7 @@ class MemoryStorage {
 }
 
 // Directory form of the spreadsheet. File to tab mapping: <rotation>.csv is a rotation tab (recognised by
-// header), holidays.csv is #Holidays, links.csv is #Links, status.json holds the #Status and #All shifts data,
+// header), holidays.csv is #Holidays, global.csv is #Global, status.json holds the #Status and #All shifts data,
 // now.txt is the run instant. A file named #<anything>.csv is never a rotation, like a '#' tab.
 // Blank lines are kept as all-empty rows so row numbers match the file; callers drop them.
 class CsvDirStorage {
@@ -68,7 +68,7 @@ class CsvDirStorage {
     const ledgers = {};
     const ignored = [];
     fs.readdirSync(this.dir).sort().forEach((name) => {
-      if (!name.endsWith('.csv') || name === 'holidays.csv' || name === 'links.csv') return;
+      if (!name.endsWith('.csv') || name === 'holidays.csv' || name === 'global.csv') return;
       const tab = name.slice(0, -4);
       const rows = this.readCsv(name);
       if (!this.U.isSystemTab(tab) && rows.length && this.U.isLedgerHeader(rows[0])) ledgers[tab] = rows.slice(1);
@@ -92,9 +92,9 @@ class CsvDirStorage {
     return body.map((r) => (this.U.isBlankRow(r) ? null : String(r[0] ?? '').trim()));
   }
 
-  // links.csv must carry the ledger header; anything else is ignored.
-  readLinks() {
-    const rows = this.readCsv('links.csv') || [];
+  // global.csv must carry the ledger header; anything else is ignored.
+  readGlobal() {
+    const rows = this.readCsv('global.csv') || [];
     return rows.length && this.U.isLedgerHeader(rows[0]) ? rows.slice(1) : [];
   }
 
@@ -107,8 +107,8 @@ class CsvDirStorage {
     fs.writeFileSync(this.file(rotation + '.csv'), this.U.formatCsv([this.U.LEDGER_HEADER, ...rows]));
   }
 
-  writeLinks(rows) {
-    fs.writeFileSync(this.file('links.csv'), this.U.formatCsv([this.U.LEDGER_HEADER, ...rows]));
+  writeGlobal(rows) {
+    fs.writeFileSync(this.file('global.csv'), this.U.formatCsv([this.U.LEDGER_HEADER, ...rows]));
   }
 
   writeStatus(data) {

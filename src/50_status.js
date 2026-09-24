@@ -15,14 +15,18 @@ function formatSettingValue(key, value) {
   return String(value);
 }
 
-// Every SETTINGS key with its effective value at `at`, plus the start of the next set row after `at`.
+// Every SETTINGS key with its effective value and source (rotation, global, default) at `at`, plus the start
+// of the next set row of either layer after `at`.
 function effectiveSettings(timeline, at) {
   var values = timeline.at(at).values;
+  var sources = timeline.sourcesAt(at);
   var next = null;
   timeline.entries.forEach(function (e) { if (e.start > at && next === null) next = e.start; });
   return {
     at: at,
-    values: Object.keys(SETTINGS).map(function (key) { return { key: key, value: formatSettingValue(key, values[key]) }; }),
+    values: Object.keys(SETTINGS).map(function (key) {
+      return { key: key, value: formatSettingValue(key, values[key]), source: sources[key] };
+    }),
     nextSetAt: next,
   };
 }
@@ -123,7 +127,7 @@ function statusRows(status) {
     push(['rotations', status.tabs.rotations.join(', ')]);
     push(['regenerated', status.tabs.regenerated.join(', ')]);
     push(['holidays', String(status.tabs.holidays)]);
-    push(['links', String(status.tabs.links)]);
+    push(['global', String(status.tabs.global)]);
     push(['ignored', status.tabs.ignored.join(', ')]);
   }
   status.rotations.forEach(function (rot) {
@@ -142,7 +146,7 @@ function statusRows(status) {
     });
     push([]);
     header(['', 'settings', 'as of ' + statusInstant(rot.settings.at)]);
-    rot.settings.values.forEach(function (s) { push(['', s.key, s.value]); });
+    rot.settings.values.forEach(function (s) { push(['', s.key, s.value, s.source]); });
     if (rot.settings.nextSetAt !== null) push(['', 'note', 'a set row at ' + statusInstant(rot.settings.nextSetAt) + ' changes these values']);
   });
   if (status.warnings.length) {

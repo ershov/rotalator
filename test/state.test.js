@@ -12,42 +12,121 @@ const MON = dt('2026-10-05T09:00');
 const setRow = (start, what) => U.makeRow({ type: 'set', start: dt(start), what });
 const items = (text) => U.parseAssignments(text);
 
-test('Settings defaults, apply, period change sets anchor, grid change reporting', () => {
-  const s = new U.Settings();
-  assert.deepEqual(plain(s.values), plain(U.defaultSettings()));
-  assert.equal(s.grid(), null);
-  assert.equal(s.apply(setRow('2026-10-05T09:00', 'period=1w, tolerance=1')), true);
-  assert.equal(s.get('period'), W);
-  assert.equal(s.get('anchor'), MON);
-  assert.equal(s.get('tolerance'), 1);
-  assert.equal(s.apply(setRow('2026-10-07T09:00', 'skip_weekends=true, period=1w')), false);
-  assert.equal(s.get('anchor'), MON);
-  assert.equal(s.get('skip_weekends'), true);
-  assert.equal(s.apply(setRow('2026-10-05T09:00', 'anchor')), false);
-  assert.equal(s.apply(setRow('2026-10-21T09:00', 'period=2d')), true);
-  assert.equal(s.get('anchor'), dt('2026-10-21T09:00'));
-  assert.equal(s.apply(setRow('2026-11-02T09:00', 'period=1w, anchor')), true);
-  assert.equal(s.get('anchor'), dt('2026-11-02T09:00'));
-  assert.equal(s.apply(setRow('2026-12-07T09:00', 'anchor')), true);
-  const grid = s.grid();
+test('SettingsTimeline: period change sets anchor, bare anchor re-anchors, grid change reporting', () => {
+  const t = (rows) => new U.SettingsTimeline(rows);
+  const empty = new U.Settings();
+  assert.deepEqual(plain(empty.values), plain(U.defaultSettings()));
+  assert.equal(empty.grid(), null);
+  const tl = t([
+    setRow('2026-10-05T09:00', 'period=1w, tolerance=1'),
+    setRow('2026-10-07T09:00', 'skip_weekends=true, period=1w'),
+    setRow('2026-10-08T09:00', 'anchor'),
+    setRow('2026-10-21T09:00', 'period=2d'),
+    setRow('2026-11-02T09:00', 'period=1w, anchor'),
+    setRow('2026-12-07T09:00', 'anchor'),
+    setRow('2027-01-01T00:00', 'tolerance, skip_weekends'),
+  ]);
+  assert.deepEqual(plain(tl.entries.map((e) => e.gridChanged)), [true, false, true, true, true, true, false]);
+  assert.equal(tl.at(MON).get('period'), W);
+  assert.equal(tl.at(MON).get('anchor'), MON);
+  assert.equal(tl.at(MON).get('tolerance'), 1);
+  assert.equal(tl.at(dt('2026-10-07T09:00')).get('anchor'), MON);
+  assert.equal(tl.at(dt('2026-10-07T09:00')).get('skip_weekends'), true);
+  assert.equal(tl.at(dt('2026-10-08T09:00')).get('anchor'), dt('2026-10-08T09:00'));
+  assert.equal(tl.at(dt('2026-10-21T09:00')).get('anchor'), dt('2026-10-21T09:00'));
+  assert.equal(tl.at(dt('2026-11-02T09:00')).get('anchor'), dt('2026-11-02T09:00'));
+  const grid = tl.gridAt(dt('2026-12-07T09:00'));
   assert.equal(grid.period, W);
   assert.equal(grid.anchor, dt('2026-12-07T09:00'));
-  const copy = s.clone();
-  copy.apply(setRow('2027-01-01T00:00', 'tolerance=3'));
-  assert.equal(s.get('tolerance'), 1);
-  assert.deepEqual(plain(s.unitsOptions(new Set([1]))), { skip_weekends: true, skip_holidays: false, holidays: new Set([1]) });
-  assert.equal(s.apply(setRow('2027-01-01T00:00', 'tolerance, skip_weekends')), false);
-  assert.equal(s.get('tolerance'), 0);
-  assert.equal(s.get('skip_weekends'), false);
+  const late = tl.at(dt('2027-01-01T00:00'));
+  assert.equal(late.get('tolerance'), 0);
+  assert.equal(late.get('skip_weekends'), false);
+  assert.deepEqual(plain(tl.at(dt('2026-10-07T09:00')).unitsOptions(new Set([1]))), { skip_weekends: true, skip_holidays: false, holidays: new Set([1]) });
+  const copy = tl.at(MON);
+  copy.values.tolerance = 9;
+  assert.equal(tl.at(MON).get('tolerance'), 1);
 });
 
 test('Settings precredit auto resolves from roster size', () => {
-  const s = new U.Settings();
-  assert.equal(s.precreditPeriods(4), 4);
-  s.apply(setRow('2026-10-05T09:00', 'period=1w, precredit=2'));
-  assert.equal(s.precreditPeriods(4), 2);
-  s.apply(setRow('2026-10-05T09:00', 'precredit=0'));
-  assert.equal(s.precreditPeriods(4), 0);
+  assert.equal(new U.Settings().precreditPeriods(4), 4);
+  const tl = new U.SettingsTimeline([setRow('2026-10-05T09:00', 'period=1w, precredit=2'), setRow('2026-10-06T09:00', 'precredit=0')]);
+  assert.equal(tl.at(MON).precreditPeriods(4), 2);
+  assert.equal(tl.at(MON + D).precreditPeriods(4), 0);
+});
+
+test('SettingsTimeline: global set rows layer under the rotation; bare keys return to the global value', () => {
+  const global = [
+    setRow('2026-09-01T00:00', 'tolerance=7, seed=3'),
+    setRow('2026-10-19T09:00', 'tolerance=2'),
+  ];
+  const tl = new U.SettingsTimeline([
+    setRow('2026-10-05T09:00', 'period=1w'),
+    setRow('2026-10-12T09:00', 'tolerance=0'),
+    setRow('2026-10-26T09:00', 'tolerance'),
+  ], new Set(), global);
+  const at = (s) => tl.at(dt(s));
+  const src = (s, key) => tl.sourcesAt(dt(s))[key];
+  assert.equal(at('2026-08-01T00:00').get('tolerance'), 0);
+  assert.equal(src('2026-08-01T00:00', 'tolerance'), 'default');
+  assert.equal(at('2026-09-15T00:00').get('tolerance'), 7);
+  assert.equal(src('2026-09-15T00:00', 'tolerance'), 'global');
+  assert.equal(at('2026-09-15T00:00').get('period'), null);
+  assert.equal(at('2026-10-05T09:00').get('tolerance'), 7);
+  assert.equal(src('2026-10-05T09:00', 'period'), 'rotation');
+  assert.equal(at('2026-10-12T09:00').get('tolerance'), 0);
+  assert.equal(src('2026-10-12T09:00', 'tolerance'), 'rotation');
+  // A later global change does not reach a rotation that has set the key itself.
+  assert.equal(at('2026-10-19T09:00').get('tolerance'), 0);
+  assert.equal(at('2026-10-26T09:00').get('tolerance'), 2);
+  assert.equal(src('2026-10-26T09:00', 'tolerance'), 'global');
+  assert.equal(at('2026-10-26T09:00').get('seed'), 3);
+  assert.equal(src('2026-10-26T09:00', 'seed'), 'global');
+  assert.equal(src('2026-10-26T09:00', 'baseline'), 'default');
+  assert.deepEqual(plain(tl.entries.map((e) => U.formatDateTime(e.start))), [
+    '2026-09-01T00:00', '2026-10-05T09:00', '2026-10-12T09:00', '2026-10-19T09:00', '2026-10-26T09:00',
+  ]);
+});
+
+test('SettingsTimeline: global period and anchor, local period change, grid changes from both layers', () => {
+  const global = [setRow('2026-10-05T09:00', 'period=1w'), setRow('2026-11-02T09:00', 'anchor')];
+  const tl = new U.SettingsTimeline([setRow('2026-10-05T09:00', 'tolerance=1'), setRow('2026-10-21T09:00', 'period=2d')], new Set(), global);
+  assert.equal(tl.at(MON).get('period'), W);
+  assert.equal(tl.at(MON).get('anchor'), MON);
+  assert.deepEqual(tl.sourcesAt(MON).period, 'global');
+  assert.equal(tl.at(dt('2026-10-21T09:00')).get('period'), 2 * D);
+  assert.equal(tl.at(dt('2026-10-21T09:00')).get('anchor'), dt('2026-10-21T09:00'));
+  assert.equal(tl.sourcesAt(dt('2026-10-21T09:00')).anchor, 'rotation');
+  // The global re-anchor at 11-02 is hidden by the rotation's own anchor.
+  assert.equal(tl.at(dt('2026-11-02T09:00')).get('anchor'), dt('2026-10-21T09:00'));
+  assert.deepEqual(plain(tl.gridChanges()), [MON, dt('2026-10-21T09:00')]);
+  const globalOnly = new U.SettingsTimeline([], new Set(), global);
+  assert.deepEqual(plain(globalOnly.gridChanges()), [MON, dt('2026-11-02T09:00')]);
+  assert.equal(globalOnly.gridAt(dt('2026-11-03T00:00')).anchor, dt('2026-11-02T09:00'));
+});
+
+test('SettingsTimeline: an empty first set row follows global re-anchoring; a bare local anchor pins it', () => {
+  const global = [setRow('2026-10-05T09:00', 'period=1w'), setRow('2026-10-21T09:00', 'period=2d')];
+  const follows = new U.SettingsTimeline([setRow('2026-10-05T09:00', '')], new Set(), global);
+  assert.equal(follows.at(MON).get('anchor'), MON);
+  assert.equal(follows.sourcesAt(MON).anchor, 'global');
+  assert.equal(follows.at(dt('2026-10-21T09:00')).get('anchor'), dt('2026-10-21T09:00'));
+  assert.equal(follows.at(dt('2026-10-21T09:00')).get('period'), 2 * D);
+  assert.deepEqual(plain(follows.gridChanges()), [MON, dt('2026-10-21T09:00')]);
+  const pinned = new U.SettingsTimeline([setRow('2026-10-05T09:00', 'anchor')], new Set(), global);
+  assert.equal(pinned.sourcesAt(MON).anchor, 'rotation');
+  assert.equal(pinned.at(dt('2026-10-21T09:00')).get('anchor'), MON);
+  assert.equal(pinned.at(dt('2026-10-21T09:00')).get('period'), 2 * D);
+  assert.equal(U.formatDateTime(pinned.gridAt(dt('2026-10-21T09:00')).floor(dt('2026-10-22T00:00'))), '2026-10-21T09:00');
+  assert.equal(U.formatDateTime(pinned.gridAt(dt('2026-10-23T09:00')).next(dt('2026-10-23T09:00'))), '2026-10-25T09:00');
+});
+
+test('SettingsTimeline skips set rows whose what does not parse, in either layer', () => {
+  const global = [setRow('2026-10-05T09:00', 'period=1w'), setRow('2026-10-12T09:00', 'tolerance=abc'), setRow('2026-10-13T09:00', 'tolerance=3')];
+  const tl = new U.SettingsTimeline([setRow('2026-10-06T09:00', 'seed=x, tolerance=9'), setRow('2026-10-07T09:00', 'seed=2')], new Set(), global);
+  assert.deepEqual(plain(tl.entries.map((e) => U.formatDateTime(e.start))), ['2026-10-05T09:00', '2026-10-07T09:00', '2026-10-13T09:00']);
+  assert.equal(tl.at(dt('2026-10-12T09:00')).get('tolerance'), 0);
+  assert.equal(tl.at(dt('2026-10-13T09:00')).get('tolerance'), 3);
+  assert.equal(tl.at(dt('2026-10-07T09:00')).get('seed'), 2);
 });
 
 test('SettingsTimeline replays set rows with start <= t and lists grid-changing rows', () => {
@@ -65,8 +144,6 @@ test('SettingsTimeline replays set rows with start <= t and lists grid-changing 
   assert.equal(late.get('period'), 2 * D);
   assert.equal(late.get('anchor'), dt('2026-10-21T09:00'));
   assert.equal(late.get('tolerance'), 2);
-  late.apply(setRow('2026-11-01T00:00', 'tolerance=9'));
-  assert.equal(timeline.at(dt('2026-10-21T09:00')).get('tolerance'), 2);
   assert.deepEqual(plain(timeline.gridChanges()), [MON, dt('2026-10-21T09:00')]);
   assert.equal(timeline.gridAt(MON - 1), null);
   assert.equal(timeline.gridAt(MON + W).anchor, MON);
@@ -186,19 +263,26 @@ test('Roster credit and snapshot round trip with two decimals', () => {
   r.fromSnapshotWhat('alice=12.5, bob=11');
   r.credit('alice', 0.125);
   r.credit('nobody', 5);
-  assert.equal(r.snapshotWhat(), 'alice=12.63, bob=11.00');
+  assert.equal(r.snapshotWhat(), 'alice=12.63, bob=11');
   const back = new U.Roster();
   back.fromSnapshotWhat(r.snapshotWhat());
   assert.deepEqual(plain(back.scores()), { alice: 12.63, bob: 11 });
   assert.deepEqual(plain(back.names()), ['alice', 'bob']);
   back.credit('bob', -11.001);
-  assert.equal(back.snapshotWhat(), 'alice=12.63, bob=0.00');
+  assert.equal(back.snapshotWhat(), 'alice=12.63, bob=0');
   const empty = new U.Roster();
   empty.fromSnapshotWhat('');
   assert.equal(empty.size(), 0);
   assert.equal(empty.snapshotWhat(), '');
-  assert.equal(U.formatScore(-0.004), '0.00');
-  assert.equal(U.formatScore(2), '2.00');
+  assert.equal(U.formatScore(-0.004), '0');
+  assert.equal(U.formatScore(2), '2');
+  assert.equal(U.formatScore(12.5), '12.5');
+  assert.equal(U.formatScore(14), '14');
+  assert.equal(U.formatScore(19.625), '19.63');
+  assert.equal(U.formatScore(0), '0');
+  assert.equal(U.formatScore(100), '100');
+  assert.equal(U.formatScore(10.05), '10.05');
+  assert.equal(U.formatScore(-3.5), '-3.5');
 });
 
 test('clipToSnapshot keeps the part after the snapshot', () => {

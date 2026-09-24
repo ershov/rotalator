@@ -22,9 +22,10 @@ function onCountedDay(timeline, t) {
 }
 
 // DESIGN 5.2. now may be null to skip the clock-dependent steps. holidays: Set of day indexes.
-function advance(rows, now, holidays) {
+// globalSetRows: the set rows of #Global.
+function advance(rows, now, holidays, globalSetRows) {
   rows = ledgerRows(rows);
-  var timeline = new SettingsTimeline(rowsOfType(rows, 'set'), holidays);
+  var timeline = new SettingsTimeline(rowsOfType(rows, 'set'), holidays, globalSetRows);
   var S = null;
   if (now !== null && now !== undefined) {
     var grid = timeline.gridAt(now);
@@ -99,9 +100,9 @@ function resolvedExcludeEnds(rows) {
 }
 
 // frozen (DESIGN 5, run scope): the rotation is swept as it stands so links see its shifts, but nothing is
-// pruned, no slot is filled and the snapshot stays where it is; it is not written.
-function prepareRotation(input, index, holidays, frozen) {
-  var validated = validateLedger(input.rows, input.name);
+// pruned, no slot is filled and the snapshot stays where it is; it is not written. globalSetRows: #Global.
+function prepareRotation(input, index, holidays, frozen, globalSetRows) {
+  var validated = validateLedger(input.rows, input.name, globalSetRows);
   var rot = { name: input.name, index: index, frozen: frozen, rows: validated.rows, errors: validated.errors.slice(), problems: [], warnings: [] };
   if (rot.errors.length) return rot;
   var rows = rot.rows;
@@ -110,9 +111,9 @@ function prepareRotation(input, index, holidays, frozen) {
       rot.warnings.push({ start: null, message: 'comment row ' + r.rowIndex + ': unparseable start, treated as undated' });
     }
   });
-  var timeline = new SettingsTimeline(rowsOfType(rows, 'set'), holidays);
+  var timeline = new SettingsTimeline(rowsOfType(rows, 'set'), holidays, globalSetRows);
   var previous = firstOfType(rows, ['snapshot']);
-  var S = frozen || input.snapshotAt === null || input.snapshotAt === undefined ? advance(rows, null, holidays) : input.snapshotAt;
+  var S = frozen || input.snapshotAt === null || input.snapshotAt === undefined ? advance(rows, null, holidays, globalSetRows) : input.snapshotAt;
   var first = firstOfType(rows, ['set']);
   S = raiseTo(raiseTo(S, previous ? previous.start : null), onCountedDay(timeline, first.start));
   rot.timeline = timeline;
@@ -157,16 +158,12 @@ function rotationItems(rot) {
   };
   var afterPrevious = function (t) { return P === null || t >= P; };
   var excludeEnds = resolvedExcludeEnds(rot.kept);
-  rot.settings = new Settings();
   rot.roster = new Roster();
   rot.roster.fromSnapshotWhat(rot.previousWhat);
   rot.precredited = new Set();
   rot.kept.forEach(function (row) {
-    if (row.type === 'shift' || row.type === 'comment') return;
-    if (row.type === 'set') {
-      if (afterPrevious(row.start)) push(row.start, 'row', { row: row });
-      else rot.settings.apply(row);
-    } else if (row.type === 'exclude') {
+    if (row.type === 'shift' || row.type === 'comment' || row.type === 'set') return;
+    if (row.type === 'exclude') {
       var ends = excludeEnds.get(row);
       var names = whatNames(row).filter(function (n) { return clipToSnapshot(row.start, ends[n], P) !== null; });
       var from = P === null ? row.start : Math.max(row.start, P);
@@ -198,13 +195,14 @@ function mergeItems(rots) {
   return items.sort(function (a, b) { return (a.start - b.start) || (rots[a.rot].rank - rots[b.rot].rank) || (a.order - b.order); });
 }
 
+// Settings at an instant come from the timeline (own and global set rows), so set rows are not sweep items.
 function applyStateRow(rot, item) {
   var row = item.row;
   var roster = rot.roster;
+  var settings = rot.timeline.at(item.start);
   switch (row.type) {
-    case 'set': rot.settings.apply(row); return null;
-    case 'team': return roster.team(whatItems(row), rot.settings.get('baseline'));
-    case 'join': return roster.join(whatItems(row), rot.settings.get('baseline'));
+    case 'team': return roster.team(whatItems(row), settings.get('baseline'));
+    case 'join': return roster.join(whatItems(row), settings.get('baseline'));
     case 'leave': return roster.leave(whatNames(row));
     case 'score': return roster.score(whatItems(row));
     case 'exclude': {
@@ -218,9 +216,10 @@ function applyStateRow(rot, item) {
 
 // The window is precredit grid steps after S (DESIGN 5.5).
 function precredit(rot, holidays) {
-  var n = rot.settings.precreditPeriods(rot.roster.size());
+  var settings = rot.timeline.at(rot.S);
+  var n = settings.precreditPeriods(rot.roster.size());
   var limit = rot.timeline.gridAt(rot.S).step(rot.S, n);
-  var options = rot.settings.unitsOptions(holidays);
+  var options = settings.unitsOptions(holidays);
   rot.entries.forEach(function (entry) {
     if (entry.slot || !entry.row.pinned || entry.who === null || entry.start <= rot.S || entry.start >= limit) return;
     if (!rot.roster.has(entry.who)) return;
@@ -240,11 +239,11 @@ function previousAssignee(rot, entry) {
 }
 
 // DESIGN 5.7 steps 3 and 4. joined links prefer holders of an overlapping shift in a linked rotation.
-function tiebreak(rot, entry, candidates) {
+function tiebreak(rot, entry, candidates, settings) {
   var names = rot.roster.names();
   var chosen = new Set(candidates.map(function (m) { return m.name; }));
-  if (rot.settings.get('tiebreak') === 'shuffle') {
-    var prefix = rot.settings.get('seed') + '|' + rot.name + '|' + formatDateTime(entry.start) + '|';
+  if (settings.get('tiebreak') === 'shuffle') {
+    var prefix = settings.get('seed') + '|' + rot.name + '|' + formatDateTime(entry.start) + '|';
     var best = null, bestHash = null;
     names.forEach(function (name) {
       if (!chosen.has(name)) return;
@@ -263,7 +262,7 @@ function tiebreak(rot, entry, candidates) {
 
 // DESIGN 5.7 and 7. distinct holders are removed before relaxation; joined holders are preferred inside the band.
 function assignSlot(rot, entry, holidays, ctx) {
-  var settings = rot.settings;
+  var settings = rot.timeline.at(entry.start);
   var roster = rot.roster;
   var a = entry.start, b = entry.slotEnd;
   var minDistance = settings.get('min_distance');
@@ -286,7 +285,7 @@ function assignSlot(rot, entry, holidays, ctx) {
     var candidates = eligible.filter(function (m) { return m.score <= lowest + tolerance; });
     var joined = linkedHolders(ctx, rot, 'joined', a, b);
     var preferred = candidates.filter(function (m) { return joined.has(m.name); });
-    entry.who = tiebreak(rot, entry, preferred.length ? preferred : candidates);
+    entry.who = tiebreak(rot, entry, preferred.length ? preferred : candidates, settings);
     roster.credit(entry.who, units(a, entry.end, settings.unitsOptions(holidays)));
     if (used < minDistance) {
       note = 'min_distance relaxed to ' + used;
@@ -319,7 +318,7 @@ function sweep(items, rots, holidays, ctx) {
       case 'credit':
       case 'tail':
         if (!rot.precredited.has(item.entry)) {
-          rot.roster.credit(item.entry.who, units(item.a, item.b, rot.settings.unitsOptions(holidays)));
+          rot.roster.credit(item.entry.who, units(item.a, item.b, rot.timeline.at(item.a).unitsOptions(holidays)));
         }
         break;
       case 'slot':
@@ -344,31 +343,37 @@ function writable(rots) {
 }
 
 // DESIGN 6: rows unchanged plus an error row above each offending row.
-function errorOutput(rots, links, now) {
-  var errors = collectErrors(rots, 'errors').concat(links.errors);
+function errorOutput(rots, global, now) {
+  var errors = collectErrors(rots, 'errors').concat(global.errors);
   return {
     rotations: writable(rots).map(function (rot) {
       return { name: rot.name, rows: sortRows(rot.errors.map(errorRow).concat(rot.rows)) };
     }),
-    links: { rows: links.rows, errors: links.errors },
+    global: { rows: global.rows, errors: global.errors },
     errors: errors,
     regenerated: false,
     status: buildStatus([], [], errors, now),
   };
 }
 
-// Links rows and errors in the regenerate output shape; link errors never block regeneration.
-function prepareLinks(rows, rots) {
-  var names = rots.map(function (r) { return r.name; });
-  var parsed = parseLinks(rows || [], names);
-  var order = linkedRotationOrder(parsed.links, names);
-  rots.forEach(function (rot) { rot.rank = order.indexOf(rot.name); });
+// #Global rows parsed against the rotation names: set rows for the timelines, links for the sweep, error rows
+// for the tab. A bad set row blocks regeneration (blocking); relation errors never do.
+function prepareGlobal(rows, names) {
+  var parsed = parseGlobal(rows || [], names);
   var errors = parsed.errors.map(function (e) {
-    return { rotation: LINKS_TAB, rowIndex: e.rowIndex, start: e.start, message: e.message };
+    return { rotation: GLOBAL_TAB, rowIndex: e.rowIndex, start: e.start, message: e.message };
   });
+  return { rows: parsed.rows, errors: errors, blocking: parsed.setErrors.length > 0, setRows: parsed.setRows, links: parsed.links };
+}
+
+// Sweep order and lookup of the rotations for the link filters.
+function linkContext(global, rots) {
+  var names = rots.map(function (r) { return r.name; });
+  var order = linkedRotationOrder(global.links, names);
+  rots.forEach(function (rot) { rot.rank = order.indexOf(rot.name); });
   var byName = {};
   rots.forEach(function (rot) { byName[rot.name] = rot; });
-  return { rows: parsed.rows, errors: errors, links: parsed.links, byName: byName };
+  return { links: global.links, byName: byName };
 }
 
 // Script rows go in front of the kept rows so undated comments still attach to the next kept row below them.
@@ -379,25 +384,28 @@ function rotationOutput(rot) {
 }
 
 // Pure regeneration of DESIGN 5.3 to 5.8 and 7.
-// input: { rotations: [{ name, rows, snapshotAt }], holidays: [dayIndex], links: Links row objects, now, only }.
+// input: { rotations: [{ name, rows, snapshotAt }], holidays: [dayIndex], global: #Global row objects, now, only }.
 // now is optional and only dates the effective settings in the status; the ledgers never depend on it.
 // only: optional list of rotation names to regenerate; the others are swept frozen and not returned.
-// Output: { rotations: [{ name, rows }], links: { rows, errors }, errors, status }.
+// Output: { rotations: [{ name, rows }], global: { rows, errors }, errors, regenerated, status }.
 function regenerate(input) {
   var holidays = new Set(input.holidays || []);
   var only = input.only || null;
-  var rots = input.rotations.map(function (r, i) { return prepareRotation(r, i, holidays, only !== null && only.indexOf(r.name) < 0); });
-  var links = prepareLinks(input.links, rots);
-  var hasErrors = function () { return rots.some(function (rot) { return rot.errors.length > 0; }); };
-  if (hasErrors()) return errorOutput(rots, links, input.now);
-  sweep(mergeItems(rots), rots, holidays, links);
-  if (hasErrors()) return errorOutput(rots, links, input.now);
+  var global = prepareGlobal(input.global, input.rotations.map(function (r) { return r.name; }));
+  var rots = input.rotations.map(function (r, i) {
+    return prepareRotation(r, i, holidays, only !== null && only.indexOf(r.name) < 0, global.setRows);
+  });
+  var ctx = linkContext(global, rots);
+  var hasErrors = function () { return global.blocking || rots.some(function (rot) { return rot.errors.length > 0; }); };
+  if (hasErrors()) return errorOutput(rots, global, input.now);
+  sweep(mergeItems(rots), rots, holidays, ctx);
+  if (hasErrors()) return errorOutput(rots, global, input.now);
   var warnings = collectErrors(rots, 'warnings').concat(collectErrors(rots, 'problems'));
   return {
     rotations: writable(rots).map(rotationOutput),
     regenerated: true,
-    links: { rows: links.rows, errors: links.errors },
-    errors: collectErrors(rots, 'problems').concat(links.errors),
-    status: buildStatus(rots, warnings, links.errors, input.now),
+    global: { rows: global.rows, errors: global.errors },
+    errors: collectErrors(rots, 'problems').concat(global.errors),
+    status: buildStatus(rots, warnings, global.errors, input.now),
   };
 }

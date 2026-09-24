@@ -19,7 +19,7 @@ const ofType = (out, type, i = 0) => out.rotations[i].rows.filter((r) => r.type 
 function run(cells, now, holidays = []) {
   const ledger = rows(cells);
   const S = U.advance(ledger, dt(now), new Set(holidays));
-  return U.regenerate({ rotations: [{ name: 'r', rows: ledger, snapshotAt: S }], holidays, links: [] });
+  return U.regenerate({ rotations: [{ name: 'r', rows: ledger, snapshotAt: S }], holidays, global: [] });
 }
 
 const counted = (extra = {}) => Object.assign({ period: D, anchor: MON, grid: 'counted', skip_weekends: true, skip_holidays: false }, extra);
@@ -87,21 +87,14 @@ test('grid setting: values, bare key, validation and grid-change reporting', () 
   assert.equal(U.parseSetArg('grid', MON).values.grid, 'calendar');
   assert.equal(U.parseSetArg('grid=weekly', MON).error, 'bad value for grid: "weekly"');
   assert.equal(U.defaultSettings().grid, 'calendar');
-  const setRow = (what) => U.makeRow({ type: 'set', start: MON, what });
-  const s = new U.Settings();
-  assert.equal(s.apply(setRow('period=1d')), true);
-  assert.equal(s.apply(setRow('skip_weekends=true')), false);
-  assert.equal(s.apply(setRow('grid=counted')), true);
-  assert.equal(s.apply(setRow('skip_holidays=true')), true);
-  assert.equal(s.apply(setRow('skip_holidays=true')), false);
-  assert.equal(s.apply(setRow('skip_weekends=false')), true);
-  assert.equal(s.apply(setRow('grid=counted')), false);
-  assert.equal(s.apply(setRow('grid')), true);
-  assert.equal(s.apply(setRow('skip_weekends=true')), false);
+  const whats = ['period=1d', 'skip_weekends=true', 'grid=counted', 'skip_holidays=true', 'skip_holidays=true', 'skip_weekends=false', 'grid=counted', 'grid', 'skip_weekends=true'];
+  const rows = whats.map((what, i) => U.makeRow({ type: 'set', start: MON + i * 60, what }));
+  const changes = new U.SettingsTimeline(rows);
+  assert.deepEqual(structuredClone(changes.entries.map((e) => e.gridChanged)), [true, false, true, true, false, true, false, true, false]);
   const holidays = new Set([U.parseDay('2026-10-07')]);
   const timeline = new U.SettingsTimeline([U.makeRow({ type: 'set', start: MON, what: 'period=1d, grid=counted, skip_holidays=true' })], holidays);
   assert.equal(fmt(timeline.gridAt(MON).next(at('2026-10-06T09:00'))), '2026-10-08T09:00');
-  assert.equal(fmt(s.grid(holidays).next(at('2026-10-06T09:00'))), '2026-10-07T09:00');
+  assert.equal(fmt(changes.at(MON + 8 * 60).grid(holidays).next(at('2026-10-06T09:00'))), '2026-10-07T09:00');
 });
 
 const SET = R('', '2026-10-05T09:00', 'set', 'period=1d, horizon=1w, grid=counted, skip_weekends=true');
@@ -122,11 +115,11 @@ test('counted daily rotation: no weekend shifts, Friday credits 1.0 through Mond
   assert.deepEqual(cellsOf(run(cellsOf(out), '2026-10-05T20:00')), cellsOf(out));
   const weekend = run(cellsOf(out), '2026-10-10T12:00');
   assert.equal(fmt(ofType(weekend, 'snapshot')[0].start), '2026-10-09T09:00');
-  assert.equal(ofType(weekend, 'snapshot')[0].what, 'alice=2.00, bob=1.00, carol=1.00');
+  assert.equal(ofType(weekend, 'snapshot')[0].what, 'alice=2, bob=1, carol=1');
   const replayed = run(cellsOf(weekend).filter((c) => c[2] !== 'snapshot'), '2026-10-10T12:00');
   assert.deepEqual(cellsOf(replayed), cellsOf(weekend));
   const monday = run(cellsOf(weekend), '2026-10-12T10:00');
-  assert.equal(ofType(monday, 'snapshot')[0].what, 'alice=2.00, bob=2.00, carol=1.00');
+  assert.equal(ofType(monday, 'snapshot')[0].what, 'alice=2, bob=2, carol=1');
   assert.equal(shifts(monday)[5][0], '2026-10-12T09:00');
 });
 

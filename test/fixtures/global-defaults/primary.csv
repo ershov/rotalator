@@ -1,5 +1,5 @@
 pin,start,type,what,end,duration,note
-,2026-06-01T09:00,set,"period=1w, horizon=6w",,,
+,2026-06-01T09:00,set,,,,
 ,2026-06-01T09:00,team,"alice, bob, carol, dave",,,
 ,2026-06-01T09:00,shift,alice,,,
 ,2026-06-08T09:00,shift,bob,,,
@@ -14,11 +14,11 @@ pin,start,type,what,end,duration,note
 ,2026-08-10T09:00,shift,carol,,,
 ,2026-08-17T09:00,shift,dave,,,
 ,2026-08-24T09:00,shift,alice,,,
+,2026-08-31T09:00,snapshot,"alice=28.00, bob=21.00, carol=21.00, dave=21.00",,,
 ,2026-08-31T09:00,shift,bob,,,
-,2026-09-07T09:00,snapshot,"alice=28, bob=28, carol=21, dave=21",,,
 ,2026-09-07T09:00,shift,carol,,,
 ,2026-09-14T09:00,shift,dave,,,
-x,2026-09-21T09:00,shift,bob,,,volunteered
-,2026-09-28T09:00,shift,carol,,,
-,2026-10-05T09:00,shift,dave,,,
-,2026-10-12T09:00,shift,alice,,,
+,2026-09-21T09:00,shift,alice,,,
+,2026-09-28T09:00,shift,bob,,,
+,2026-10-05T09:00,shift,carol,,,
+,2026-09-07T09:00,score,alice+=20,,,

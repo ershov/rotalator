@@ -4,7 +4,7 @@ tabs
 rotations    primary
 regenerated  primary
 holidays     2
-links        0
+global       0
 ignored
 
 rotation  primary
@@ -14,24 +14,24 @@ current   carol             until 2026-09-14T09:00
 next      dave              from 2026-09-14T09:00
 
   member  current  score  projected  last shift        next shift        exclusions
-  alice            28.00  35.00      2026-08-24T09:00  2026-10-12T09:00
-  bob              28.00  35.00      2026-08-31T09:00  2026-09-21T09:00
-  carol   x        21.00  35.00      2026-09-07T09:00  2026-09-28T09:00
-  dave             21.00  35.00      2026-08-17T09:00  2026-09-14T09:00
+  alice            28     35         2026-08-24T09:00  2026-10-12T09:00
+  bob              28     35         2026-08-31T09:00  2026-09-21T09:00
+  carol   x        21     35         2026-09-07T09:00  2026-09-28T09:00
+  dave             21     35         2026-08-17T09:00  2026-09-14T09:00
 
   settings       as of 2026-09-08T10:00
-  period         1w
-  anchor         2026-06-01T09:00
-  grid           calendar
-  horizon        6w
-  skip_weekends  false
-  skip_holidays  false
-  tolerance      0
-  min_distance   0
-  tiebreak       order
-  seed           0
-  baseline       median
-  precredit      auto
+  period         1w                      rotation
+  anchor         2026-06-01T09:00        rotation
+  grid           calendar                default
+  horizon        6w                      rotation
+  skip_weekends  false                   default
+  skip_holidays  false                   default
+  tolerance      0                       default
+  min_distance   0                       default
+  tiebreak       order                   default
+  seed           0                       default
+  baseline       median                  default
+  precredit      auto                    default
 
 pin  start             end               rotation  who    note
      2026-06-01T09:00  2026-06-08T09:00  primary   alice

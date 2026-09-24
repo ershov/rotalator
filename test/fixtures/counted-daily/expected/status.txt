@@ -4,7 +4,7 @@ tabs
 rotations    primary
 regenerated  primary
 holidays     2
-links        0
+global       0
 ignored
 
 rotation  primary
@@ -14,23 +14,23 @@ current   bob               until 2026-07-09T09:00
 next      carol             from 2026-07-09T09:00
 
   member  current  score  projected  last shift        next shift        exclusions
-  alice            9.00   12.00      2026-07-07T09:00  2026-07-10T09:00
-  bob     x        8.00   12.00      2026-07-08T09:00  2026-07-13T09:00
-  carol            8.00   11.00      2026-07-06T09:00  2026-07-09T09:00
+  alice            9      12         2026-07-07T09:00  2026-07-10T09:00
+  bob     x        8      12         2026-07-08T09:00  2026-07-13T09:00
+  carol            8      11         2026-07-06T09:00  2026-07-09T09:00
 
   settings       as of 2026-07-08T10:00
-  period         1d
-  anchor         2026-06-01T09:00
-  grid           counted
-  horizon        2w
-  skip_weekends  true
-  skip_holidays  true
-  tolerance      0
-  min_distance   0
-  tiebreak       order
-  seed           0
-  baseline       median
-  precredit      auto
+  period         1d                      rotation
+  anchor         2026-06-01T09:00        rotation
+  grid           counted                 rotation
+  horizon        2w                      rotation
+  skip_weekends  true                    rotation
+  skip_holidays  true                    rotation
+  tolerance      0                       default
+  min_distance   0                       default
+  tiebreak       order                   default
+  seed           0                       default
+  baseline       median                  default
+  precredit      auto                    default
 
 pin  start             end               rotation  who    note
      2026-06-01T09:00  2026-06-02T09:00  primary   alice

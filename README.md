@@ -29,14 +29,14 @@ Setup and deployment are in [INSTALL.md](INSTALL.md). The design is in
 | `#Holidays` | users | Column A date `YYYY-MM-DD`, column B note. Shared by all rotations. |
 | `#Status` | script | Recognised tabs, scores, last and next shifts, exclusions, warnings. Rewritten on every run. |
 | `#All shifts` | script | Every shift of every rotation in one table. Rewritten on every run. |
-| `#Preview <rotation>`, `#Preview Links` | script | Output of a dry run. |
-| `#Links` | users and script | Relations between rotations, see below. The script adds `error` rows. |
+| `#Preview <rotation>`, `#Preview Global` | script | Output of a dry run. |
+| `#Global` | users and script | Spreadsheet-wide `set` defaults and relations between rotations, see below. The script adds `error` rows. |
 
 A tab whose name starts with `#` is a system tab and never a rotation. Any
 other tab is a rotation when its first row is exactly the header below;
 anything else is ignored and listed under `ignored` in `#Status`. To disable a
 rotation, rename its tab to `#<rotation>`: it is neither read nor written,
-links naming it get an `error` row in `#Links`, and renaming it back later
+links naming it get an `error` row in `#Global`, and renaming it back later
 resumes like a run after a pause.
 
 ## Ledger columns
@@ -94,7 +94,7 @@ Example rows, one per item form:
 | | `2026-09-28T00:00` | `include` | `bob` | | | back early |
 | | `2026-06-01T09:00` | `score` | `alice=10, bob+=2, carol-=1, dave=mean` | | | pre-history |
 | | `2026-10-05T09:00` | `set` | `anchor, tolerance` | | | re-anchor, tolerance back to 0 |
-| | `2026-09-07T09:00` | `snapshot` | `alice=28.00, bob=28.00, carol=21.00` | | | |
+| | `2026-09-07T09:00` | `snapshot` | `alice=28, bob=28, carol=21` | | | |
 | | `2026-09-15T09:00` | `error` | `unknown type "vacation"` | | | |
 | | `2026-06-15T09:00` | | `carol swapped with bob this week` | | | |
 | | | | `todo: add the new hire in July` | | | |
@@ -148,7 +148,7 @@ Details per type:
   though the shift itself is regenerated. Undated comments with nothing dated
   below them stay at the end of the ledger. A `start` that does not parse
   counts as undated and is reported as a warning in `#Status`. Comments work
-  in `#Links` too.
+  in `#Global` too.
 
 ## Settings
 
@@ -156,6 +156,17 @@ Keys of the `set` row's `what`, as `key=value` items or bare keys. A bare key
 applies the default in this table; `anchor` is always bare and takes the row's
 `start`; `period` always needs a value. Booleans accept `true`, `false`,
 `yes`, `no`, `1`, `0`.
+
+`set` rows also work in `#Global`, where they are defaults for every rotation
+from their `start` on. A rotation's own value wins for the keys it has set; a
+bare key in the rotation hands the key back to the global value. Even
+`period` and `anchor` may be global, so a rotation can start with an empty
+`set` row (the only row type whose `what` may be empty). Do not write a bare
+`anchor` there unless you mean it: it pins the anchor in the rotation, and a
+later global period change then re-anchors the other rotations but not this
+one. The `#Status` settings block shows where each value comes from:
+`rotation`, `global` or `default`. A malformed global `set` row stops the run
+like any ledger error.
 
 | key | default | meaning |
 |---|---|---|
@@ -202,14 +213,15 @@ them opens a dialog and none rewrites existing data.
   and system tab: monospace font, plain text on the ledger columns, bold grey
   frozen header with a note on each header cell, column widths, spare columns
   removed, tab colours on `#` tabs (blue for tabs the script writes, grey for
-  `#Holidays` and `#Links`). Rotation tabs and `#Links` get conditional row
+  `#Holidays` and `#Global`). Rotation tabs and `#Global` get conditional row
   colours by `type` (errors red, settings blue, roster changes teal, snapshot
   green, comment rows yellow, links green, unlinks grey); the tab's existing
-  conditional rules are replaced. It is idempotent.
+  conditional rules are replaced. A new `#Global` gets its header and a
+  comment row explaining the tab. It is idempotent.
 - **Set Up Tab** fills the active tab from its name: an empty rotation tab
   gets the header, a `set` row with every setting at its default (bare
   `anchor`, dated the most recent Monday 00:00) and a sample `team` row; an
-  empty `#Holidays` or `#Links` tab gets its header. Non-empty tabs are
+  empty `#Holidays` or `#Global` tab gets its header. Non-empty tabs are
   refused.
 - **Fill Shifts Grid** fills the `start` of the selected rows of a rotation
   tab so they sit on the grid: empty rows above the first dated row are
@@ -228,7 +240,7 @@ them opens a dialog and none rewrites existing data.
   plus the status tabs.
 - **Run for current rotation** and its dry run variant do the same for the
   active tab only; the other rotations are read but not written. The dry run
-  writes that rotation's preview, `#Preview Links` when a `#Links` tab
+  writes that rotation's preview, `#Preview Global` when a `#Global` tab
   exists, and the status tabs. The active tab must be a rotation tab.
 - **Install nightly trigger** schedules Run daily; **Remove trigger**
   deletes it.
@@ -295,10 +307,12 @@ marked `now` separates past shifts from future ones, and each rotation's
 current shift is highlighted. Both tabs are rewritten by every run, including
 dry runs.
 
-## Links between rotations
+## Global defaults and links between rotations
 
-The optional `#Links` tab relates rotations over time. It has the same header
-row as a ledger and two row types.
+The optional `#Global` tab has the same header row as a ledger and holds
+three kinds of rows: `set` rows with spreadsheet-wide defaults (see Settings),
+comments, and the `link` and `unlink` rows below, which relate rotations over
+time.
 
 | type | what | end/duration | effect |
 |---|---|---|---|
@@ -321,8 +335,9 @@ overlaps are compared on the actual intervals.
 
 A link row that names a rotation without a tab (or a disabled `#` tab), has a
 malformed `what`, or an `unlink` without an active link gets an `error` row
-above it in `#Links` and is ignored. Unlike ledger errors, this does not stop
-the run. `#Links` is written back sorted; a dry run writes `#Preview Links`.
+above it in `#Global` and is ignored. Unlike ledger errors and malformed
+global `set` rows, this does not stop the run. `#Global` is written back
+sorted; a dry run writes `#Preview Global`.
 
 ## What the script never touches
 
@@ -367,8 +382,8 @@ generated shift's `note`.
 
 The core also runs in Node without a spreadsheet, using a directory of CSV
 files. Files map to tabs: one `<rotation>.csv` per ledger with the header row,
-`holidays.csv` for `#Holidays` (`date,note`), optional `links.csv` for
-`#Links`, `status.json` for the `#Status` and `#All shifts` data, and
+`holidays.csv` for `#Holidays` (`date,note`), optional `global.csv` for
+`#Global`, `status.json` for the `#Status` and `#All shifts` data, and
 `now.txt` with the run instant. A file named `#<anything>.csv` is never a
 rotation, like a `#` tab, and other `.csv` files without the ledger header are
 ignored.

@@ -36,6 +36,15 @@ function templateSetWhat() {
   }).join(', ');
 }
 
+var GLOBAL_TEMPLATE_NOTE = 'Spreadsheet-wide defaults and relations. A set row here applies to every rotation ' +
+  'from its start unless the rotation sets the same key itself; link rows relate rotations; rows without a ' +
+  'type are comments.';
+
+// Header and one explanatory comment row of a new #Global tab.
+function globalTemplateRows() {
+  return [LEDGER_HEADER.slice(), ['', '', '', '', '', '', GLOBAL_TEMPLATE_NOTE]];
+}
+
 // Header, set and team cell rows of a new rotation tab, dated firstStart.
 function templateRows(firstStart) {
   var start = formatDateTime(firstStart);
@@ -109,14 +118,17 @@ function hasOnlyStart(cells) {
 }
 
 // Fill Shifts Grid over a selection. selectedCells: the ledger columns of the selected rows; tabCells: every
-// row of the tab below the header, for the settings timeline; holidayTexts: #Holidays column A.
-// Returns { rows: cell arrays } or { error: message }. Dated comments stay in place; undated comments
-// attach to the next dated row, trailing ones stay at the end.
-function fillShiftsGridCells(selectedCells, tabCells, holidayTexts) {
+// row of the tab below the header, for the settings timeline; holidayTexts: #Holidays column A; globalCells:
+// #Global rows below the header, for global set rows. Returns { rows: cell arrays } or { error: message }.
+// Dated comments stay in place; undated comments attach to the next dated row, trailing ones stay at the end.
+function fillShiftsGridCells(selectedCells, tabCells, holidayTexts, globalCells) {
   var holidays = new Set();
   (holidayTexts || []).forEach(function (text) { var day = parseDay(text ?? ''); if (day !== null) holidays.add(day); });
-  var timeline = new SettingsTimeline(rowsOfType(rowsFromCells(tabCells), 'set'), holidays);
-  if (!timeline.entries.length || timeline.entries[0].settings.get('period') === null) {
+  var localSets = sortRows(rowsOfType(rowsFromCells(tabCells), 'set'));
+  var globalSets = rowsOfType(rowsFromCells(globalCells || []), 'set');
+  var timeline = new SettingsTimeline(localSets, holidays, globalSets);
+  var firstStart = localSets.length ? localSets[0].start : null;
+  if (firstStart === null || timeline.at(firstStart).get('period') === null) {
     return { error: 'the tab needs a set row with period before the grid can be filled' };
   }
   var dated = [];
@@ -134,7 +146,7 @@ function fillShiftsGridCells(selectedCells, tabCells, holidayTexts) {
       continue;
     }
     if (row.start === null) return { error: 'selected row ' + (i + 1) + ': bad start "' + startText + '"' };
-    if (row.start < timeline.entries[0].start) return { error: 'selected row ' + (i + 1) + ' is dated before the first set row' };
+    if (row.start < firstStart) return { error: 'selected row ' + (i + 1) + ' is dated before the first set row' };
     if (row.type === 'comment' && hasOnlyStart(cells)) row.type = 'shift';
     if (row.type !== 'comment') row.cells[2] = row.type;
     dated = dated.concat(comments, [row]);
@@ -143,6 +155,6 @@ function fillShiftsGridCells(selectedCells, tabCells, holidayTexts) {
   }
   if (!dated.length) return { error: 'the selection has no dated row to start from' };
   var out = gridRows(dated, pre, post, timeline).concat(comments);
-  if (out[0].start < timeline.entries[0].start) return { error: pre + ' empty row(s) above would fall before the first set row' };
+  if (out[0].start < firstStart) return { error: pre + ' empty row(s) above would fall before the first set row' };
   return { rows: out.map(function (r) { return r.cells || rowToArray(r); }) };
 }

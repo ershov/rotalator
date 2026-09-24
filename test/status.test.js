@@ -29,7 +29,7 @@ test('status: scores, last and next shift, active exclusions, instants', () => {
   assert.deepEqual(errors, []);
   assert.equal(status.now, NOW);
   assert.equal(status.mode, 'dry run');
-  assert.deepEqual(status.tabs, { rotations: ['primary', 'secondary'], regenerated: ['primary', 'secondary'], holidays: 1, links: 0, ignored: ['Notes'] });
+  assert.deepEqual(status.tabs, { rotations: ['primary', 'secondary'], regenerated: ['primary', 'secondary'], holidays: 1, global: 0, ignored: ['Notes'] });
   const [primary, secondary] = status.rotations;
   assert.equal(primary.snapshotAt, dt('2026-10-05T09:00'));
   assert.equal(primary.horizonEnd, dt('2026-10-26T09:00'));
@@ -73,7 +73,7 @@ test('statusRows and shiftsRows: rows, header and divider metadata', () => {
     ['rotations', 'primary, secondary'],
     ['regenerated', 'primary, secondary'],
     ['holidays', '0'],
-    ['links', '0'],
+    ['global', '0'],
     ['ignored', 'Notes, #old'],
   ]);
   assert.deepEqual(rows.slice(8, 16), [
@@ -86,13 +86,13 @@ test('statusRows and shiftsRows: rows, header and divider metadata', () => {
     [],
     ['', 'member', 'current', 'score', 'projected', 'last shift', 'next shift', 'exclusions'],
   ]);
-  assert.deepEqual(rows[16], ['', 'alice', 'x', '', '7.00', '2026-10-05T09:00']);
-  assert.deepEqual(rows[17], ['', 'bob', '', '', '0.00', '', '', '2026-10-05T09:00 to 2026-10-15T09:00']);
+  assert.deepEqual(rows[16], ['', 'alice', 'x', '', '7', '2026-10-05T09:00']);
+  assert.deepEqual(rows[17], ['', 'bob', '', '', '0', '', '', '2026-10-05T09:00 to 2026-10-15T09:00']);
   assert.deepEqual(rows.slice(19, 23), [
     [],
     ['', 'settings', 'as of 2026-10-05T10:00'],
-    ['', 'period', '1w'],
-    ['', 'anchor', '2026-10-05T09:00'],
+    ['', 'period', '1w', 'rotation'],
+    ['', 'anchor', '2026-10-05T09:00', 'rotation'],
   ]);
   const headers = structuredClone(out.headerRows);
   assert.deepEqual(headers.slice(0, 5), [0, 2, 9, 15, 20]);
@@ -113,7 +113,7 @@ test('statusRows and shiftsRows: rows, header and divider metadata', () => {
   assert.deepEqual(structuredClone(shifts.dividerRows), [3]);
   assert.match(statusText(status), /^Rotalator {2}dry run +2026-10-05T10:00\n/);
 
-  const noNow = U.regenerate({ rotations: [{ name: 'p', rows: U.rowsFromCells(ledgers.primary), snapshotAt: null }], holidays: [], links: [] });
+  const noNow = U.regenerate({ rotations: [{ name: 'p', rows: U.rowsFromCells(ledgers.primary), snapshotAt: null }], holidays: [], global: [] });
   assert.equal(noNow.status.at, null);
   const bare = U.shiftsRows(noNow.status);
   assert.deepEqual(structuredClone(bare.dividerRows), []);
@@ -127,18 +127,18 @@ test('status: effective settings at now, every key, note on a later set row', ()
   assert.equal(before.at, dt(NOW));
   assert.equal(before.nextSetAt, dt('2026-10-19T09:00'));
   assert.deepEqual(before.values, [
-    { key: 'period', value: '1w' },
-    { key: 'anchor', value: '2026-10-05T09:00' },
-    { key: 'grid', value: 'calendar' },
-    { key: 'horizon', value: '3w' },
-    { key: 'skip_weekends', value: 'false' },
-    { key: 'skip_holidays', value: 'false' },
-    { key: 'tolerance', value: '0' },
-    { key: 'min_distance', value: '0' },
-    { key: 'tiebreak', value: 'order' },
-    { key: 'seed', value: '0' },
-    { key: 'baseline', value: 'median' },
-    { key: 'precredit', value: 'auto' },
+    { key: 'period', value: '1w', source: 'rotation' },
+    { key: 'anchor', value: '2026-10-05T09:00', source: 'rotation' },
+    { key: 'grid', value: 'calendar', source: 'default' },
+    { key: 'horizon', value: '3w', source: 'rotation' },
+    { key: 'skip_weekends', value: 'false', source: 'default' },
+    { key: 'skip_holidays', value: 'false', source: 'default' },
+    { key: 'tolerance', value: '0', source: 'default' },
+    { key: 'min_distance', value: '0', source: 'default' },
+    { key: 'tiebreak', value: 'order', source: 'default' },
+    { key: 'seed', value: '0', source: 'default' },
+    { key: 'baseline', value: 'median', source: 'default' },
+    { key: 'precredit', value: 'auto', source: 'default' },
   ]);
   const rows = trim(U.statusRows(runStorage(new MemoryStorage({ ledgers: withLater }), NOW).status).rows);
   assert.deepEqual(rows.find((r) => r[1] === 'note'), ['', 'note', 'a set row at 2026-10-19T09:00 changes these values']);
@@ -153,7 +153,7 @@ test('status: effective settings at now, every key, note on a later set row', ()
   assert.deepEqual(after.values.map((v) => v.key), Object.keys(U.SETTINGS));
 
   // Without now, regenerate dates the block at the snapshot.
-  const rowsAtS = U.regenerate({ rotations: [{ name: 'p', rows: U.rowsFromCells(withLater.primary), snapshotAt: null }], holidays: [], links: [] });
+  const rowsAtS = U.regenerate({ rotations: [{ name: 'p', rows: U.rowsFromCells(withLater.primary), snapshotAt: null }], holidays: [], global: [] });
   assert.equal(rowsAtS.status.rotations[0].settings.at, dt('2026-10-05T09:00'));
 });
 
@@ -217,6 +217,6 @@ test('All shifts: original pin text and current rows per rotation', () => {
     ['', '2026-10-05T09:00', '2026-10-06T09:00', 'daily', 'carol', ''],
   ]);
   assert.deepEqual(structuredClone(U.statusRows(status).currentRows), []);
-  const noNow = U.regenerate({ rotations: [{ name: 'w', rows: U.rowsFromCells(mixed.weekly), snapshotAt: null }], holidays: [], links: [] });
+  const noNow = U.regenerate({ rotations: [{ name: 'w', rows: U.rowsFromCells(mixed.weekly), snapshotAt: null }], holidays: [], global: [] });
   assert.deepEqual(structuredClone(U.shiftsRows(noNow.status).currentRows), []);
 });

@@ -26,7 +26,7 @@ pin,start,type,what,end,duration,note
 ,2026-07-02T09:00,shift,bob,,,
 ,2026-07-06T09:00,shift,carol,,,
 ,2026-07-07T09:00,shift,alice,,,
-,2026-07-08T09:00,snapshot,"alice=9.00, bob=8.00, carol=8.00",,,
+,2026-07-08T09:00,snapshot,"alice=9, bob=8, carol=8",,,
 ,2026-07-08T09:00,shift,bob,,,
 ,2026-07-09T09:00,shift,carol,,,
 ,2026-07-10T09:00,shift,alice,,,

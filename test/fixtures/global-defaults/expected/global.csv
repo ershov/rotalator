@@ -1,0 +1,3 @@
+pin,start,type,what,end,duration,note
+,,,Defaults for every rotation; a rotation's own set row wins.,,,
+,2026-06-01T09:00,set,"period=1w, horizon=6w, tolerance=7",,,

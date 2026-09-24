@@ -225,7 +225,7 @@ var LEDGER_HEADER = ['pin', 'start', 'type', 'what', 'end', 'duration', 'note'];
 // Tabs (DESIGN 3.1). A name starting with '#' is never a rotation.
 var SYSTEM_TAB_PREFIX = '#';
 var HOLIDAYS_TAB = '#Holidays';
-var LINKS_TAB = '#Links';
+var GLOBAL_TAB = '#Global';
 var STATUS_TAB = '#Status';
 var ALL_SHIFTS_TAB = '#All shifts';
 var PREVIEW_TAB_PREFIX = '#Preview ';
@@ -234,22 +234,23 @@ function isSystemTab(name) {
   return name.charAt(0) === SYSTEM_TAB_PREFIX;
 }
 
-// Preview of a rotation tab, or '#Preview Links' for the Links tab.
+// Preview of a rotation tab, or '#Preview Global' for the #Global tab.
 function previewTabName(name) {
   return PREVIEW_TAB_PREFIX + (isSystemTab(name) ? name.slice(1) : name);
 }
 
 function isKnownSystemTab(name) {
-  return name === HOLIDAYS_TAB || name === LINKS_TAB || name === STATUS_TAB || name === ALL_SHIFTS_TAB ||
+  return name === HOLIDAYS_TAB || name === GLOBAL_TAB || name === STATUS_TAB || name === ALL_SHIFTS_TAB ||
     name.indexOf(PREVIEW_TAB_PREFIX) === 0;
 }
 
 // order: same-instant sort (DESIGN 3.6). what: item grammar of the column (see validateWhat).
-// required: what must not be empty. extent: end/duration allowed. A row with an empty type is a comment
-// (internal type 'comment', order -1): never validated, replayed or generated, only sorted.
+// required: what must not be empty (a set row may be empty: the minimal first row when #Global supplies the
+// settings). extent: end/duration allowed. A row with an empty type is a comment (internal type 'comment',
+// order -1): never validated, replayed or generated, only sorted.
 var ROW_TYPES = {
   error:    { order: 0, what: 'text',   required: true,  extent: false },
-  set:      { order: 1, what: 'set',    required: true,  extent: false },
+  set:      { order: 1, what: 'set',    required: false, extent: false },
   snapshot: { order: 2, what: 'scores', required: false, extent: false },
   team:     { order: 3, what: 'team',   required: true,  extent: false },
   join:     { order: 4, what: 'join',   required: true,  extent: false },
@@ -336,30 +337,46 @@ function defaultSettings() {
   return out;
 }
 
-// Returns { values: { key: parsed }, error: string | null }. start is the row's start, used by bare anchor.
+// Returns { values: { key: parsed }, reset: [keys], error: string | null }. start is the row's start, used by
+// bare anchor. reset lists the keys given bare that return to their default (and, in a rotation, to the
+// global value); values carries the default for them too.
 function parseSetArg(text, start) {
   var items = parseAssignments(text);
-  if (typeof items === 'string') return { values: {}, error: items };
-  var values = {};
+  var out = { values: {}, reset: [], error: null };
+  if (typeof items === 'string') { out.error = items; return out; }
+  var fail = function (message) { out.error = message; return out; };
   for (var i = 0; i < items.length; i++) {
     var it = items[i];
     var key = it.name.toLowerCase();
     var spec = SETTINGS[key];
-    if (!spec) return { values: values, error: 'unknown setting "' + it.name + '"' };
-    if (key in values) return { values: values, error: 'duplicate setting "' + it.name + '"' };
-    if (it.op !== null && it.op !== '=') return { values: values, error: 'set expects key or key=value, got "' + it.name + it.op + '"' };
+    if (!spec) return fail('unknown setting "' + it.name + '"');
+    if (key in out.values) return fail('duplicate setting "' + it.name + '"');
+    if (it.op !== null && it.op !== '=') return fail('set expects key or key=value, got "' + it.name + it.op + '"');
     var parsed;
     if (it.op === null) {
-      if (spec.bare === 'none') return { values: values, error: it.name + ' requires a value' };
+      if (spec.bare === 'none') return fail(it.name + ' requires a value');
+      if (spec.bare === 'default') out.reset.push(key);
       parsed = spec.bare === 'start' ? start : spec.def;
     } else {
-      if (!spec.parse) return { values: values, error: it.name + ' takes no value; the row start is the ' + it.name };
+      if (!spec.parse) return fail(it.name + ' takes no value; the row start is the ' + it.name);
       parsed = spec.parse(it.value);
-      if (parsed === null) return { values: values, error: 'bad value for ' + it.name + ': "' + it.value + '"' };
+      if (parsed === null) return fail('bad value for ' + it.name + ': "' + it.value + '"');
     }
-    values[key] = parsed;
+    out.values[key] = parsed;
   }
-  return { values: values, error: null };
+  return out;
+}
+
+// Value of a key from the global set rows dated at or before t; undefined when none sets it.
+function globalValueAt(globalSetRows, key, t) {
+  var value;
+  sortRows(globalSetRows || []).forEach(function (row) {
+    if (row.start === null || row.start > t) return;
+    var parsed = parseSetArg(row.what, row.start);
+    if (parsed.reset.indexOf(key) >= 0) value = undefined;
+    else if (key in parsed.values) value = parsed.values[key];
+  });
+  return value;
 }
 
 function isNobody(what) {
@@ -571,8 +588,9 @@ function rowError(row, message) {
   return { rowIndex: row.rowIndex, start: row.start, startText: row.startText, message: message };
 }
 
-// Stateless checks of DESIGN 5.1. Drops error rows; returns remaining rows sorted.
-function validateLedger(rows, rotationName) {
+// Stateless checks of DESIGN 5.1. Drops error rows; returns remaining rows sorted. globalSetRows: the valid
+// set rows of #Global, which may supply the period the first set row must otherwise carry.
+function validateLedger(rows, rotationName, globalSetRows) {
   var errors = [];
   var kept = [];
   var snapshots = 0;
@@ -589,8 +607,9 @@ function validateLedger(rows, rotationName) {
   var first = firstOfType(sorted, Object.keys(ROW_TYPES));
   if (!first) {
     errors.push({ rowIndex: null, start: null, startText: '', message: rotationName + ': ledger is empty' });
-  } else if (first.start !== null && !(first.type === 'set' && parseSetArg(first.what, first.start).values.period)) {
-    errors.push(rowError(first, rotationName + ': first row must be a set row with period'));
+  } else if (first.start !== null) {
+    var period = first.type === 'set' && (parseSetArg(first.what, first.start).values.period || globalValueAt(globalSetRows, 'period', first.start));
+    if (!period) errors.push(rowError(first, rotationName + ': first row must be a set row (period own or from ' + GLOBAL_TAB + ')'));
   }
   return { rows: sorted, errors: errors };
 }
@@ -731,6 +750,7 @@ function scoredEnd(shift, nextShiftStart, grid) {
 }
 
 // ---- 30_state.js ----
+// Effective settings at an instant: the rotation's own values over the global ones over the defaults.
 class Settings {
   constructor(values) {
     this.values = Object.assign(defaultSettings(), values || {});
@@ -742,18 +762,6 @@ class Settings {
 
   get(key) {
     return this.values[key];
-  }
-
-  // Returns true when the row changes the grid: period, anchor or grid mode, or a skip flag while counted.
-  apply(setRow) {
-    var values = parseSetArg(setRow.what, setRow.start).values;
-    var before = this.values;
-    var changes = function (key) { return key in values && values[key] !== before[key]; };
-    var changed = changes('period') || changes('anchor') || changes('grid');
-    if (changes('period') && !('anchor' in values)) this.values.anchor = setRow.start;
-    this.values = Object.assign({}, before, values);
-    if (this.values.grid === 'counted' && (changes('skip_weekends') || changes('skip_holidays'))) changed = true;
-    return changed;
   }
 
   grid(holidays) {
@@ -770,16 +778,56 @@ class Settings {
   }
 }
 
-// Settings after each set row, in start order. holidays: Set of day indexes for counted grids.
+var SETTING_LAYERS = ['rotation', 'global'];
+
+function gridChangedBetween(before, after) {
+  if (after.period !== before.period || after.anchor !== before.anchor || after.grid !== before.grid) return true;
+  return after.grid === 'counted' && (after.skip_weekends !== before.skip_weekends || after.skip_holidays !== before.skip_holidays);
+}
+
+// Settings of a rotation over time (DESIGN 3.5): its own set rows layered over the global ones. A key the
+// rotation has set wins until a bare key returns it to the global value; keys set in neither layer use the
+// defaults. Entries hold the effective Settings and the source of each key after every set row of either
+// layer, in start order (global before rotation at the same instant). Rows whose what does not parse are
+// skipped, so callers may pass unvalidated rows. holidays: Set of day indexes.
 class SettingsTimeline {
-  constructor(setRows, holidays) {
+  constructor(setRows, holidays, globalSetRows) {
     this.holidays = holidays || new Set();
     this.entries = [];
-    var settings = new Settings();
-    var rows = sortRows(setRows);
-    for (var i = 0; i < rows.length; i++) {
-      var gridChanged = settings.apply(rows[i]);
-      this.entries.push({ start: rows[i].start, settings: settings.clone(), gridChanged: gridChanged });
+    var layers = { global: {}, rotation: {} };
+    var usable = function (r) { return r.start !== null && parseSetArg(r.what, r.start).error === null; };
+    var events = sortRows((globalSetRows || []).filter(usable)).map(function (r) { return { row: r, layer: 'global' }; })
+      .concat(sortRows(setRows.filter(usable)).map(function (r) { return { row: r, layer: 'rotation' }; }))
+      .sort(function (a, b) { return a.row.start - b.row.start; });
+    var effective = function () {
+      var values = defaultSettings();
+      var sources = {};
+      Object.keys(values).forEach(function (key) {
+        sources[key] = 'default';
+        SETTING_LAYERS.forEach(function (layer) {
+          if (sources[key] === 'default' && key in layers[layer]) { values[key] = layers[layer][key]; sources[key] = layer; }
+        });
+      });
+      return { values: values, sources: sources };
+    };
+    var before = effective();
+    for (var i = 0; i < events.length; i++) {
+      var ev = events[i];
+      var layer = layers[ev.layer];
+      var parsed = parseSetArg(ev.row.what, ev.row.start);
+      Object.keys(parsed.values).forEach(function (key) { if (parsed.reset.indexOf(key) < 0) layer[key] = parsed.values[key]; });
+      parsed.reset.forEach(function (key) { delete layer[key]; });
+      var after = effective();
+      // A period change without an explicit anchor re-anchors this layer at the row.
+      if ('period' in parsed.values && after.values.period !== before.values.period && !('anchor' in parsed.values)) {
+        layer.anchor = ev.row.start;
+        after = effective();
+      }
+      this.entries.push({
+        start: ev.row.start, settings: new Settings(after.values), sources: after.sources,
+        gridChanged: gridChangedBetween(before.values, after.values),
+      });
+      before = after;
     }
   }
 
@@ -792,6 +840,15 @@ class SettingsTimeline {
   at(t) {
     var entry = this.entryAt(t);
     return entry ? entry.settings.clone() : new Settings();
+  }
+
+  // Source of each key at t: 'rotation', 'global' or 'default'.
+  sourcesAt(t) {
+    var entry = this.entryAt(t);
+    if (entry) return Object.assign({}, entry.sources);
+    var out = {};
+    Object.keys(SETTINGS).forEach(function (key) { out[key] = 'default'; });
+    return out;
   }
 
   // One Grid per entry, built on first use so its day caches survive across calls.
@@ -807,9 +864,10 @@ class SettingsTimeline {
   }
 }
 
+// At most two decimals, trailing zeros and dot trimmed: 12.5, 14, 19.63, 0.
 function formatScore(score) {
-  var text = score.toFixed(2);
-  return text === '-0.00' ? '0.00' : text;
+  var text = score.toFixed(2).replace(/\.?0+$/, '');
+  return text === '-0' || text === '' ? '0' : text;
 }
 
 // Clips [a, b) to start at `at`; b null is open. Returns null when nothing extends past `at`.
@@ -995,9 +1053,10 @@ function onCountedDay(timeline, t) {
 }
 
 // DESIGN 5.2. now may be null to skip the clock-dependent steps. holidays: Set of day indexes.
-function advance(rows, now, holidays) {
+// globalSetRows: the set rows of #Global.
+function advance(rows, now, holidays, globalSetRows) {
   rows = ledgerRows(rows);
-  var timeline = new SettingsTimeline(rowsOfType(rows, 'set'), holidays);
+  var timeline = new SettingsTimeline(rowsOfType(rows, 'set'), holidays, globalSetRows);
   var S = null;
   if (now !== null && now !== undefined) {
     var grid = timeline.gridAt(now);
@@ -1072,9 +1131,9 @@ function resolvedExcludeEnds(rows) {
 }
 
 // frozen (DESIGN 5, run scope): the rotation is swept as it stands so links see its shifts, but nothing is
-// pruned, no slot is filled and the snapshot stays where it is; it is not written.
-function prepareRotation(input, index, holidays, frozen) {
-  var validated = validateLedger(input.rows, input.name);
+// pruned, no slot is filled and the snapshot stays where it is; it is not written. globalSetRows: #Global.
+function prepareRotation(input, index, holidays, frozen, globalSetRows) {
+  var validated = validateLedger(input.rows, input.name, globalSetRows);
   var rot = { name: input.name, index: index, frozen: frozen, rows: validated.rows, errors: validated.errors.slice(), problems: [], warnings: [] };
   if (rot.errors.length) return rot;
   var rows = rot.rows;
@@ -1083,9 +1142,9 @@ function prepareRotation(input, index, holidays, frozen) {
       rot.warnings.push({ start: null, message: 'comment row ' + r.rowIndex + ': unparseable start, treated as undated' });
     }
   });
-  var timeline = new SettingsTimeline(rowsOfType(rows, 'set'), holidays);
+  var timeline = new SettingsTimeline(rowsOfType(rows, 'set'), holidays, globalSetRows);
   var previous = firstOfType(rows, ['snapshot']);
-  var S = frozen || input.snapshotAt === null || input.snapshotAt === undefined ? advance(rows, null, holidays) : input.snapshotAt;
+  var S = frozen || input.snapshotAt === null || input.snapshotAt === undefined ? advance(rows, null, holidays, globalSetRows) : input.snapshotAt;
   var first = firstOfType(rows, ['set']);
   S = raiseTo(raiseTo(S, previous ? previous.start : null), onCountedDay(timeline, first.start));
   rot.timeline = timeline;
@@ -1130,16 +1189,12 @@ function rotationItems(rot) {
   };
   var afterPrevious = function (t) { return P === null || t >= P; };
   var excludeEnds = resolvedExcludeEnds(rot.kept);
-  rot.settings = new Settings();
   rot.roster = new Roster();
   rot.roster.fromSnapshotWhat(rot.previousWhat);
   rot.precredited = new Set();
   rot.kept.forEach(function (row) {
-    if (row.type === 'shift' || row.type === 'comment') return;
-    if (row.type === 'set') {
-      if (afterPrevious(row.start)) push(row.start, 'row', { row: row });
-      else rot.settings.apply(row);
-    } else if (row.type === 'exclude') {
+    if (row.type === 'shift' || row.type === 'comment' || row.type === 'set') return;
+    if (row.type === 'exclude') {
       var ends = excludeEnds.get(row);
       var names = whatNames(row).filter(function (n) { return clipToSnapshot(row.start, ends[n], P) !== null; });
       var from = P === null ? row.start : Math.max(row.start, P);
@@ -1171,13 +1226,14 @@ function mergeItems(rots) {
   return items.sort(function (a, b) { return (a.start - b.start) || (rots[a.rot].rank - rots[b.rot].rank) || (a.order - b.order); });
 }
 
+// Settings at an instant come from the timeline (own and global set rows), so set rows are not sweep items.
 function applyStateRow(rot, item) {
   var row = item.row;
   var roster = rot.roster;
+  var settings = rot.timeline.at(item.start);
   switch (row.type) {
-    case 'set': rot.settings.apply(row); return null;
-    case 'team': return roster.team(whatItems(row), rot.settings.get('baseline'));
-    case 'join': return roster.join(whatItems(row), rot.settings.get('baseline'));
+    case 'team': return roster.team(whatItems(row), settings.get('baseline'));
+    case 'join': return roster.join(whatItems(row), settings.get('baseline'));
     case 'leave': return roster.leave(whatNames(row));
     case 'score': return roster.score(whatItems(row));
     case 'exclude': {
@@ -1191,9 +1247,10 @@ function applyStateRow(rot, item) {
 
 // The window is precredit grid steps after S (DESIGN 5.5).
 function precredit(rot, holidays) {
-  var n = rot.settings.precreditPeriods(rot.roster.size());
+  var settings = rot.timeline.at(rot.S);
+  var n = settings.precreditPeriods(rot.roster.size());
   var limit = rot.timeline.gridAt(rot.S).step(rot.S, n);
-  var options = rot.settings.unitsOptions(holidays);
+  var options = settings.unitsOptions(holidays);
   rot.entries.forEach(function (entry) {
     if (entry.slot || !entry.row.pinned || entry.who === null || entry.start <= rot.S || entry.start >= limit) return;
     if (!rot.roster.has(entry.who)) return;
@@ -1213,11 +1270,11 @@ function previousAssignee(rot, entry) {
 }
 
 // DESIGN 5.7 steps 3 and 4. joined links prefer holders of an overlapping shift in a linked rotation.
-function tiebreak(rot, entry, candidates) {
+function tiebreak(rot, entry, candidates, settings) {
   var names = rot.roster.names();
   var chosen = new Set(candidates.map(function (m) { return m.name; }));
-  if (rot.settings.get('tiebreak') === 'shuffle') {
-    var prefix = rot.settings.get('seed') + '|' + rot.name + '|' + formatDateTime(entry.start) + '|';
+  if (settings.get('tiebreak') === 'shuffle') {
+    var prefix = settings.get('seed') + '|' + rot.name + '|' + formatDateTime(entry.start) + '|';
     var best = null, bestHash = null;
     names.forEach(function (name) {
       if (!chosen.has(name)) return;
@@ -1236,7 +1293,7 @@ function tiebreak(rot, entry, candidates) {
 
 // DESIGN 5.7 and 7. distinct holders are removed before relaxation; joined holders are preferred inside the band.
 function assignSlot(rot, entry, holidays, ctx) {
-  var settings = rot.settings;
+  var settings = rot.timeline.at(entry.start);
   var roster = rot.roster;
   var a = entry.start, b = entry.slotEnd;
   var minDistance = settings.get('min_distance');
@@ -1259,7 +1316,7 @@ function assignSlot(rot, entry, holidays, ctx) {
     var candidates = eligible.filter(function (m) { return m.score <= lowest + tolerance; });
     var joined = linkedHolders(ctx, rot, 'joined', a, b);
     var preferred = candidates.filter(function (m) { return joined.has(m.name); });
-    entry.who = tiebreak(rot, entry, preferred.length ? preferred : candidates);
+    entry.who = tiebreak(rot, entry, preferred.length ? preferred : candidates, settings);
     roster.credit(entry.who, units(a, entry.end, settings.unitsOptions(holidays)));
     if (used < minDistance) {
       note = 'min_distance relaxed to ' + used;
@@ -1292,7 +1349,7 @@ function sweep(items, rots, holidays, ctx) {
       case 'credit':
       case 'tail':
         if (!rot.precredited.has(item.entry)) {
-          rot.roster.credit(item.entry.who, units(item.a, item.b, rot.settings.unitsOptions(holidays)));
+          rot.roster.credit(item.entry.who, units(item.a, item.b, rot.timeline.at(item.a).unitsOptions(holidays)));
         }
         break;
       case 'slot':
@@ -1317,31 +1374,37 @@ function writable(rots) {
 }
 
 // DESIGN 6: rows unchanged plus an error row above each offending row.
-function errorOutput(rots, links, now) {
-  var errors = collectErrors(rots, 'errors').concat(links.errors);
+function errorOutput(rots, global, now) {
+  var errors = collectErrors(rots, 'errors').concat(global.errors);
   return {
     rotations: writable(rots).map(function (rot) {
       return { name: rot.name, rows: sortRows(rot.errors.map(errorRow).concat(rot.rows)) };
     }),
-    links: { rows: links.rows, errors: links.errors },
+    global: { rows: global.rows, errors: global.errors },
     errors: errors,
     regenerated: false,
     status: buildStatus([], [], errors, now),
   };
 }
 
-// Links rows and errors in the regenerate output shape; link errors never block regeneration.
-function prepareLinks(rows, rots) {
-  var names = rots.map(function (r) { return r.name; });
-  var parsed = parseLinks(rows || [], names);
-  var order = linkedRotationOrder(parsed.links, names);
-  rots.forEach(function (rot) { rot.rank = order.indexOf(rot.name); });
+// #Global rows parsed against the rotation names: set rows for the timelines, links for the sweep, error rows
+// for the tab. A bad set row blocks regeneration (blocking); relation errors never do.
+function prepareGlobal(rows, names) {
+  var parsed = parseGlobal(rows || [], names);
   var errors = parsed.errors.map(function (e) {
-    return { rotation: LINKS_TAB, rowIndex: e.rowIndex, start: e.start, message: e.message };
+    return { rotation: GLOBAL_TAB, rowIndex: e.rowIndex, start: e.start, message: e.message };
   });
+  return { rows: parsed.rows, errors: errors, blocking: parsed.setErrors.length > 0, setRows: parsed.setRows, links: parsed.links };
+}
+
+// Sweep order and lookup of the rotations for the link filters.
+function linkContext(global, rots) {
+  var names = rots.map(function (r) { return r.name; });
+  var order = linkedRotationOrder(global.links, names);
+  rots.forEach(function (rot) { rot.rank = order.indexOf(rot.name); });
   var byName = {};
   rots.forEach(function (rot) { byName[rot.name] = rot; });
-  return { rows: parsed.rows, errors: errors, links: parsed.links, byName: byName };
+  return { links: global.links, byName: byName };
 }
 
 // Script rows go in front of the kept rows so undated comments still attach to the next kept row below them.
@@ -1352,26 +1415,29 @@ function rotationOutput(rot) {
 }
 
 // Pure regeneration of DESIGN 5.3 to 5.8 and 7.
-// input: { rotations: [{ name, rows, snapshotAt }], holidays: [dayIndex], links: Links row objects, now, only }.
+// input: { rotations: [{ name, rows, snapshotAt }], holidays: [dayIndex], global: #Global row objects, now, only }.
 // now is optional and only dates the effective settings in the status; the ledgers never depend on it.
 // only: optional list of rotation names to regenerate; the others are swept frozen and not returned.
-// Output: { rotations: [{ name, rows }], links: { rows, errors }, errors, status }.
+// Output: { rotations: [{ name, rows }], global: { rows, errors }, errors, regenerated, status }.
 function regenerate(input) {
   var holidays = new Set(input.holidays || []);
   var only = input.only || null;
-  var rots = input.rotations.map(function (r, i) { return prepareRotation(r, i, holidays, only !== null && only.indexOf(r.name) < 0); });
-  var links = prepareLinks(input.links, rots);
-  var hasErrors = function () { return rots.some(function (rot) { return rot.errors.length > 0; }); };
-  if (hasErrors()) return errorOutput(rots, links, input.now);
-  sweep(mergeItems(rots), rots, holidays, links);
-  if (hasErrors()) return errorOutput(rots, links, input.now);
+  var global = prepareGlobal(input.global, input.rotations.map(function (r) { return r.name; }));
+  var rots = input.rotations.map(function (r, i) {
+    return prepareRotation(r, i, holidays, only !== null && only.indexOf(r.name) < 0, global.setRows);
+  });
+  var ctx = linkContext(global, rots);
+  var hasErrors = function () { return global.blocking || rots.some(function (rot) { return rot.errors.length > 0; }); };
+  if (hasErrors()) return errorOutput(rots, global, input.now);
+  sweep(mergeItems(rots), rots, holidays, ctx);
+  if (hasErrors()) return errorOutput(rots, global, input.now);
   var warnings = collectErrors(rots, 'warnings').concat(collectErrors(rots, 'problems'));
   return {
     rotations: writable(rots).map(rotationOutput),
     regenerated: true,
-    links: { rows: links.rows, errors: links.errors },
-    errors: collectErrors(rots, 'problems').concat(links.errors),
-    status: buildStatus(rots, warnings, links.errors, input.now),
+    global: { rows: global.rows, errors: global.errors },
+    errors: collectErrors(rots, 'problems').concat(global.errors),
+    status: buildStatus(rots, warnings, global.errors, input.now),
   };
 }
 
@@ -1393,14 +1459,18 @@ function formatSettingValue(key, value) {
   return String(value);
 }
 
-// Every SETTINGS key with its effective value at `at`, plus the start of the next set row after `at`.
+// Every SETTINGS key with its effective value and source (rotation, global, default) at `at`, plus the start
+// of the next set row of either layer after `at`.
 function effectiveSettings(timeline, at) {
   var values = timeline.at(at).values;
+  var sources = timeline.sourcesAt(at);
   var next = null;
   timeline.entries.forEach(function (e) { if (e.start > at && next === null) next = e.start; });
   return {
     at: at,
-    values: Object.keys(SETTINGS).map(function (key) { return { key: key, value: formatSettingValue(key, values[key]) }; }),
+    values: Object.keys(SETTINGS).map(function (key) {
+      return { key: key, value: formatSettingValue(key, values[key]), source: sources[key] };
+    }),
     nextSetAt: next,
   };
 }
@@ -1501,7 +1571,7 @@ function statusRows(status) {
     push(['rotations', status.tabs.rotations.join(', ')]);
     push(['regenerated', status.tabs.regenerated.join(', ')]);
     push(['holidays', String(status.tabs.holidays)]);
-    push(['links', String(status.tabs.links)]);
+    push(['global', String(status.tabs.global)]);
     push(['ignored', status.tabs.ignored.join(', ')]);
   }
   status.rotations.forEach(function (rot) {
@@ -1520,7 +1590,7 @@ function statusRows(status) {
     });
     push([]);
     header(['', 'settings', 'as of ' + statusInstant(rot.settings.at)]);
-    rot.settings.values.forEach(function (s) { push(['', s.key, s.value]); });
+    rot.settings.values.forEach(function (s) { push(['', s.key, s.value, s.source]); });
     if (rot.settings.nextSetAt !== null) push(['', 'note', 'a set row at ' + statusInstant(rot.settings.nextSetAt) + ' changes these values']);
   });
   if (status.warnings.length) {
@@ -1577,7 +1647,8 @@ function shiftsRows(status) {
 }
 
 // ---- 60_links.js ----
-// #Links tab (DESIGN 7): link and unlink rows relating rotations over time.
+// #Global tab (DESIGN 3.5 and 7): spreadsheet-wide set rows, link and unlink rows relating rotations over
+// time, and comments.
 
 var LINK_KINDS = ['distinct', 'joined'];
 
@@ -1613,15 +1684,23 @@ function validateLinkRow(row, rotationNames) {
   return null;
 }
 
-// rows: #Links row objects. Returns { links: [{ kind, rotations, from, to }], errors, rows } where rows are the
-// kept rows plus an error row above each rejected one. Rejected rows are ignored; unlink closes matching open
-// links. Comments are kept and otherwise ignored.
-function parseLinks(rows, rotationNames) {
+// rows: #Global row objects. Returns { setRows, setErrors, links: [{ kind, rotations, from, to }], errors, rows }
+// where rows are the kept rows plus an error row above each rejected one. set rows are validated with the
+// ledger rules; a bad one is in setErrors and blocks regeneration since every rotation depends on it. Rejected
+// relation rows are ignored; unlink closes matching open links. Comments are kept and otherwise ignored.
+function parseGlobal(rows, rotationNames) {
   var errors = [];
+  var setErrors = [];
+  var setRows = [];
   var links = [];
   var kept = sortRows(attachComments(rows.filter(function (r) { return r.type !== 'error'; })));
   kept.forEach(function (row) {
     if (row.type === 'comment') return;
+    if (row.type === 'set') {
+      var problem = validateRow(row);
+      if (problem === null) setRows.push(row); else setErrors.push(rowError(row, problem));
+      return;
+    }
     var message = validateLinkRow(row, rotationNames);
     if (message === null) {
       var parsed = parseLinkArg(row.what);
@@ -1637,7 +1716,8 @@ function parseLinks(rows, rotationNames) {
     }
     if (message !== null) errors.push(rowError(row, message));
   });
-  return { links: links, errors: errors, rows: sortRows(errors.map(errorRow).concat(kept)) };
+  var all = setErrors.concat(errors);
+  return { setRows: setRows, setErrors: setErrors, links: links, errors: all, rows: sortRows(all.map(errorRow).concat(kept)) };
 }
 
 // Sweep order at equal starts: rotations in link list order first, then the rest in tab order.
@@ -1707,6 +1787,15 @@ function templateSetWhat() {
     var def = SETTINGS[key].def;
     return key + '=' + (key === 'horizon' ? templateDuration(def) : String(def));
   }).join(', ');
+}
+
+var GLOBAL_TEMPLATE_NOTE = 'Spreadsheet-wide defaults and relations. A set row here applies to every rotation ' +
+  'from its start unless the rotation sets the same key itself; link rows relate rotations; rows without a ' +
+  'type are comments.';
+
+// Header and one explanatory comment row of a new #Global tab.
+function globalTemplateRows() {
+  return [LEDGER_HEADER.slice(), ['', '', '', '', '', '', GLOBAL_TEMPLATE_NOTE]];
 }
 
 // Header, set and team cell rows of a new rotation tab, dated firstStart.
@@ -1782,14 +1871,17 @@ function hasOnlyStart(cells) {
 }
 
 // Fill Shifts Grid over a selection. selectedCells: the ledger columns of the selected rows; tabCells: every
-// row of the tab below the header, for the settings timeline; holidayTexts: #Holidays column A.
-// Returns { rows: cell arrays } or { error: message }. Dated comments stay in place; undated comments
-// attach to the next dated row, trailing ones stay at the end.
-function fillShiftsGridCells(selectedCells, tabCells, holidayTexts) {
+// row of the tab below the header, for the settings timeline; holidayTexts: #Holidays column A; globalCells:
+// #Global rows below the header, for global set rows. Returns { rows: cell arrays } or { error: message }.
+// Dated comments stay in place; undated comments attach to the next dated row, trailing ones stay at the end.
+function fillShiftsGridCells(selectedCells, tabCells, holidayTexts, globalCells) {
   var holidays = new Set();
   (holidayTexts || []).forEach(function (text) { var day = parseDay(text ?? ''); if (day !== null) holidays.add(day); });
-  var timeline = new SettingsTimeline(rowsOfType(rowsFromCells(tabCells), 'set'), holidays);
-  if (!timeline.entries.length || timeline.entries[0].settings.get('period') === null) {
+  var localSets = sortRows(rowsOfType(rowsFromCells(tabCells), 'set'));
+  var globalSets = rowsOfType(rowsFromCells(globalCells || []), 'set');
+  var timeline = new SettingsTimeline(localSets, holidays, globalSets);
+  var firstStart = localSets.length ? localSets[0].start : null;
+  if (firstStart === null || timeline.at(firstStart).get('period') === null) {
     return { error: 'the tab needs a set row with period before the grid can be filled' };
   }
   var dated = [];
@@ -1807,7 +1899,7 @@ function fillShiftsGridCells(selectedCells, tabCells, holidayTexts) {
       continue;
     }
     if (row.start === null) return { error: 'selected row ' + (i + 1) + ': bad start "' + startText + '"' };
-    if (row.start < timeline.entries[0].start) return { error: 'selected row ' + (i + 1) + ' is dated before the first set row' };
+    if (row.start < firstStart) return { error: 'selected row ' + (i + 1) + ' is dated before the first set row' };
     if (row.type === 'comment' && hasOnlyStart(cells)) row.type = 'shift';
     if (row.type !== 'comment') row.cells[2] = row.type;
     dated = dated.concat(comments, [row]);
@@ -1816,7 +1908,7 @@ function fillShiftsGridCells(selectedCells, tabCells, holidayTexts) {
   }
   if (!dated.length) return { error: 'the selection has no dated row to start from' };
   var out = gridRows(dated, pre, post, timeline).concat(comments);
-  if (out[0].start < timeline.entries[0].start) return { error: pre + ' empty row(s) above would fall before the first set row' };
+  if (out[0].start < firstStart) return { error: pre + ' empty row(s) above would fall before the first set row' };
   return { rows: out.map(function (r) { return r.cells || rowToArray(r); }) };
 }
 
@@ -1839,8 +1931,8 @@ function rowsFromCells(cells) {
 
 // Read, advance, regenerate and optionally write back through a Storage (DESIGN 8).
 // options: write, mode, rotations (names to regenerate; the others are read but not written).
-// Returns { ledgers, links, errors, status }; ledgers holds only the regenerated ones and links is null when
-// there is no #Links tab. A bad now, holiday cell or rotation name stops the run with nothing written.
+// Returns { ledgers, global, errors, status }; ledgers holds only the regenerated ones and global is null when
+// there is no #Global tab. A bad now, holiday cell or rotation name stops the run with nothing written.
 function runStorage(storage, nowText, options) {
   options = options || {};
   var errors = [];
@@ -1856,33 +1948,34 @@ function runStorage(storage, nowText, options) {
     if (day === null) errors.push('holidays row ' + (i + 2) + ': bad date "' + text + '"');
     else holidays.push(day);
   });
-  var linkCells = storage.readLinks();
+  var globalCells = storage.readGlobal();
   var ignored = storage.ignoredTabs();
-  if (errors.length) return { ledgers: ledgers, links: null, errors: errors, status: null };
+  if (errors.length) return { ledgers: ledgers, global: null, errors: errors, status: null };
 
+  var globalRows = rowsFromCells(globalCells);
+  var globalSets = rowsOfType(globalRows, 'set');
   var rotations = Object.keys(ledgers).map(function (name) {
     var rows = rowsFromCells(ledgers[name]);
-    return { name: name, rows: rows, snapshotAt: advance(rows, now, new Set(holidays)) };
+    return { name: name, rows: rows, snapshotAt: advance(rows, now, new Set(holidays), globalSets) };
   });
-  var linkRows = rowsFromCells(linkCells);
-  var linkCount = linkRows.filter(function (r) { return r.type !== 'error' && r.type !== 'comment'; }).length;
-  var result = regenerate({ rotations: rotations, holidays: holidays, links: linkRows, now: now, only: only });
+  var globalCount = globalRows.filter(function (r) { return r.type !== 'error' && r.type !== 'comment'; }).length;
+  var result = regenerate({ rotations: rotations, holidays: holidays, global: globalRows, now: now, only: only });
   var out = {};
   result.rotations.forEach(function (r) { out[r.name] = r.rows.map(rowToArray); });
-  var links = linkCells.length ? result.links.rows.map(rowToArray) : null;
+  var global = globalCells.length ? result.global.rows.map(rowToArray) : null;
   result.errors.forEach(function (e) { errors.push(describeError(e)); });
   result.status.now = nowText;
   result.status.mode = options.mode || (options.write ? 'run' : 'dry run');
   result.status.tabs = {
     rotations: Object.keys(ledgers), regenerated: result.regenerated ? Object.keys(out) : [],
-    holidays: holidays.length, links: linkCount, ignored: ignored,
+    holidays: holidays.length, global: globalCount, ignored: ignored,
   };
   if (options.write) {
     Object.keys(out).forEach(function (name) { storage.writeLedger(name, out[name]); });
-    if (links) storage.writeLinks(links);
+    if (global) storage.writeGlobal(global);
     storage.writeStatus(result.status);
   }
-  return { ledgers: out, links: links, errors: errors, status: result.status };
+  return { ledgers: out, global: global, errors: errors, status: result.status };
 }
 
 // ---- 90_gas.js ----
@@ -1920,8 +2013,9 @@ var LEDGER_FORMAT_RULES = [
   { formula: '=$C1="snapshot"', color: COLOR_SNAPSHOT },
   { formula: COMMENT_FORMULA, color: COLOR_COMMENT },
 ];
-var LINKS_FORMAT_RULES = [
+var GLOBAL_FORMAT_RULES = [
   { formula: '=$C1="error"', color: COLOR_ERROR },
+  { formula: '=OR($C1="set", $C1="score")', color: COLOR_SETTINGS },
   { formula: '=$C1="link"', color: COLOR_LINK },
   { formula: '=$C1="unlink"', color: COLOR_UNLINK },
   { formula: COMMENT_FORMULA, color: COLOR_COMMENT },
@@ -1993,9 +2087,9 @@ class SheetsStorage {
     return body.map(function (r) { return isBlankRow(r) ? null : cellText(r[0]); });
   }
 
-  // The #Links tab must carry the ledger header; anything else is ignored.
-  readLinks() {
-    var sheet = this.ss.getSheetByName(LINKS_TAB);
+  // The #Global tab must carry the ledger header; anything else is ignored.
+  readGlobal() {
+    var sheet = this.ss.getSheetByName(GLOBAL_TAB);
     if (!sheet) return [];
     var rows = this.readValues(sheet, CELL_DATETIME_FORMAT);
     return rows.length && isLedgerHeader(rows[0]) ? rows.slice(1).map(function (row) { return row.slice(0, LEDGER_HEADER.length); }) : [];
@@ -2055,8 +2149,8 @@ class SheetsStorage {
     this.writeLedgerRows(rotation, rows);
   }
 
-  writeLinks(rows) {
-    this.writeLedgerRows(LINKS_TAB, rows);
+  writeGlobal(rows) {
+    this.writeLedgerRows(GLOBAL_TAB, rows);
   }
 
   // Generated tabs are cleared with their formats and rewritten; table: { rows, headerRows, dividerRows, currentRows }.
@@ -2191,7 +2285,7 @@ function setConditionalRules(sheet, rules, width) {
 
 // Idempotent formatting: fonts, plain text on the whole ledger columns (A:G), bold grey frozen header,
 // widths, notes and spare columns removed on tabs that have their header, conditional row colours on
-// rotation tabs and #Links, tab colour on system tabs. Never touches cell values.
+// rotation tabs and #Global, tab colour on system tabs. Never touches cell values.
 function formatTab(sheet) {
   var name = sheet.getName();
   var layout = tabLayout(sheet);
@@ -2210,9 +2304,9 @@ function formatTab(sheet) {
     if (sheet.getMaxColumns() > width && sheet.getLastColumn() <= width) sheet.deleteColumns(width + 1, sheet.getMaxColumns() - width);
   }
   if (!isSystemTab(name)) setConditionalRules(sheet, LEDGER_FORMAT_RULES, LEDGER_HEADER.length);
-  if (name === LINKS_TAB) setConditionalRules(sheet, LINKS_FORMAT_RULES, LEDGER_HEADER.length);
+  if (name === GLOBAL_TAB) setConditionalRules(sheet, GLOBAL_FORMAT_RULES, LEDGER_HEADER.length);
   if (isSystemTab(name)) {
-    var editable = name === HOLIDAYS_TAB || name === LINKS_TAB;
+    var editable = name === HOLIDAYS_TAB || name === GLOBAL_TAB;
     sheet.setTabColor(editable ? TAB_COLOR_EDITABLE : TAB_COLOR_GENERATED);
   }
 }
@@ -2225,6 +2319,17 @@ function ensureTab(ss, name, header) {
   } else if (header && isEmptySheet(sheet)) {
     writeHeaderRow(sheet, header);
   }
+  return sheet;
+}
+
+// #Global gets its header and one comment row explaining the tab when created or still empty.
+function ensureGlobalTab(ss) {
+  var sheet = ss.getSheetByName(GLOBAL_TAB) || ss.insertSheet(GLOBAL_TAB);
+  if (!isEmptySheet(sheet)) return sheet;
+  var rows = globalTemplateRows();
+  var range = sheet.getRange(1, 1, rows.length, LEDGER_HEADER.length);
+  range.setNumberFormat('@');
+  range.setValues(rows);
   return sheet;
 }
 
@@ -2246,7 +2351,7 @@ function setupSpreadsheet() {
     if (isEmptySheet(first)) writeRotationTemplate(first, storage);
   }
   ensureTab(ss, HOLIDAYS_TAB, HOLIDAYS_HEADER);
-  ensureTab(ss, LINKS_TAB, LEDGER_HEADER);
+  ensureGlobalTab(ss);
   ensureTab(ss, STATUS_TAB, null);
   ensureTab(ss, ALL_SHIFTS_TAB, SHIFTS_HEADER);
   ss.getSheets().forEach(formatTab);
@@ -2285,7 +2390,7 @@ function fillShiftsGrid() {
     return row.map(function (cell) { return storage.formatCell(cell, CELL_DATETIME_FORMAT); });
   });
   var tab = storage.readValues(sheet, CELL_DATETIME_FORMAT).slice(1);
-  var result = fillShiftsGridCells(selected, tab, storage.readHolidays());
+  var result = fillShiftsGridCells(selected, tab, storage.readHolidays(), storage.readGlobal());
   if (result.error) { toast(result.error); return; }
   var rows = result.rows;
   if (rows.length > count) sheet.insertRowsAfter(top + count - 1, rows.length - count);

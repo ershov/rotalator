@@ -53,19 +53,20 @@ owner explicitly approves one.
 |---|---|---|
 | `<rotation>` | users and script | One per rotation. Tab name is the rotation name. |
 | `#Holidays` | users | Column A: date `YYYY-MM-DD`, column B: note. Applies to all rotations. |
-| `#Links` | users and script | Relations between rotations over time; the script adds `error` rows. |
+| `#Global` | users and script | Spreadsheet-wide `set` defaults, relations between rotations over time, comments; the script adds `error` rows. |
 | `#Status` | script | Recognised tabs, scores, last and next shifts, exclusions, warnings. Fully rewritten each run. |
 | `#All shifts` | script | Every shift of every rotation in one table. Fully rewritten each run. |
-| `#Preview <rotation>`, `#Preview Links` | script | Dry run output. |
+| `#Preview <rotation>`, `#Preview Global` | script | Dry run output. |
 
 Every tab whose name starts with `#` is a system tab and is never a rotation.
 Any other tab whose first row is the ledger header is a rotation; anything else
 is ignored. Renaming `primary` to `#primary` disables the rotation: it is
 neither read nor written, links naming it are dangling and get an `error` row
-in `#Links`, and renaming it back later behaves like a stale run (5.2). The
+in `#Global`, and renaming it back later behaves like a stale run (5.2). The
 `#Status` tab starts with a block listing the rotations found, the number of
-holidays and link rows read, and the tabs ignored (including `#`-prefixed tabs
-that are not system tabs, so a disabled rotation is visible there). A missing
+holidays and `#Global` rows read, and the tabs ignored (including
+`#`-prefixed tabs that are not system tabs, so a disabled rotation is visible
+there). A missing
 preview tab is created right after the tab it previews and never moved
 afterwards.
 
@@ -101,7 +102,8 @@ are kept sorted by `start`; the script re-sorts on every write.
   Which forms a row type accepts is given in 3.4.
 - Member ids: any text without `,` `;` `=` `+`. Matched verbatim.
 - Nobody: empty `what` on a `shift`, `-` or `none`.
-- Scores are written with two decimals.
+- Scores are written with at most two decimals, trailing zeros trimmed:
+  `12.5`, `14`, `19.63`, `0`. Any decimal is accepted on read.
 
 ### 3.4 Row types
 
@@ -125,7 +127,7 @@ rewritten except for sorting (3.6) and the canonical form of `start`, `end`
 and `duration`; replay, generation, status and the `#All shifts` view ignore
 it. A comment whose `start` does not parse counts as undated and produces a
 `#Status` warning naming the row. An entirely blank row is dropped on read; a
-comment needs content in some cell. `#Links` accepts comments the same way.
+comment needs content in some cell. `#Global` accepts comments the same way.
 
 **shift.** Assigns the member in `what` from `start`. Its scored interval ends
 at the explicit `end`, else at the earlier of the next `shift` row's start and
@@ -179,7 +181,7 @@ there.
 
 **snapshot.** One per rotation, written by the script. Its instant is the
 start of the current shift, see 5.2. `what` is the roster in order with scores
-as of that instant: `alice=12.50, bob=11.00`. The snapshot is the single
+as of that instant: `alice=12.5, bob=11`. The snapshot is the single
 boundary in the ledger: rows before it are ignored on replay, except `set`
 rows and `shift` or `exclude` intervals that extend past it, which are clipped
 to start at the snapshot; the shift starting at the same instant is the
@@ -213,10 +215,30 @@ A bare key restores the default in this table (`tolerance`, `tiebreak`,
 `precredit`, ...); a bare `anchor` re-anchors the grid at the row's `start`
 without changing the period.
 
-The first row of a new rotation must be a `set` row with at least `period`,
-followed by a `team` row. Dating the `set` row at the intended first shift
-start makes it the anchor. The templates and `init` date it at the most recent
-Monday 00:00: day-aligned boundaries keep the arithmetic simple (a shift is a
+Global defaults: `set` rows in `#Global` use the same grammar and are replayed
+from the top like a rotation's own. The effective value of a key for a
+rotation at instant `t` is the rotation's own value when the rotation has set
+the key (and not returned it) by `t`, else the global value at `t`, else the
+built-in default. A bare key in a rotation returns that key to the global
+value from then on; a bare key in `#Global` returns it to the built-in
+default. `period` and `anchor` may be set globally (a bare global `anchor`
+anchors at the global row's `start`); a grid change arriving from either
+layer cuts claims and slots for the rotation like a local one (5.4). A
+rotation that takes its grid from `#Global` starts with an empty `set` row,
+the one row type whose `what` may be empty: a bare local `anchor` would pin
+the anchor in the rotation, so a later global period change would re-anchor
+the global layer only and leave that rotation on offset boundaries. A global
+`set` row that fails validation blocks regeneration like a ledger error, since
+every rotation depends on it; set rows that do not parse are skipped when a
+settings timeline is built from unvalidated rows (Fill Shifts Grid, snapshot
+advance). The `#Status` settings block shows the source of each key:
+`rotation`, `global` or `default`.
+
+The first row of a new rotation must be a `set` row, with `period` unless
+`#Global` supplies it at that instant, followed by a `team` row. Dating the
+`set` row at the intended first shift start makes it the anchor. The
+templates and `init` date it at the most recent Monday 00:00: day-aligned
+boundaries keep the arithmetic simple (a shift is a
 whole number of days, `skip_weekends` and `skip_holidays` cut at midnight), and
 the nightly run between 02:00 and 03:00 then produces today's schedule. A
 rotation that hands over during the day sets its own time in the `set` row.
@@ -268,11 +290,11 @@ identical in both modes: skipped days credit zero.
 ## 5. Algorithm
 
 One run processes all rotations together. Input: the ledgers, `#Holidays`,
-`#Links`, `now`, and optionally the names of the rotations to regenerate.
+`#Global`, `now`, and optionally the names of the rotations to regenerate.
 Output: new ledgers, status data, and a list of errors. `now` is consumed by
-step 5.2 only. Everything from 5.3 on depends on the ledger alone, so
-`regenerate(ledgers, holidays, links, only)` is a pure function of the
-spreadsheet content and can be tested without a clock.
+step 5.2 only. Everything from 5.3 on depends on the ledgers and `#Global`
+alone, so `regenerate(ledgers, holidays, global, only)` is a pure function of
+the spreadsheet content and can be tested without a clock.
 
 Run scope: with `only`, rotations not listed are frozen. They are read,
 validated and swept with all their rows kept as they stand (no prune, no
@@ -349,7 +371,7 @@ further out are credited when reached, and the greedy compensates afterwards.
 ### 5.6 Sweep
 
 Walk all items of all rotations in `start` order, ties broken by rotation
-order (Links order, else tab order) and by 3.6. Replay begins at each
+order (link order, else tab order) and by 3.6. Replay begins at each
 rotation's previous snapshot, with `set` rows applied from the top first.
 Rows before the previous snapshot other than `set` rows are ignored; intervals
 that extend past it are clipped.
@@ -453,13 +475,16 @@ removed on the next read, so fixing the cause and rerunning clears them.
 - Relaxation used: text in the generated shift's `note` and in the `#Status`
   warnings table.
 - Dangling link to a missing or disabled rotation tab: `error` row in
-  `#Links`, link ignored.
+  `#Global`, link ignored.
+- Malformed global `set` row: `error` row in `#Global` and no regeneration,
+  like a ledger validation error.
 
-## 7. Multiple rotations and Links
+## 7. Multiple rotations and the `#Global` tab
 
-Rotations are tabs and can appear or disappear at any time. Relations between
-them live in the `#Links` tab, a timeline with the same column layout as a
-ledger:
+Rotations are tabs and can appear or disappear at any time. The `#Global`
+tab is a timeline with the same column layout as a ledger that holds `set`
+rows with spreadsheet-wide defaults (3.5), the relations between rotations
+described here, and comments:
 
 ```
 pin | start | type | what | end | duration | note
@@ -489,13 +514,13 @@ order is static for the run; it does not change when links start or end.
 
 Link rows that fail validation (unknown type, bad `start`, malformed `what`, a
 rotation name without a ledger tab, `unlink` without an active link, bad `end`
-or `duration`) get an `error` row above them in `#Links` and are ignored; the
+or `duration`) get an `error` row above them in `#Global` and are ignored; the
 run still reports them. They do not stop regeneration, because the ledgers do
-not depend on the `#Links` tab being valid. `#Links` is written back in full
-like a ledger when the tab exists; a dry run writes `#Preview Links`. The
-sweep already walks all rotations in one merged time order, so links add only
-the `#Links` reader and two candidate filters. The `#All shifts` tab is the
-all-rotations view.
+not depend on the relations being valid (global `set` rows do stop it, 3.5).
+`#Global` is written back in full like a ledger when the tab exists; a dry run
+writes `#Preview Global`. The sweep already walks all rotations in one merged
+time order, so links add only the `#Global` reader and two candidate filters.
+The `#All shifts` tab is the all-rotations view.
 
 ## 8. Code layout
 
@@ -509,7 +534,7 @@ src/
   30_state.js         roster, scores, exclusions, settings replay
   40_scheduler.js     prune, claims, pre-credit, sweep, selection
   50_status.js        status data, #Status and #All shifts rows
-  60_links.js         #Links reader, rotation order, distinct and joined filters
+  60_links.js         #Global rows, rotation order, distinct and joined filters
   70_tools.js         template rows, Fill Shifts Grid rows, header notes
   80_runner.js        storage-agnostic run: read, advance, regenerate, write
   90_gas.js           Apps Script entry points and Sheets adapter
@@ -541,18 +566,19 @@ The core is storage-agnostic. The `Storage` interface:
 ```
 readLedgers()   -> { [rotation]: rows[] }
 readHolidays()  -> dates[]
-readLinks()     -> rows[]
+readGlobal()    -> rows[]
 ignoredTabs()   -> names[]
 writeLedger(rotation, rows)
-writeLinks(rows)
+writeGlobal(rows)
 writeStatus(status)
 ```
 
 `90_gas.js` implements it on `SpreadsheetApp`, `node/storage.js` on memory and
 CSV files. In the CSV directory `<rotation>.csv` is a rotation tab,
-`holidays.csv` is `#Holidays`, `links.csv` is `#Links`, `status.json` holds the
-`#Status` and `#All shifts` data and `now.txt` the run instant; a file named
-`#<anything>.csv` is never a rotation, like a `#` tab. `writeStatus` receives
+`holidays.csv` is `#Holidays`, `global.csv` is `#Global`, `status.json` holds
+the `#Status` and `#All shifts` data and `now.txt` the run instant; a file
+named `#<anything>.csv` is never a rotation, like a `#` tab. `writeStatus`
+receives
 the status data and writes both the `#Status` and the `#All shifts` tab;
 `50_status.js` turns the data into the 2D text arrays so the adapters and the
 CLI `--status` share one layout. `80_runner.js` holds the shared
@@ -568,7 +594,7 @@ that form before handing them over.
 Apps Script menu: `Run`, `Run - dry run` (writes `#Preview
 <rotation>` tabs), `Run for current rotation`, `Run for current rotation -
 dry run` (the active tab only, through the runner's `rotations` option; a
-dry run then writes that rotation's preview, `#Preview Links` when a `#Links`
+dry run then writes that rotation's preview, `#Preview Global` when a `#Global`
 tab exists, and the status tabs), `Set Up Spreadsheet`, `Set Up Tab`, `Fill
 Shifts Grid` (section 10), `Install nightly trigger`, `Remove trigger`. The
 nightly trigger always runs all rotations. `90_gas.js` reads cells, calls the
@@ -579,7 +605,7 @@ core and writes cells; the row logic of the tools lives in `70_tools.js`.
 - Unit tests: datetime parsing and formatting, durations, list grammar, units
   with skipped days, grid and claims, selection with each tiebreak, relaxation.
 - Golden scenarios: a fixture directory holds `now.txt`, `holidays.csv`,
-  optional `links.csv`, one `<rotation>.csv` per ledger, and
+  optional `global.csv`, one `<rotation>.csv` per ledger, and
   `expected/<rotation>.csv`. The test runs the core and compares. A second run
   on the output must reproduce it exactly.
 - Scenarios: fresh spreadsheet bootstrap; steady state; pin a future shift;
@@ -590,7 +616,8 @@ core and writes cells; the row logic of the tools lives in `70_tools.js`.
   produce error rows and no other change; unassignable slot; snapshot deletion
   triggers full replay; `distinct` and `joined` links between two rotations;
   a rotation disabled by a `#` prefix with a link that dangles; comment rows
-  dated, attached and trailing.
+  dated, attached and trailing; global defaults shared by two rotations with
+  one overriding a key.
 
 ## 10. Deployment
 
@@ -610,9 +637,10 @@ rows, `#Holidays` tab. The menu tools below do the same without typing.
 ### 10.1 Set Up Spreadsheet
 
 `setupSpreadsheet()` is idempotent and never rewrites existing data. It
-creates the missing `#Holidays`, `#Links`, `#Status` and `#All shifts` tabs
-with their headers, creates `On-Call` from the rotation template when no
-rotation exists, and formats every rotation tab, `#Holidays`, `#Links`,
+creates the missing `#Holidays`, `#Global`, `#Status` and `#All shifts` tabs
+with their headers (`#Global` also gets one comment row explaining the tab),
+creates `On-Call` from the rotation template when no rotation exists, and
+formats every rotation tab, `#Holidays`, `#Global`,
 `#All shifts` and empty non-`#` tabs: Roboto Mono on the whole tab, plain
 text number format on the whole ledger columns (`A:G`), which is expected to
 carry over to rows added later the way a select-all format does in the UI
@@ -621,21 +649,22 @@ a bold header row on a light grey background, frozen, column widths per
 column (`note` twice as wide as `what`), a note on each header cell
 explaining the column and empty columns beyond the last one deleted; plus a
 tab colour on `#` tabs (blue for the generated `#Status`, `#All shifts` and
-previews, grey for the editable `#Holidays` and `#Links`). Tabs with content
+previews, grey for the editable `#Holidays` and `#Global`). Tabs with content
 but no ledger header are left alone. The runner keeps applying plain text to
 the ranges it writes. Preview tabs are created right after the tab they
 preview and never moved.
 
-Rotation tabs and `#Links` also get conditional formatting: the tab's rules
+Rotation tabs and `#Global` also get conditional formatting: the tab's rules
 are replaced (not appended to) by the script's set, so a user rule on these
 tabs does not survive Set Up. Each rule is a custom formula over the whole
 columns `A:G` keyed on the `type` cell. Rotation tabs: `error` light red,
 `set` and `score` light blue, `team`, `join`, `leave`, `include` and
 `exclude` light teal, `snapshot` light green, comment rows (empty type with
 content, `=AND($C1="", COUNTA($A1:$G1)>0)`) light yellow, `shift` no colour.
-`#Links`: `link` light green, `unlink` light grey, `error` light red,
-comments light yellow. Generated tabs (`#Status`, `#All shifts`, previews)
-are cleared with their formats and rewritten on every run; the adapter then
+`#Global`: `set` and `score` light blue, `link` light green, `unlink` light
+grey, `error` light red, comments light yellow. Generated tabs (`#Status`,
+`#All shifts`, previews) are cleared with their formats and rewritten on every
+run; the adapter then
 applies bold and the light grey background to the `headerRows`, light green
 to the `dividerRows` and light orange to the `currentRows` reported with the
 rows (5.8).
@@ -652,7 +681,7 @@ editable `#9e9e9e`.
 be empty, otherwise the command refuses with a toast; it gets the header, a
 `set` row listing every setting explicitly at its default (`period=1w`, bare
 `anchor`, `horizon=90d`, ...) dated the most recent Monday 00:00, and a
-`team` row with sample names. `#Holidays` and `#Links` get their header row.
+`team` row with sample names. `#Holidays` and `#Global` get their header row.
 Tabs the script writes get a toast and nothing else.
 
 ### 10.3 Fill Shifts Grid
@@ -699,7 +728,7 @@ validates (the grid is unchanged because every boundary is an anchor).
 1. Core, memory and CSV adapters, CLI, tests, DESIGN.md.
 2. Apps Script adapter, menu, trigger, README.md, INSTALL.md.
 3. `#Status` tab and the `#All shifts` view.
-4. `#Links` tab with `distinct` and `joined`.
+4. `#Links` tab (now `#Global`) with `distinct` and `joined`.
 
 ## 12. Known limitations
 

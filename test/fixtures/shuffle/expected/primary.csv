@@ -15,7 +15,7 @@ pin,start,type,what,end,duration,note
 ,2026-08-17T09:00,shift,bob,,,
 ,2026-08-24T09:00,shift,dave,,,
 ,2026-08-31T09:00,shift,carol,,,
-,2026-09-07T09:00,snapshot,"alice=15.00, bob=15.00, carol=19.63, dave=19.00",,,
+,2026-09-07T09:00,snapshot,"alice=15, bob=15, carol=19.63, dave=19",,,
 ,2026-09-07T09:00,shift,alice,,,
 ,2026-09-14T09:00,shift,bob,,,
 ,2026-09-21T09:00,shift,dave,,,

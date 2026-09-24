@@ -142,7 +142,7 @@ function mainRun(argv) {
   Object.keys(result.ledgers).forEach((name) => {
     process.stdout.write(`# ${name}\n` + ledgerCsv(result.ledgers[name]));
   });
-  if (result.links) process.stdout.write(`# ${load().LINKS_TAB}\n` + ledgerCsv(result.links));
+  if (result.global) process.stdout.write(`# ${load().GLOBAL_TAB}\n` + ledgerCsv(result.global));
   if (args.status && result.status) process.stdout.write('\n' + statusText(result.status));
   result.errors.forEach((e) => process.stderr.write(e + '\n'));
   return result.errors.length ? 1 : 0;

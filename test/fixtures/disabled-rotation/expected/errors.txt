@@ -1,1 +1,1 @@
-#Links row 2: unknown rotation "secondary"
+#Global row 2: unknown rotation "secondary"

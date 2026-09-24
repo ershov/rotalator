@@ -1,4 +1,5 @@
-// #Links tab (DESIGN 7): link and unlink rows relating rotations over time.
+// #Global tab (DESIGN 3.5 and 7): spreadsheet-wide set rows, link and unlink rows relating rotations over
+// time, and comments.
 
 var LINK_KINDS = ['distinct', 'joined'];
 
@@ -34,15 +35,23 @@ function validateLinkRow(row, rotationNames) {
   return null;
 }
 
-// rows: #Links row objects. Returns { links: [{ kind, rotations, from, to }], errors, rows } where rows are the
-// kept rows plus an error row above each rejected one. Rejected rows are ignored; unlink closes matching open
-// links. Comments are kept and otherwise ignored.
-function parseLinks(rows, rotationNames) {
+// rows: #Global row objects. Returns { setRows, setErrors, links: [{ kind, rotations, from, to }], errors, rows }
+// where rows are the kept rows plus an error row above each rejected one. set rows are validated with the
+// ledger rules; a bad one is in setErrors and blocks regeneration since every rotation depends on it. Rejected
+// relation rows are ignored; unlink closes matching open links. Comments are kept and otherwise ignored.
+function parseGlobal(rows, rotationNames) {
   var errors = [];
+  var setErrors = [];
+  var setRows = [];
   var links = [];
   var kept = sortRows(attachComments(rows.filter(function (r) { return r.type !== 'error'; })));
   kept.forEach(function (row) {
     if (row.type === 'comment') return;
+    if (row.type === 'set') {
+      var problem = validateRow(row);
+      if (problem === null) setRows.push(row); else setErrors.push(rowError(row, problem));
+      return;
+    }
     var message = validateLinkRow(row, rotationNames);
     if (message === null) {
       var parsed = parseLinkArg(row.what);
@@ -58,7 +67,8 @@ function parseLinks(rows, rotationNames) {
     }
     if (message !== null) errors.push(rowError(row, message));
   });
-  return { links: links, errors: errors, rows: sortRows(errors.map(errorRow).concat(kept)) };
+  var all = setErrors.concat(errors);
+  return { setRows: setRows, setErrors: setErrors, links: links, errors: all, rows: sortRows(all.map(errorRow).concat(kept)) };
 }
 
 // Sweep order at equal starts: rotations in link list order first, then the rest in tab order.

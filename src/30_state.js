@@ -1,3 +1,4 @@
+// Effective settings at an instant: the rotation's own values over the global ones over the defaults.
 class Settings {
   constructor(values) {
     this.values = Object.assign(defaultSettings(), values || {});
@@ -9,18 +10,6 @@ class Settings {
 
   get(key) {
     return this.values[key];
-  }
-
-  // Returns true when the row changes the grid: period, anchor or grid mode, or a skip flag while counted.
-  apply(setRow) {
-    var values = parseSetArg(setRow.what, setRow.start).values;
-    var before = this.values;
-    var changes = function (key) { return key in values && values[key] !== before[key]; };
-    var changed = changes('period') || changes('anchor') || changes('grid');
-    if (changes('period') && !('anchor' in values)) this.values.anchor = setRow.start;
-    this.values = Object.assign({}, before, values);
-    if (this.values.grid === 'counted' && (changes('skip_weekends') || changes('skip_holidays'))) changed = true;
-    return changed;
   }
 
   grid(holidays) {
@@ -37,16 +26,56 @@ class Settings {
   }
 }
 
-// Settings after each set row, in start order. holidays: Set of day indexes for counted grids.
+var SETTING_LAYERS = ['rotation', 'global'];
+
+function gridChangedBetween(before, after) {
+  if (after.period !== before.period || after.anchor !== before.anchor || after.grid !== before.grid) return true;
+  return after.grid === 'counted' && (after.skip_weekends !== before.skip_weekends || after.skip_holidays !== before.skip_holidays);
+}
+
+// Settings of a rotation over time (DESIGN 3.5): its own set rows layered over the global ones. A key the
+// rotation has set wins until a bare key returns it to the global value; keys set in neither layer use the
+// defaults. Entries hold the effective Settings and the source of each key after every set row of either
+// layer, in start order (global before rotation at the same instant). Rows whose what does not parse are
+// skipped, so callers may pass unvalidated rows. holidays: Set of day indexes.
 class SettingsTimeline {
-  constructor(setRows, holidays) {
+  constructor(setRows, holidays, globalSetRows) {
     this.holidays = holidays || new Set();
     this.entries = [];
-    var settings = new Settings();
-    var rows = sortRows(setRows);
-    for (var i = 0; i < rows.length; i++) {
-      var gridChanged = settings.apply(rows[i]);
-      this.entries.push({ start: rows[i].start, settings: settings.clone(), gridChanged: gridChanged });
+    var layers = { global: {}, rotation: {} };
+    var usable = function (r) { return r.start !== null && parseSetArg(r.what, r.start).error === null; };
+    var events = sortRows((globalSetRows || []).filter(usable)).map(function (r) { return { row: r, layer: 'global' }; })
+      .concat(sortRows(setRows.filter(usable)).map(function (r) { return { row: r, layer: 'rotation' }; }))
+      .sort(function (a, b) { return a.row.start - b.row.start; });
+    var effective = function () {
+      var values = defaultSettings();
+      var sources = {};
+      Object.keys(values).forEach(function (key) {
+        sources[key] = 'default';
+        SETTING_LAYERS.forEach(function (layer) {
+          if (sources[key] === 'default' && key in layers[layer]) { values[key] = layers[layer][key]; sources[key] = layer; }
+        });
+      });
+      return { values: values, sources: sources };
+    };
+    var before = effective();
+    for (var i = 0; i < events.length; i++) {
+      var ev = events[i];
+      var layer = layers[ev.layer];
+      var parsed = parseSetArg(ev.row.what, ev.row.start);
+      Object.keys(parsed.values).forEach(function (key) { if (parsed.reset.indexOf(key) < 0) layer[key] = parsed.values[key]; });
+      parsed.reset.forEach(function (key) { delete layer[key]; });
+      var after = effective();
+      // A period change without an explicit anchor re-anchors this layer at the row.
+      if ('period' in parsed.values && after.values.period !== before.values.period && !('anchor' in parsed.values)) {
+        layer.anchor = ev.row.start;
+        after = effective();
+      }
+      this.entries.push({
+        start: ev.row.start, settings: new Settings(after.values), sources: after.sources,
+        gridChanged: gridChangedBetween(before.values, after.values),
+      });
+      before = after;
     }
   }
 
@@ -59,6 +88,15 @@ class SettingsTimeline {
   at(t) {
     var entry = this.entryAt(t);
     return entry ? entry.settings.clone() : new Settings();
+  }
+
+  // Source of each key at t: 'rotation', 'global' or 'default'.
+  sourcesAt(t) {
+    var entry = this.entryAt(t);
+    if (entry) return Object.assign({}, entry.sources);
+    var out = {};
+    Object.keys(SETTINGS).forEach(function (key) { out[key] = 'default'; });
+    return out;
   }
 
   // One Grid per entry, built on first use so its day caches survive across calls.
@@ -74,9 +112,10 @@ class SettingsTimeline {
   }
 }
 
+// At most two decimals, trailing zeros and dot trimmed: 12.5, 14, 19.63, 0.
 function formatScore(score) {
-  var text = score.toFixed(2);
-  return text === '-0.00' ? '0.00' : text;
+  var text = score.toFixed(2).replace(/\.?0+$/, '');
+  return text === '-0' || text === '' ? '0' : text;
 }
 
 // Clips [a, b) to start at `at`; b null is open. Returns null when nothing extends past `at`.

@@ -3,7 +3,7 @@ var LEDGER_HEADER = ['pin', 'start', 'type', 'what', 'end', 'duration', 'note'];
 // Tabs (DESIGN 3.1). A name starting with '#' is never a rotation.
 var SYSTEM_TAB_PREFIX = '#';
 var HOLIDAYS_TAB = '#Holidays';
-var LINKS_TAB = '#Links';
+var GLOBAL_TAB = '#Global';
 var STATUS_TAB = '#Status';
 var ALL_SHIFTS_TAB = '#All shifts';
 var PREVIEW_TAB_PREFIX = '#Preview ';
@@ -12,22 +12,23 @@ function isSystemTab(name) {
   return name.charAt(0) === SYSTEM_TAB_PREFIX;
 }
 
-// Preview of a rotation tab, or '#Preview Links' for the Links tab.
+// Preview of a rotation tab, or '#Preview Global' for the #Global tab.
 function previewTabName(name) {
   return PREVIEW_TAB_PREFIX + (isSystemTab(name) ? name.slice(1) : name);
 }
 
 function isKnownSystemTab(name) {
-  return name === HOLIDAYS_TAB || name === LINKS_TAB || name === STATUS_TAB || name === ALL_SHIFTS_TAB ||
+  return name === HOLIDAYS_TAB || name === GLOBAL_TAB || name === STATUS_TAB || name === ALL_SHIFTS_TAB ||
     name.indexOf(PREVIEW_TAB_PREFIX) === 0;
 }
 
 // order: same-instant sort (DESIGN 3.6). what: item grammar of the column (see validateWhat).
-// required: what must not be empty. extent: end/duration allowed. A row with an empty type is a comment
-// (internal type 'comment', order -1): never validated, replayed or generated, only sorted.
+// required: what must not be empty (a set row may be empty: the minimal first row when #Global supplies the
+// settings). extent: end/duration allowed. A row with an empty type is a comment (internal type 'comment',
+// order -1): never validated, replayed or generated, only sorted.
 var ROW_TYPES = {
   error:    { order: 0, what: 'text',   required: true,  extent: false },
-  set:      { order: 1, what: 'set',    required: true,  extent: false },
+  set:      { order: 1, what: 'set',    required: false, extent: false },
   snapshot: { order: 2, what: 'scores', required: false, extent: false },
   team:     { order: 3, what: 'team',   required: true,  extent: false },
   join:     { order: 4, what: 'join',   required: true,  extent: false },
@@ -114,30 +115,46 @@ function defaultSettings() {
   return out;
 }
 
-// Returns { values: { key: parsed }, error: string | null }. start is the row's start, used by bare anchor.
+// Returns { values: { key: parsed }, reset: [keys], error: string | null }. start is the row's start, used by
+// bare anchor. reset lists the keys given bare that return to their default (and, in a rotation, to the
+// global value); values carries the default for them too.
 function parseSetArg(text, start) {
   var items = parseAssignments(text);
-  if (typeof items === 'string') return { values: {}, error: items };
-  var values = {};
+  var out = { values: {}, reset: [], error: null };
+  if (typeof items === 'string') { out.error = items; return out; }
+  var fail = function (message) { out.error = message; return out; };
   for (var i = 0; i < items.length; i++) {
     var it = items[i];
     var key = it.name.toLowerCase();
     var spec = SETTINGS[key];
-    if (!spec) return { values: values, error: 'unknown setting "' + it.name + '"' };
-    if (key in values) return { values: values, error: 'duplicate setting "' + it.name + '"' };
-    if (it.op !== null && it.op !== '=') return { values: values, error: 'set expects key or key=value, got "' + it.name + it.op + '"' };
+    if (!spec) return fail('unknown setting "' + it.name + '"');
+    if (key in out.values) return fail('duplicate setting "' + it.name + '"');
+    if (it.op !== null && it.op !== '=') return fail('set expects key or key=value, got "' + it.name + it.op + '"');
     var parsed;
     if (it.op === null) {
-      if (spec.bare === 'none') return { values: values, error: it.name + ' requires a value' };
+      if (spec.bare === 'none') return fail(it.name + ' requires a value');
+      if (spec.bare === 'default') out.reset.push(key);
       parsed = spec.bare === 'start' ? start : spec.def;
     } else {
-      if (!spec.parse) return { values: values, error: it.name + ' takes no value; the row start is the ' + it.name };
+      if (!spec.parse) return fail(it.name + ' takes no value; the row start is the ' + it.name);
       parsed = spec.parse(it.value);
-      if (parsed === null) return { values: values, error: 'bad value for ' + it.name + ': "' + it.value + '"' };
+      if (parsed === null) return fail('bad value for ' + it.name + ': "' + it.value + '"');
     }
-    values[key] = parsed;
+    out.values[key] = parsed;
   }
-  return { values: values, error: null };
+  return out;
+}
+
+// Value of a key from the global set rows dated at or before t; undefined when none sets it.
+function globalValueAt(globalSetRows, key, t) {
+  var value;
+  sortRows(globalSetRows || []).forEach(function (row) {
+    if (row.start === null || row.start > t) return;
+    var parsed = parseSetArg(row.what, row.start);
+    if (parsed.reset.indexOf(key) >= 0) value = undefined;
+    else if (key in parsed.values) value = parsed.values[key];
+  });
+  return value;
 }
 
 function isNobody(what) {
@@ -349,8 +366,9 @@ function rowError(row, message) {
   return { rowIndex: row.rowIndex, start: row.start, startText: row.startText, message: message };
 }
 
-// Stateless checks of DESIGN 5.1. Drops error rows; returns remaining rows sorted.
-function validateLedger(rows, rotationName) {
+// Stateless checks of DESIGN 5.1. Drops error rows; returns remaining rows sorted. globalSetRows: the valid
+// set rows of #Global, which may supply the period the first set row must otherwise carry.
+function validateLedger(rows, rotationName, globalSetRows) {
   var errors = [];
   var kept = [];
   var snapshots = 0;
@@ -367,8 +385,9 @@ function validateLedger(rows, rotationName) {
   var first = firstOfType(sorted, Object.keys(ROW_TYPES));
   if (!first) {
     errors.push({ rowIndex: null, start: null, startText: '', message: rotationName + ': ledger is empty' });
-  } else if (first.start !== null && !(first.type === 'set' && parseSetArg(first.what, first.start).values.period)) {
-    errors.push(rowError(first, rotationName + ': first row must be a set row with period'));
+  } else if (first.start !== null) {
+    var period = first.type === 'set' && (parseSetArg(first.what, first.start).values.period || globalValueAt(globalSetRows, 'period', first.start));
+    if (!period) errors.push(rowError(first, rotationName + ': first row must be a set row (period own or from ' + GLOBAL_TAB + ')'));
   }
   return { rows: sorted, errors: errors };
 }

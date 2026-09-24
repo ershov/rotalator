@@ -32,8 +32,9 @@ var LEDGER_FORMAT_RULES = [
   { formula: '=$C1="snapshot"', color: COLOR_SNAPSHOT },
   { formula: COMMENT_FORMULA, color: COLOR_COMMENT },
 ];
-var LINKS_FORMAT_RULES = [
+var GLOBAL_FORMAT_RULES = [
   { formula: '=$C1="error"', color: COLOR_ERROR },
+  { formula: '=OR($C1="set", $C1="score")', color: COLOR_SETTINGS },
   { formula: '=$C1="link"', color: COLOR_LINK },
   { formula: '=$C1="unlink"', color: COLOR_UNLINK },
   { formula: COMMENT_FORMULA, color: COLOR_COMMENT },
@@ -105,9 +106,9 @@ class SheetsStorage {
     return body.map(function (r) { return isBlankRow(r) ? null : cellText(r[0]); });
   }
 
-  // The #Links tab must carry the ledger header; anything else is ignored.
-  readLinks() {
-    var sheet = this.ss.getSheetByName(LINKS_TAB);
+  // The #Global tab must carry the ledger header; anything else is ignored.
+  readGlobal() {
+    var sheet = this.ss.getSheetByName(GLOBAL_TAB);
     if (!sheet) return [];
     var rows = this.readValues(sheet, CELL_DATETIME_FORMAT);
     return rows.length && isLedgerHeader(rows[0]) ? rows.slice(1).map(function (row) { return row.slice(0, LEDGER_HEADER.length); }) : [];
@@ -167,8 +168,8 @@ class SheetsStorage {
     this.writeLedgerRows(rotation, rows);
   }
 
-  writeLinks(rows) {
-    this.writeLedgerRows(LINKS_TAB, rows);
+  writeGlobal(rows) {
+    this.writeLedgerRows(GLOBAL_TAB, rows);
   }
 
   // Generated tabs are cleared with their formats and rewritten; table: { rows, headerRows, dividerRows, currentRows }.
@@ -303,7 +304,7 @@ function setConditionalRules(sheet, rules, width) {
 
 // Idempotent formatting: fonts, plain text on the whole ledger columns (A:G), bold grey frozen header,
 // widths, notes and spare columns removed on tabs that have their header, conditional row colours on
-// rotation tabs and #Links, tab colour on system tabs. Never touches cell values.
+// rotation tabs and #Global, tab colour on system tabs. Never touches cell values.
 function formatTab(sheet) {
   var name = sheet.getName();
   var layout = tabLayout(sheet);
@@ -322,9 +323,9 @@ function formatTab(sheet) {
     if (sheet.getMaxColumns() > width && sheet.getLastColumn() <= width) sheet.deleteColumns(width + 1, sheet.getMaxColumns() - width);
   }
   if (!isSystemTab(name)) setConditionalRules(sheet, LEDGER_FORMAT_RULES, LEDGER_HEADER.length);
-  if (name === LINKS_TAB) setConditionalRules(sheet, LINKS_FORMAT_RULES, LEDGER_HEADER.length);
+  if (name === GLOBAL_TAB) setConditionalRules(sheet, GLOBAL_FORMAT_RULES, LEDGER_HEADER.length);
   if (isSystemTab(name)) {
-    var editable = name === HOLIDAYS_TAB || name === LINKS_TAB;
+    var editable = name === HOLIDAYS_TAB || name === GLOBAL_TAB;
     sheet.setTabColor(editable ? TAB_COLOR_EDITABLE : TAB_COLOR_GENERATED);
   }
 }
@@ -337,6 +338,17 @@ function ensureTab(ss, name, header) {
   } else if (header && isEmptySheet(sheet)) {
     writeHeaderRow(sheet, header);
   }
+  return sheet;
+}
+
+// #Global gets its header and one comment row explaining the tab when created or still empty.
+function ensureGlobalTab(ss) {
+  var sheet = ss.getSheetByName(GLOBAL_TAB) || ss.insertSheet(GLOBAL_TAB);
+  if (!isEmptySheet(sheet)) return sheet;
+  var rows = globalTemplateRows();
+  var range = sheet.getRange(1, 1, rows.length, LEDGER_HEADER.length);
+  range.setNumberFormat('@');
+  range.setValues(rows);
   return sheet;
 }
 
@@ -358,7 +370,7 @@ function setupSpreadsheet() {
     if (isEmptySheet(first)) writeRotationTemplate(first, storage);
   }
   ensureTab(ss, HOLIDAYS_TAB, HOLIDAYS_HEADER);
-  ensureTab(ss, LINKS_TAB, LEDGER_HEADER);
+  ensureGlobalTab(ss);
   ensureTab(ss, STATUS_TAB, null);
   ensureTab(ss, ALL_SHIFTS_TAB, SHIFTS_HEADER);
   ss.getSheets().forEach(formatTab);
@@ -397,7 +409,7 @@ function fillShiftsGrid() {
     return row.map(function (cell) { return storage.formatCell(cell, CELL_DATETIME_FORMAT); });
   });
   var tab = storage.readValues(sheet, CELL_DATETIME_FORMAT).slice(1);
-  var result = fillShiftsGridCells(selected, tab, storage.readHolidays());
+  var result = fillShiftsGridCells(selected, tab, storage.readHolidays(), storage.readGlobal());
   if (result.error) { toast(result.error); return; }
   var rows = result.rows;
   if (rows.length > count) sheet.insertRowsAfter(top + count - 1, rows.length - count);
