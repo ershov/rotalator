@@ -255,13 +255,17 @@ function statusRowsVertical(status) {
 
 // Rows of the #All shifts grid: header start | <rotation> ..., one row per distinct shift start with the
 // assignee starting then in each rotation's column ('-' for nobody), and a now row marked in every rotation
-// column after any row with the same start (omitted when status.at is unknown).
+// column after any row with the same start. currentCells [{ row, col }] (0-based) are the cells of each
+// rotation's shift covering now; both are empty when status.at is unknown.
 function shiftsRows(status) {
   var names = status.rotations.map(function (r) { return r.name; });
   var rows = [SHIFTS_HEADER.concat(names)];
   var dividerRows = [];
+  var currentCells = [];
   var at = status.at;
   var known = at !== null && at !== undefined;
+  var current = {};
+  if (known) status.rotations.forEach(function (r) { if (r.current) current[r.name] = r.current.start; });
   var starts = [];
   var byStart = new Map();
   status.shifts.forEach(function (s) {
@@ -273,8 +277,9 @@ function shiftsRows(status) {
   starts.forEach(function (start) {
     if (!placed && start > at) { dividerRows.push(rows.length); rows.push(nowRow); placed = true; }
     var cells = byStart.get(start);
+    names.forEach(function (n, i) { if (current[n] === start) currentCells.push({ row: rows.length, col: i + 1 }); });
     rows.push([statusInstant(start)].concat(names.map(function (n) { return cells[n] || ''; })));
   });
   if (!placed) { dividerRows.push(rows.length); rows.push(nowRow); }
-  return { rows: rows, headerRows: [0], dividerRows: dividerRows };
+  return { rows: rows, headerRows: [0], dividerRows: dividerRows, currentCells: currentCells };
 }

@@ -1729,13 +1729,17 @@ function statusRowsVertical(status) {
 
 // Rows of the #All shifts grid: header start | <rotation> ..., one row per distinct shift start with the
 // assignee starting then in each rotation's column ('-' for nobody), and a now row marked in every rotation
-// column after any row with the same start (omitted when status.at is unknown).
+// column after any row with the same start. currentCells [{ row, col }] (0-based) are the cells of each
+// rotation's shift covering now; both are empty when status.at is unknown.
 function shiftsRows(status) {
   var names = status.rotations.map(function (r) { return r.name; });
   var rows = [SHIFTS_HEADER.concat(names)];
   var dividerRows = [];
+  var currentCells = [];
   var at = status.at;
   var known = at !== null && at !== undefined;
+  var current = {};
+  if (known) status.rotations.forEach(function (r) { if (r.current) current[r.name] = r.current.start; });
   var starts = [];
   var byStart = new Map();
   status.shifts.forEach(function (s) {
@@ -1747,10 +1751,11 @@ function shiftsRows(status) {
   starts.forEach(function (start) {
     if (!placed && start > at) { dividerRows.push(rows.length); rows.push(nowRow); placed = true; }
     var cells = byStart.get(start);
+    names.forEach(function (n, i) { if (current[n] === start) currentCells.push({ row: rows.length, col: i + 1 }); });
     rows.push([statusInstant(start)].concat(names.map(function (n) { return cells[n] || ''; })));
   });
   if (!placed) { dividerRows.push(rows.length); rows.push(nowRow); }
-  return { rows: rows, headerRows: [0], dividerRows: dividerRows };
+  return { rows: rows, headerRows: [0], dividerRows: dividerRows, currentCells: currentCells };
 }
 
 // ---- 60_relations.js ----
@@ -2197,7 +2202,7 @@ var DEFAULT_ROTATION_TAB = 'On-Call';
 var LEDGER_COLUMN_WIDTHS = { pin: 40, start: 150, type: 80, what: 320, end: 150, duration: 80, note: 640 };
 var HOLIDAYS_COLUMN_WIDTHS = { date: 110, note: 640 };
 var SHIFTS_START_WIDTH = 150;
-var SHIFTS_ROTATION_WIDTH = 120;
+var SHIFTS_ROTATION_WIDTH = 240;
 // #Status: keys | names or dates | dates | gap | gap | member | mark | score | projected | last | next |
 // exclusions | gap | gap | setting | value | source.
 var STATUS_COLUMN_WIDTHS = [100, 150, 150, 60, 60, 120, 60, 100, 100, 150, 150, 150, 60, 60, 100, 150, 100];
@@ -2210,6 +2215,7 @@ var COLOR_SETTINGS = '#c9daf8';
 var COLOR_ROSTER = '#d0e0e3';
 var COLOR_SNAPSHOT = '#d9ead3';
 var COLOR_COMMENT = '#fff2cc';
+var COLOR_CURRENT_CELL = COLOR_COMMENT;
 var COLOR_RELATION = '#d9ead3';
 var COLOR_DETACH = '#efefef';
 
@@ -2327,8 +2333,8 @@ class SheetsStorage {
     range.setValues(rows);
   }
 
-  // Bold grey header rows and a green divider, from the row indexes the status module reports in
-  // table { headerRows, dividerRows }.
+  // Bold grey header rows, a green divider and yellow current cells, from the 0-based indexes the status
+  // module reports in table { headerRows, dividerRows, currentCells }.
   formatTableRows(sheet, width, table) {
     var paint = function (indexes, color) {
       (indexes || []).forEach(function (i) { sheet.getRange(i + 1, 1, 1, width).setBackground(color); });
@@ -2336,6 +2342,7 @@ class SheetsStorage {
     (table.headerRows || []).forEach(function (i) { sheet.getRange(i + 1, 1, 1, width).setFontWeight('bold'); });
     paint(table.headerRows, COLOR_HEADER);
     paint(table.dividerRows, COLOR_DIVIDER);
+    (table.currentCells || []).forEach(function (c) { sheet.getRange(c.row + 1, c.col + 1).setBackground(COLOR_CURRENT_CELL); });
   }
 
   // Rows below the header of a ledger-shaped tab; previews go to '#Preview <name>' with a fresh header.
@@ -2363,7 +2370,7 @@ class SheetsStorage {
     this.writeLedgerRows(GLOBAL_TAB, rows);
   }
 
-  // Generated tabs are cleared with their formats and rewritten; table: { rows, headerRows, dividerRows }.
+  // Generated tabs are cleared with their formats and rewritten; table: { rows, headerRows, dividerRows, currentCells }.
   writeTable(name, table) {
     var sheet = this.sheetNamed(name);
     sheet.clear();

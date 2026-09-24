@@ -475,9 +475,11 @@ from future, placed after any row with the same start (omitted when `now` is
 unknown). `statusRows` and `shiftsRows` return `{ rows, headerRows,
 dividerRows }`: the row indexes of the title, `Tabs` and `Relations` headers,
 each rotation block's first row, the warnings and errors headers and the
-`#All shifts` header, and of the now row, so adapters format them without
-knowing the layout while the CLI prints rows only. Both tabs are rewritten in
-full on every run, including dry runs.
+`#All shifts` header, and of the now row; `shiftsRows` adds `currentCells`,
+the `{ row, col }` (0-based) of each rotation's shift covering `now` (the
+same rule as `current`), empty when `now` is unknown. Adapters format them
+without knowing the layout while the CLI prints rows only. Both tabs are
+rewritten in full on every run, including dry runs.
 
 ### 5.9 Properties
 
@@ -740,12 +742,14 @@ green, `detach` light grey, comment rows (empty type with content,
 `#All shifts`, previews) are cleared with their formats and rewritten on every
 run; the adapter then
 applies bold and the light grey background to the `headerRows` and light
-green to the `dividerRows` reported with the rows (5.8). `#All shifts` gets
-its column widths on every run: 150 for `start`, 120 per rotation column.
+green to the `dividerRows` and light yellow to the `currentCells` reported
+with the rows (5.8). `#All shifts` gets its column widths on every run: 150
+for `start`, 240 per rotation column.
 
 Palette: header `#eeeeee`, error `#f4c7c3`, settings `#c9daf8`, roster
-`#d0e0e3`, snapshot and relation and divider `#d9ead3`, comment `#fff2cc`,
-detach `#efefef`; tab colours generated `#4285f4`, editable `#9e9e9e`.
+`#d0e0e3`, snapshot and relation and divider `#d9ead3`, comment and current
+shift cell `#fff2cc`, detach `#efefef`; tab colours generated `#4285f4`,
+editable `#9e9e9e`.
 
 ### 10.2 Set Up Tab
 

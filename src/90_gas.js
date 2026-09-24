@@ -10,7 +10,7 @@ var DEFAULT_ROTATION_TAB = 'On-Call';
 var LEDGER_COLUMN_WIDTHS = { pin: 40, start: 150, type: 80, what: 320, end: 150, duration: 80, note: 640 };
 var HOLIDAYS_COLUMN_WIDTHS = { date: 110, note: 640 };
 var SHIFTS_START_WIDTH = 150;
-var SHIFTS_ROTATION_WIDTH = 120;
+var SHIFTS_ROTATION_WIDTH = 240;
 // #Status: keys | names or dates | dates | gap | gap | member | mark | score | projected | last | next |
 // exclusions | gap | gap | setting | value | source.
 var STATUS_COLUMN_WIDTHS = [100, 150, 150, 60, 60, 120, 60, 100, 100, 150, 150, 150, 60, 60, 100, 150, 100];
@@ -23,6 +23,7 @@ var COLOR_SETTINGS = '#c9daf8';
 var COLOR_ROSTER = '#d0e0e3';
 var COLOR_SNAPSHOT = '#d9ead3';
 var COLOR_COMMENT = '#fff2cc';
+var COLOR_CURRENT_CELL = COLOR_COMMENT;
 var COLOR_RELATION = '#d9ead3';
 var COLOR_DETACH = '#efefef';
 
@@ -140,8 +141,8 @@ class SheetsStorage {
     range.setValues(rows);
   }
 
-  // Bold grey header rows and a green divider, from the row indexes the status module reports in
-  // table { headerRows, dividerRows }.
+  // Bold grey header rows, a green divider and yellow current cells, from the 0-based indexes the status
+  // module reports in table { headerRows, dividerRows, currentCells }.
   formatTableRows(sheet, width, table) {
     var paint = function (indexes, color) {
       (indexes || []).forEach(function (i) { sheet.getRange(i + 1, 1, 1, width).setBackground(color); });
@@ -149,6 +150,7 @@ class SheetsStorage {
     (table.headerRows || []).forEach(function (i) { sheet.getRange(i + 1, 1, 1, width).setFontWeight('bold'); });
     paint(table.headerRows, COLOR_HEADER);
     paint(table.dividerRows, COLOR_DIVIDER);
+    (table.currentCells || []).forEach(function (c) { sheet.getRange(c.row + 1, c.col + 1).setBackground(COLOR_CURRENT_CELL); });
   }
 
   // Rows below the header of a ledger-shaped tab; previews go to '#Preview <name>' with a fresh header.
@@ -176,7 +178,7 @@ class SheetsStorage {
     this.writeLedgerRows(GLOBAL_TAB, rows);
   }
 
-  // Generated tabs are cleared with their formats and rewritten; table: { rows, headerRows, dividerRows }.
+  // Generated tabs are cleared with their formats and rewritten; table: { rows, headerRows, dividerRows, currentCells }.
   writeTable(name, table) {
     var sheet = this.sheetNamed(name);
     sheet.clear();

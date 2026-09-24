@@ -113,6 +113,7 @@ test('statusRows and shiftsRows: rows, header and divider metadata', () => {
   ]);
   assert.deepEqual(structuredClone(shifts.headerRows), [0]);
   assert.deepEqual(structuredClone(shifts.dividerRows), [2]);
+  assert.deepEqual(structuredClone(shifts.currentCells), [{ row: 1, col: 1 }, { row: 1, col: 2 }]);
   assert.match(statusText(status), /^Rotalator {2}dry run +2026-10-05T10:00\n/);
 
   const noNow = U.regenerate({ rotations: [{ name: 'p', rows: U.rowsFromCells(ledgers.primary), snapshotAt: null }], holidays: [], global: [] });
@@ -247,6 +248,7 @@ test('status on validation error: errors block, no rotations, no shifts', () => 
     ['primary', 'row 6', 'unknown type "holiday"'],
   ]);
   assert.deepEqual(structuredClone(U.shiftsRows(status).rows), [['start'], [NOW]]);
+  assert.deepEqual(structuredClone(U.shiftsRows(status).currentCells), []);
 });
 
 test('All shifts grid: shared start rows, nobody as -, now row after an equal start', () => {
@@ -273,6 +275,9 @@ test('All shifts grid: shared start rows, nobody as -, now row after an equal st
     ['2026-10-12T09:00', 'alice', ''],
   ]);
   assert.deepEqual(structuredClone(out.dividerRows), [3]);
-  assert.equal(structuredClone(U.statusRows(status)).currentRows, undefined);
+  // weekly is on its nobody shift from 10-05, daily on carol's 10-06 shift: one cell each.
+  assert.deepEqual(structuredClone(out.currentCells), [{ row: 1, col: 1 }, { row: 2, col: 2 }]);
   assert.equal(U.NOW_MARK, '--now--');
+  const noNow = U.regenerate({ rotations: Object.keys(mixed).map((name) => ({ name, rows: U.rowsFromCells(mixed[name]), snapshotAt: null })), holidays: [], global: [] });
+  assert.deepEqual(structuredClone(U.shiftsRows(noNow.status).currentCells), []);
 });

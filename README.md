@@ -309,8 +309,9 @@ validation error the tab lists the errors instead of rotations.
 `#All shifts` is a grid with one column per rotation and one row per instant
 at which any rotation changes hands: the cell holds who starts then, `-` for
 a shift with nobody, and stays empty for rotations that do not change at that
-instant. A `--now--` row separates past from future. Both tabs are rewritten
-by every run, including dry runs.
+instant. A `--now--` row separates past from future, and the cell of each
+rotation's current shift is highlighted. Both tabs are rewritten by every
+run, including dry runs.
 
 ## Global defaults and relations between rotations
 
