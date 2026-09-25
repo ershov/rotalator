@@ -187,10 +187,11 @@ function verticalBlock(rot) {
   return { rows: rows, headers: [0, g.keys.length + 1, g.keys.length + g.members.length + 2] };
 }
 
-// Relations matrix rows: header with every rotation, then per reader a row with + (attract) or - (repel).
+// Relations matrix rows: header with every rotation, then per reader a row with + (attract), - (repel) or
+// -! (repel!).
 function relationsMatrix(status) {
   var names = status.rotations.map(function (r) { return r.name; });
-  var marks = { attract: '+', repel: '-' };
+  var marks = { attract: '+', repel: '-', 'repel!': '-!' };
   var rows = [['Relations'].concat(names)];
   names.forEach(function (reader) {
     rows.push([reader].concat(names.map(function (target) {

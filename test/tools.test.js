@@ -71,7 +71,7 @@ test('HELP_TEXT covers every row type, setting, interval unit and menu item', ()
 test('globalTemplateRows and holidaysTemplateRows', () => {
   const rows = plain(U.globalTemplateRows());
   assert.deepEqual(rows[0], plain(U.LEDGER_HEADER));
-  assert.deepEqual(rows.slice(1, 5).map((r) => r[6]), ['ROWS:', 'repel / attract / detach: Rotation1, Rotation2', 'set: key, key=value', 'set / repel / attract without start: apply from the beginning']);
+  assert.deepEqual(rows.slice(1, 5).map((r) => r[6]), ['ROWS:', 'repel / repel! / attract / detach: Rotation1, Rotation2', 'set: key, key=value', 'set / repel / repel! / attract without start: apply from the beginning']);
   assert.deepEqual(rows[5], R('', '', 'set', SET_DEFAULTS));
   assert.equal(rows.length, 6);
   const parsed = U.parseGlobal(U.rowsFromCells(rows.slice(1)), ['r']);

@@ -135,12 +135,14 @@ are kept sorted by `start`; the script re-sorts on every write.
 | set | `key`, `key=value` | | users |
 | attract | rotation names, one or more | optional | users |
 | repel | rotation names, one or more | optional | users |
+| repel! | rotation names, one or more | optional | users |
 | detach | rotation names, one or more | optional | users |
 | snapshot | `name=score` | | script |
 | error | message | | script |
 | (empty) | free text | | users |
 
-Epoch rows: a `set`, `team`, `repel` or `attract` row with an empty `start`
+Epoch rows: a `set`, `team`, `repel`, `repel!` or `attract` row with an empty
+`start`
 applies from the beginning of the timeline. Internally its start is
 `-Infinity`, so it sorts before every dated row (type order among epoch rows,
 3.6) and compares as earlier than any instant. At most one epoch row per type
@@ -299,8 +301,8 @@ rotation that hands over during the day sets its own time in the `set` row.
 ### 3.6 Same-instant ordering
 
 Rows with equal `start` sort as: comment, `error`, `set`, `attract`, `repel`,
-`detach`, `snapshot`, `team`, `score`, `join`, `leave`, `exclude`, `include`,
-`shift`. State changes at an instant therefore apply before the shift
+`repel!`, `detach`, `snapshot`, `team`, `score`, `join`, `leave`, `exclude`,
+`include`, `shift`. State changes at an instant therefore apply before the shift
 starting at it, and a `score` correction applies right after the `team` row
 of the same instant. Sorting is stable, so user order is kept otherwise.
 Epoch rows (3.4) sort before every dated row, in the same type order among
@@ -473,7 +475,8 @@ that extend past it are clipped.
 ### 5.7 Selection for a slot `[a, b)`
 
 1. Eligible: on the roster, no exclusion overlapping `[a, b)`, not repelled
-   (7), and no shift of theirs, kept or already generated, overlapping
+   (7, including the `repel!` rest window), and no shift of theirs, kept or
+   already generated, overlapping
    `[a - D, b + D)` where `D` is the `min_distance` interval resolved at `a`
    (`sl` and `ts` with the period and roster size at `a`) and the subtraction
    and addition run along the grid's timeline.
@@ -485,13 +488,15 @@ that extend past it are clipped.
    previous shift, start at the top.
 4. Tiebreak `shuffle`: lowest FNV-1a 32-bit hash of
    `seed|rotation|a|member`, ties by roster order.
-5. Relaxation: if nobody is eligible, shorten `D` by one period and retry,
-   down to zero. At zero with nobody eligible, drop repel and walk `D` down
-   again; a member chosen this way gets the warning `repel relaxed: <who>
-   also on <rotation>`. Still nobody: emit a `shift` with nobody and an
-   `error` row at `a`. Exclusions are never violated. Any relaxation used is
-   recorded in the generated shift's `note` (`min_distance relaxed to 1sl`,
-   the remaining distance in shift lengths) and in the `#Status` warnings.
+5. Relaxation: if nobody is eligible, first shorten the `repel!` rest window
+   (7) by one period per step down to zero, `D` staying in force; then
+   shorten `D` by one period and retry, down to zero. At zero with nobody
+   eligible, drop repel and walk `D` down again; a member chosen this way gets
+   the warning `repel relaxed: <who> also on <rotation>`. Still nobody: emit a
+   `shift` with nobody and an `error` row at `a`. Exclusions are never
+   violated. Any relaxation used is recorded in the generated shift's `note`
+   (`repel! relaxed to 1sl`, `min_distance relaxed to 1sl`: the remaining
+   distance in shift lengths) and in the `#Status` warnings.
 
 With `tolerance = 0` and `tiebreak = order` this is plain lowest-score-first
 with a stable order for ties.
@@ -630,10 +635,13 @@ pin | start | type | what | end | duration | note
 ```
 
 The tab carries the ledger header row. Relation rows also appear in rotation
-tabs. Three types, `what` a plain list of rotation names:
+tabs. Four types, `what` a plain list of rotation names:
 
 - `repel`: members holding a shift that overlaps the slot in a related
   rotation are removed from the slot's candidates.
+- `repel!`: like `repel`, and the member is also kept off the slot while
+  their shift in the related rotation lies within a rest window around it
+  (below).
 - `attract`: among the candidates inside the tolerance band, members holding
   an overlapping shift in a related rotation are preferred.
 - `detach`: the pairs return to neutral.
@@ -663,6 +671,31 @@ rotation's grid is at least as fine as the grid it reads: a weekly rotation
 reading a daily one sees, for its Monday slot, only the Monday of the daily
 rotation and may still collide with its Tuesday.
 
+### Rest across rotations (`repel!`)
+
+`repel!` extends the overlap test of `repel` by a rest window: for a slot
+`[a, b)` in rotation A and a related rotation B, a member is excluded when
+they hold a shift in B overlapping `[a - D, b + D)`, where `D = (D_A + D_B) /
+2`. `D_A` and `D_B` are the two rotations' `min_distance` settings at `a`,
+each resolved in its own grid space (`sl` and `ts` with that rotation's period
+and roster at `a`) to minutes, averaged, and the window is laid out along A's
+grid with `offset` (4). Plain `repel` is the same rule with `D = 0`. For a
+mutual row both sides compute the same average, so each rotation keeps its
+members off the other for half the combined rest before and after their shift;
+a one-sided row applies the window to the reader only. Half of each side's
+rest is the compromise that respects both rotations' expectations without
+letting the stricter one dictate the other's schedule; the alternative of
+taking the smaller of the two distances was rejected because it lets a
+rotation with `min_distance=0` cancel the rest of the other entirely.
+
+When the window leaves no candidate, relaxation proceeds in this order: the
+window shrinks by one period of A per step down to zero, `min_distance`
+staying in force, and the shift gets the note `repel! relaxed to <remaining>`
+in shift lengths (`0` at plain repel); then `min_distance` is relaxed as in
+5.7; then repel is dropped with its warning; then nobody. Overlapping shifts
+across the two rotations therefore stay forbidden until the third step, like
+plain `repel`.
+
 ### Order at equal starts
 
 At equal starts rotations are decided in dependency order: a rotation comes
@@ -676,16 +709,18 @@ time in that range, form a cycle that cannot be ordered: each row involved
 gets an `error` row above it (`relation order cycle among ...; use a #Global
 row`), its relations are ignored, and the order is computed without them. The
 cycle test is coarse: a rotation on a dependency path between two cycles
-counts as part of them.
+counts as part of them. The `#Status` relations matrix marks `attract` `+`,
+`repel` `-` and `repel!` `-!`.
 
 ### Soft repel
 
 `repel` is relaxed only after `min_distance`: the candidate search first
-walks `min_distance` down to zero with repel in force, then once more without
-repel, and only then gives up with a `shift` for nobody and an `error` row
-(5.7). A member chosen without repel gets the note and `#Status` warning
-`repel relaxed: <who> also on <rotation>`. Exclusions are never relaxed.
-`attract` needs no relaxation.
+walks the `repel!` window down (above), then `min_distance` down to zero with
+repel in force, then the `min_distance` ladder once more without repel, and
+only then gives up with a `shift` for nobody and an `error` row (5.7). A
+member chosen without repel gets the note and `#Status` warning `repel
+relaxed: <who> also on <rotation>`. Exclusions are never relaxed. `attract`
+needs no relaxation.
 
 ### Errors
 

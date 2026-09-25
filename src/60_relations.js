@@ -1,7 +1,7 @@
 // #Global tab (DESIGN 3.5 and 7): spreadsheet-wide set rows, relation rows between rotations, and comments.
-// Relation rows (attract, repel, detach) also appear in rotation tabs, where they are one-sided.
+// Relation rows (attract, repel, repel!, detach) also appear in rotation tabs, where they are one-sided.
 
-var RELATION_TYPES = ['attract', 'repel', 'detach'];
+var RELATION_TYPES = ['attract', 'repel', 'repel!', 'detach'];
 
 function isRelationRow(row) {
   return RELATION_TYPES.indexOf(row.type) >= 0;
@@ -192,18 +192,48 @@ function cycleMessage(entry, cyclic) {
   return 'relation order cycle among ' + others.join(', ') + '; use a ' + GLOBAL_TAB + ' row';
 }
 
-// Members holding a decided shift overlapping [a, b) in rotations that `kind` applies to for rot at a:
-// Map of member -> rotation names.
+// Adds to `holders` (Map member -> rotation names) the members holding a decided shift of `target`
+// overlapping [from, to).
+function addHolders(holders, target, from, to) {
+  target.entries.forEach(function (e) {
+    if (e.who === null || e.start >= to || e.end <= from) return;
+    if (!holders.has(e.who)) holders.set(e.who, []);
+    if (holders.get(e.who).indexOf(target.name) < 0) holders.get(e.who).push(target.name);
+  });
+}
+
+// Members holding a decided shift overlapping [a, b) in rotations that `kind` applies to for rot at a.
 function relatedHolders(ctx, rot, kind, a, b) {
   var holders = new Map();
   Object.keys(ctx.byName).forEach(function (other) {
     var target = ctx.byName[other];
-    if (target === rot || ctx.relations.kindFor(rot.name, other, a) !== kind) return;
-    target.entries.forEach(function (e) {
-      if (e.who === null || e.start >= b || e.end <= a) return;
-      if (!holders.has(e.who)) holders.set(e.who, []);
-      if (holders.get(e.who).indexOf(other) < 0) holders.get(e.who).push(other);
-    });
+    if (target !== rot && ctx.relations.kindFor(rot.name, other, a) === kind) addHolders(holders, target, a, b);
+  });
+  return holders;
+}
+
+// repel! partners of rot at a with the pair's rest window in minutes: D = (D_rot + D_partner) / 2, each
+// min_distance resolved in its own grid space with its roster at a (DESIGN 7). localDistance: D_rot.
+function strongPartners(ctx, rot, a, localDistance) {
+  var partners = [];
+  Object.keys(ctx.byName).forEach(function (other) {
+    var target = ctx.byName[other];
+    if (target === rot || ctx.relations.kindFor(rot.name, other, a) !== 'repel!') return;
+    var grid = target.timeline.gridAt(a);
+    var theirs = grid ? resolveInterval(target.timeline.at(a).get('min_distance'), grid, target.roster.size()) : 0;
+    partners.push({ rot: target, distance: (localDistance + theirs) / 2 });
+  });
+  return partners;
+}
+
+// Members repelled from slot [a, b) of rot: holders of overlapping shifts in plain repel partners, and holders
+// of shifts in repel! partners overlapping the slot widened by the pair's window less `shrink` (never below
+// zero) along rot's grid. Map member -> rotation names.
+function repelledHolders(ctx, rot, a, b, grid, partners, shrink) {
+  var holders = relatedHolders(ctx, rot, 'repel', a, b);
+  partners.forEach(function (p) {
+    var d = Math.max(p.distance - shrink, 0);
+    addHolders(holders, p.rot, grid.offset(a, -d), grid.offset(b, d));
   });
   return holders;
 }

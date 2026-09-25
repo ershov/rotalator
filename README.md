@@ -81,7 +81,8 @@ row it corrects.
 | `error` | message | | script | Diagnostic. Removed on every read. |
 | (empty) | free text | | users | Comment. Ignored by the script, kept in place. |
 
-A `set`, `team`, `repel` or `attract` row without a `start` is an epoch row:
+A `set`, `team`, `repel`, `repel!` or `attract` row without a `start` is an
+epoch row:
 it applies from the beginning of the timeline and sorts before every dated
 row. At most one per type per tab, no `end` or `duration`, and no bare
 `anchor` in an epoch `set` row: the grid is anchored by a dated `set anchor`
@@ -386,6 +387,7 @@ tabs.
 | type | what | end/duration | effect |
 |---|---|---|---|
 | repel | rotation names | optional | Nobody holds overlapping shifts in both rotations. |
+| repel! | rotation names | optional | As `repel`, plus a rest: a member stays off one rotation for half the combined `min_distance` before and after their shift in the other. |
 | attract | rotation names | optional | The same person is preferred for overlapping shifts. |
 | detach | rotation names | optional | The rotations are no longer related. |
 
@@ -413,10 +415,20 @@ row, tab order decides who yields. Two tabs reading each other cannot be
 ordered: both rows get an `error` row suggesting a `#Global` row and are
 ignored.
 
-`repel` is soft: when it leaves nobody, `min_distance` is relaxed first, then
-the repel is dropped and the shift gets the note `repel relaxed: <who> also
-on <rotation>`, which also appears in the `#Status` warnings; only when even
-that leaves nobody does the slot get an empty `shift` and an `error` row.
+`repel!` adds rest between the rotations: with `min_distance=1sl` in both, a
+member who holds a week in one rotation is kept off the other for that week
+and one week before and after it, since half of each rotation's rest applies
+on each side (`(1sl + 1sl) / 2 = 1sl`). Each rotation's `min_distance` counts
+in its own units, so a daily rotation with `2sl` and a weekly one with
+`0.5ts` over four members give `(2d + 2w) / 2 = 8d`.
+
+`repel` is soft: when it leaves nobody, the `repel!` rest window shrinks
+first, one shift length per step, with the note `repel! relaxed to <rest>`;
+then `min_distance` is relaxed; then the repel is dropped and the shift gets
+the note `repel relaxed: <who> also on <rotation>`, which also appears in the
+`#Status` warnings; only when even that leaves nobody does the slot get an
+empty `shift` and an `error` row. Overlapping shifts in both rotations stay
+forbidden until the repel itself is dropped.
 `attract` only prefers someone who is already within `tolerance` of the
 lowest score; otherwise the usual selection applies. Rotations may use
 different periods; overlaps are compared on the actual intervals, but a

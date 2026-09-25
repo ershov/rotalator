@@ -106,7 +106,8 @@ script, then reload.
      beyond the last one removed;
    - on rotation tabs and `#Global`: conditional row colours by `type`
      (errors red, `set` and `score` blue, roster changes teal, `snapshot`
-     green, comment rows yellow, `attract` and `repel` green, `detach` grey).
+     green, comment rows yellow, `attract`, `repel` and `repel!` green,
+     `detach` grey).
      The tab's existing conditional format rules are replaced;
    - colours the `#` tabs: blue for tabs the script writes, grey for
      `#Holidays` and `#Global`, which you edit.

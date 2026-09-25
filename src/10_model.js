@@ -32,21 +32,22 @@ var ROW_TYPES = {
   set:      { order: 1,  what: 'set',    required: false, extent: false },
   attract:  { order: 2,  what: 'names',  required: true,  extent: true },
   repel:    { order: 3,  what: 'names',  required: true,  extent: true },
-  detach:   { order: 4,  what: 'names',  required: true,  extent: true },
-  snapshot: { order: 5,  what: 'scores', required: false, extent: false },
-  team:     { order: 6,  what: 'team',   required: true,  extent: false },
-  score:    { order: 7,  what: 'team',   required: true,  extent: false },
-  join:     { order: 8,  what: 'join',   required: true,  extent: false },
-  leave:    { order: 9,  what: 'names',  required: true,  extent: false },
-  exclude:  { order: 10, what: 'names',  required: true,  extent: true },
-  include:  { order: 11, what: 'names',  required: true,  extent: false },
-  shift:    { order: 12, what: 'shift',  required: false, extent: true },
+  'repel!': { order: 4,  what: 'names',  required: true,  extent: true },
+  detach:   { order: 5,  what: 'names',  required: true,  extent: true },
+  snapshot: { order: 6,  what: 'scores', required: false, extent: false },
+  team:     { order: 7,  what: 'team',   required: true,  extent: false },
+  score:    { order: 8,  what: 'team',   required: true,  extent: false },
+  join:     { order: 9,  what: 'join',   required: true,  extent: false },
+  leave:    { order: 10, what: 'names',  required: true,  extent: false },
+  exclude:  { order: 11, what: 'names',  required: true,  extent: true },
+  include:  { order: 12, what: 'names',  required: true,  extent: false },
+  shift:    { order: 13, what: 'shift',  required: false, extent: true },
 };
 
-// Epoch rows (DESIGN 3.4): set, team, repel and attract rows without a start apply from the beginning of the
-// timeline. Their start is -Infinity internally so they sort and compare before every dated row.
+// Epoch rows (DESIGN 3.4): set, team, repel, repel! and attract rows without a start apply from the beginning
+// of the timeline. Their start is -Infinity internally so they sort and compare before every dated row.
 var EPOCH = -Infinity;
-var EPOCH_TYPES = ['set', 'team', 'repel', 'attract'];
+var EPOCH_TYPES = ['set', 'team', 'repel', 'repel!', 'attract'];
 
 function isEpochRow(row) {
   return row.start === EPOCH;

@@ -342,8 +342,9 @@ function distanceLadder(distance, period) {
   return ladder;
 }
 
-// DESIGN 5.7 and 7. Exclusions are never violated. min_distance steps down with repel kept, then once more
-// without repel (warning and note), then nobody. attract holders are preferred inside the band.
+// DESIGN 5.7 and 7. Exclusions are never violated. Relaxation order: the repel! cross window shrinks one
+// period per step to zero (plain repel) with min_distance in force, then min_distance steps down, then repel
+// is dropped (warning and note), then nobody. attract holders are preferred inside the band.
 function assignSlot(rot, entry, holidays, ctx) {
   var settings = rot.timeline.at(entry.start);
   var roster = rot.roster;
@@ -352,20 +353,26 @@ function assignSlot(rot, entry, holidays, ctx) {
   var options = settings.unitsOptions(holidays);
   var minDistance = resolveInterval(settings.get('min_distance'), grid, roster.size());
   var ladder = distanceLadder(minDistance, grid.period);
-  var repelled = relatedHolders(ctx, rot, 'repel', a, b);
+  var partners = strongPartners(ctx, rot, a, minDistance);
+  var cross = partners.reduce(function (max, p) { return Math.max(max, p.distance); }, 0);
+  var windowed = repelledHolders(ctx, rot, a, b, grid, partners, 0);
+  var repelled = repelledHolders(ctx, rot, a, b, grid, partners, cross);
   var members = roster.members.filter(function (m) { return !roster.isExcluded(m.name, a, b); });
   var pick = null;
-  // The second pass only adds repelled members back, so a pick made there is always a repelled one.
-  [true, false].forEach(function (keepRepel) {
-    if (pick || (!keepRepel && !repelled.size)) return;
-    var pool = keepRepel ? members.filter(function (m) { return !repelled.has(m.name); }) : members;
-    ladder.forEach(function (d) {
-      if (pick) return;
-      var from = grid.offset(a, -d), to = grid.offset(b, d);
-      var eligible = pool.filter(function (m) { return !hasShiftOverlapping(rot, m.name, from, to); });
-      if (eligible.length) pick = { eligible: eligible, distance: d, repelDropped: !keepRepel };
-    });
+  var attempt = function (pool, d, found) {
+    if (pick) return;
+    var from = grid.offset(a, -d), to = grid.offset(b, d);
+    var eligible = pool.filter(function (m) { return !hasShiftOverlapping(rot, m.name, from, to); });
+    if (eligible.length) pick = Object.assign({ eligible: eligible, distance: d }, found);
+  };
+  distanceLadder(cross, grid.period).forEach(function (remaining) {
+    var pool = members.filter(function (m) { return !repelledHolders(ctx, rot, a, b, grid, partners, cross - remaining).has(m.name); });
+    attempt(pool, minDistance, { cross: remaining, repelDropped: false });
   });
+  var unrepelled = members.filter(function (m) { return !repelled.has(m.name); });
+  ladder.slice(1).forEach(function (d) { attempt(unrepelled, d, { cross: 0, repelDropped: false }); });
+  // Dropping repel only adds repelled members back, so a pick made here is always a repelled one.
+  if (repelled.size) ladder.forEach(function (d) { attempt(members, d, { cross: 0, repelDropped: true }); });
   var notes = [];
   if (pick) {
     var lowest = Math.min.apply(null, pick.eligible.map(function (m) { return m.score; }));
@@ -375,7 +382,9 @@ function assignSlot(rot, entry, holidays, ctx) {
     var preferred = candidates.filter(function (m) { return attracted.has(m.name); });
     entry.who = tiebreak(rot, entry, preferred.length ? preferred : candidates, settings);
     roster.credit(entry.who, units(a, entry.end, options));
-    if (pick.distance < minDistance) notes.push('min_distance relaxed to ' + (pick.distance === 0 ? '0' : formatScore(pick.distance / grid.period) + 'sl'));
+    var inShifts = function (d) { return d === 0 ? '0' : formatScore(d / grid.period) + 'sl'; };
+    if (pick.cross < cross && windowed.has(entry.who)) notes.push('repel! relaxed to ' + inShifts(pick.cross));
+    if (pick.distance < minDistance) notes.push('min_distance relaxed to ' + inShifts(pick.distance));
     if (pick.repelDropped) notes.push('repel relaxed: ' + entry.who + ' also on ' + (repelled.get(entry.who) || []).join(', '));
     notes.forEach(function (n) { rot.warnings.push({ start: a, message: n }); });
   } else {

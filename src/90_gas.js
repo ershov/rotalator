@@ -36,14 +36,14 @@ var LEDGER_FORMAT_RULES = [
   { formula: '=OR($C1="set", $C1="score")', color: COLOR_SETTINGS },
   { formula: '=OR($C1="team", $C1="join", $C1="leave", $C1="include", $C1="exclude")', color: COLOR_ROSTER },
   { formula: '=$C1="snapshot"', color: COLOR_SNAPSHOT },
-  { formula: '=OR($C1="attract", $C1="repel")', color: COLOR_RELATION },
+  { formula: '=OR($C1="attract", $C1="repel", $C1="repel!")', color: COLOR_RELATION },
   { formula: '=$C1="detach"', color: COLOR_DETACH },
   { formula: COMMENT_FORMULA, color: COLOR_COMMENT },
 ];
 var GLOBAL_FORMAT_RULES = [
   { formula: '=$C1="error"', color: COLOR_ERROR },
   { formula: '=OR($C1="set", $C1="score")', color: COLOR_SETTINGS },
-  { formula: '=OR($C1="attract", $C1="repel")', color: COLOR_RELATION },
+  { formula: '=OR($C1="attract", $C1="repel", $C1="repel!")', color: COLOR_RELATION },
   { formula: '=$C1="detach"', color: COLOR_DETACH },
   { formula: COMMENT_FORMULA, color: COLOR_COMMENT },
 ];
