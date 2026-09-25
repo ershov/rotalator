@@ -21,11 +21,10 @@ function recentMonday(t) {
   return dayStart(day - (weekdayOfDay(day) + 6) % 7);
 }
 
-// Every setting spelled out at its default: period=1w, bare anchor, the rest key=default.
+// Every setting spelled out at its default: period=1w, the rest key=default; anchor is left to the dated row.
 function templateSetWhat() {
-  return Object.keys(SETTINGS).map(function (key) {
+  return Object.keys(SETTINGS).filter(function (key) { return key !== 'anchor'; }).map(function (key) {
     if (key === 'period') return 'period=' + TEMPLATE_PERIOD;
-    if (key === 'anchor') return 'anchor';
     var def = SETTINGS[key].def;
     return key + '=' + (def !== null && typeof def === 'object' ? def.text : String(def));
   }).join(', ');
@@ -40,11 +39,13 @@ var ROTATION_HELP = [
   'leave: name [, name ...]',
   'exclude / include: name [, name ...]',
   'set: key, key=value',
+  'set / team without start: apply from the beginning; the dated set anchor row fixes where shifts start',
 ];
 var GLOBAL_HELP = [
   'ROWS:',
   'repel / attract / detach: Rotation1, Rotation2',
   'set: key, key=value',
+  'set / repel / attract without start: apply from the beginning',
 ];
 var HOLIDAYS_SAMPLE_NOTE = 'New Year';
 
@@ -55,7 +56,7 @@ var HELP_TEXT = [
   '',
   'COLUMNS: pin | start | type | what | end | duration | note',
   'pin: any value pins the row; the script never modifies or deletes a pinned row',
-  'start: YYYY-MM-DD or YYYY-MM-DDTHH:MM in the spreadsheet time zone; mandatory on every row but comments',
+  'start: YYYY-MM-DD or YYYY-MM-DDTHH:MM in the spreadsheet time zone; mandatory except on comments and on set, team, repel and attract rows that apply from the beginning',
   'type: one of the row types below; an empty type makes the row a comment',
   'what: the payload of the row, see ROWS',
   'end / duration: optional extent of a shift or exclude; at most one of the two',
@@ -68,6 +69,7 @@ var HELP_TEXT = [
   'leave: name [, name ...]',
   'exclude / include: name [, name ...]; exclude takes end or duration, otherwise it lasts until an include',
   'set: key, key=value',
+  'undated set / team / repel / attract: epoch rows that apply from the beginning of the timeline and sort first; at most one per type per tab; anchor needs a dated set row',
   'repel / attract / detach: Rotation1, Rotation2 (mutual in #Global; in a rotation tab one-sided, naming the other rotation)',
   'snapshot: written by the script at the start of the current shift with the roster and scores; delete it to replay the whole history',
   'error: written by the script above the row it describes; removed on the next run',
@@ -123,9 +125,9 @@ function helpRows(lines) {
   return lines.map(function (text) { return ['', '', '', '', '', '', text]; });
 }
 
-// Header, help rows and a set row with every setting at its default, dated firstStart, for a new #Global tab.
-function globalTemplateRows(firstStart) {
-  return [LEDGER_HEADER.slice()].concat(helpRows(GLOBAL_HELP), [['', formatDateTime(firstStart), 'set', templateSetWhat(), '', '', '']]);
+// Header, help rows and an undated (epoch) set row with every setting at its default for a new #Global tab.
+function globalTemplateRows() {
+  return [LEDGER_HEADER.slice()].concat(helpRows(GLOBAL_HELP), [['', '', 'set', templateSetWhat(), '', '', '']]);
 }
 
 // Header plus one sample holiday: New Year of the calendar year before `now`.
@@ -134,12 +136,13 @@ function holidaysTemplateRows(now) {
   return [HOLIDAYS_HEADER.slice(), [String(year).padStart(4, '0') + '-01-01', HOLIDAYS_SAMPLE_NOTE]];
 }
 
-// Header, help rows, set and team cell rows of a new rotation tab, dated firstStart.
+// Header, help rows, an epoch set row with every default, an epoch team row and one dated set anchor row at
+// firstStart, for a new rotation tab.
 function templateRows(firstStart) {
-  var start = formatDateTime(firstStart);
   return [LEDGER_HEADER.slice()].concat(helpRows(ROTATION_HELP), [
-    ['', start, 'set', templateSetWhat(), '', '', ''],
-    ['', start, 'team', TEMPLATE_TEAM, '', '', ''],
+    ['', '', 'set', templateSetWhat(), '', '', ''],
+    ['', '', 'team', TEMPLATE_TEAM, '', '', ''],
+    ['', formatDateTime(firstStart), 'set', 'anchor', '', '', ''],
   ]);
 }
 
@@ -162,7 +165,7 @@ function gridFor(timeline, t) {
 // row and nPost rows from the tail on. rows: dated row objects at or after the timeline's first set row.
 function gridRows(rows, nPre, nPost, timeline) {
   var sorted = sortRows(rows);
-  var dated = sorted.filter(function (r) { return r.start !== null; });
+  var dated = sorted.filter(function (r) { return r.start !== null && isFinite(r.start); });
   if (!dated.length) return sorted;
   var changes = timeline.gridChanges();
   var shifts = rowsOfType(sorted, 'shift');
@@ -215,34 +218,37 @@ function fillShiftsGridCells(selectedCells, tabCells, holidayTexts, globalCells)
   var localSets = sortRows(rowsOfType(rowsFromCells(tabCells), 'set'));
   var globalSets = rowsOfType(rowsFromCells(globalCells || []), 'set');
   var timeline = new SettingsTimeline(localSets, holidays, globalSets);
-  var firstStart = localSets.length ? localSets[0].start : null;
-  if (firstStart === null || timeline.at(firstStart).get('period') === null) {
-    return { error: 'the tab needs a set row with period before the grid can be filled' };
+  var datedSets = localSets.filter(function (r) { return isFinite(r.start); });
+  var firstStart = datedSets.length ? datedSets[0].start : null;
+  if (firstStart === null || timeline.gridAt(firstStart) === null) {
+    return { error: 'the tab needs a dated set row with a period and an anchor in force before the grid can be filled' };
   }
-  var dated = [];
+  var rows = [];
   var comments = [];
-  var pre = 0, post = 0;
+  var pre = 0, post = 0, datedCount = 0;
   for (var i = 0; i < selectedCells.length; i++) {
     var cells = selectedCells[i];
     var startText = cellText(cells[1]);
     var row = rowFromArray(cells, i + 1);
     row.cells = cells.slice();
     if (startText === '') {
-      if (isBlankRow(cells) || isTemplateShiftRow(cells)) { if (dated.length) post++; else pre++; continue; }
-      if (row.type !== 'comment') return { error: 'selected row ' + (i + 1) + ' has content but no start' };
-      comments.push(row);
-      continue;
+      if (isBlankRow(cells) || isTemplateShiftRow(cells)) { if (datedCount) post++; else pre++; continue; }
+      if (row.type === 'comment') { comments.push(row); continue; }
+      if (!isEpochRow(row)) return { error: 'selected row ' + (i + 1) + ' has content but no start' };
+    } else {
+      if (row.start === null) return { error: 'selected row ' + (i + 1) + ': bad start "' + startText + '"' };
+      if (row.start < firstStart) return { error: 'selected row ' + (i + 1) + ' is dated before the first set row' };
+      if (row.type === 'comment' && hasOnlyStart(cells)) row.type = 'shift';
+      datedCount++;
+      post = 0;
     }
-    if (row.start === null) return { error: 'selected row ' + (i + 1) + ': bad start "' + startText + '"' };
-    if (row.start < firstStart) return { error: 'selected row ' + (i + 1) + ' is dated before the first set row' };
-    if (row.type === 'comment' && hasOnlyStart(cells)) row.type = 'shift';
     if (row.type !== 'comment') row.cells[2] = row.type;
-    dated = dated.concat(comments, [row]);
+    rows = rows.concat(comments, [row]);
     comments = [];
-    post = 0;
   }
-  if (!dated.length) return { error: 'the selection has no dated row to start from' };
-  var out = gridRows(dated, pre, post, timeline).concat(comments);
-  if (out[0].start < firstStart) return { error: pre + ' empty row(s) above would fall before the first set row' };
+  if (!datedCount) return { error: 'the selection has no dated row to start from' };
+  var out = gridRows(rows, pre, post, timeline).concat(comments);
+  var firstOut = out.find(function (r) { return r.start !== null && isFinite(r.start); });
+  if (firstOut && firstOut.start < firstStart) return { error: pre + ' empty row(s) above would fall before the first set row' };
   return { rows: out.map(function (r) { return r.cells || rowToArray(r); }) };
 }

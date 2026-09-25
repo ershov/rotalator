@@ -81,6 +81,14 @@ row it corrects.
 | `error` | message | | script | Diagnostic. Removed on every read. |
 | (empty) | free text | | users | Comment. Ignored by the script, kept in place. |
 
+A `set`, `team`, `repel` or `attract` row without a `start` is an epoch row:
+it applies from the beginning of the timeline and sorts before every dated
+row. At most one per type per tab, no `end` or `duration`, and no bare
+`anchor` in an epoch `set` row: the grid is anchored by a dated `set anchor`
+row (in the rotation or in `#Global`), and no dated row may come before it.
+The templates start every rotation this way: an epoch `set` with the
+defaults, an epoch `team`, then `set anchor` dated at the first shift.
+
 Example rows, one per item form:
 
 | pin | start | type | what | end | duration | note |
@@ -203,9 +211,11 @@ intervals count counted days, so `2d` is two working days, and with
 calendar weeks.
 `period` itself takes clock units only.
 
-The first row of a rotation must be a `set` row with at least `period`,
-followed by a `team` row. Dating the `set` row at the intended first shift
-start makes it the anchor.
+A rotation needs a `period` in a `set` row and an anchor from a dated `set`
+row (a bare `anchor`, or the row that sets `period`) before its first dated
+row, plus a `team` row; the templates use an undated `set` and `team` row
+followed by `set anchor` dated at the first shift. Without them the run stops
+with `no period in force`, `no anchor` or `row before the anchor`.
 
 ## How a run works
 
@@ -247,10 +257,12 @@ INSTALL.md).
 - **Set Up Tab** fills the active tab from its name. An empty rotation tab
   gets the header, help rows (comments listing what each row type takes in
   `what`, kept at the top of the tab), a `set` row with every setting at its
-  default (bare `anchor`, dated the most recent Monday 00:00) and a sample
-  `team` row. An empty `#Global` gets the header, its own help rows and the
-  same `set` row of defaults; an empty `#Holidays` gets the header and a
-  sample `New Year` row for the previous year. Non-empty tabs are refused.
+  default except `anchor` and a sample `team` row, both without `start` so
+  they apply from the beginning, then a `set anchor` row dated the most
+  recent Monday 00:00 where the first shift starts. An empty `#Global` gets
+  the header, its own help rows and an undated `set` row of the same
+  defaults; an empty `#Holidays` gets the header and a sample `New Year` row
+  for the previous year. Non-empty tabs are refused.
 - **Fill Shifts Grid** fills the `start` of the selected rows of a rotation
   tab so they sit on the grid: empty rows above the first dated row are
   placed on the boundaries before it, empty rows below the last dated row on

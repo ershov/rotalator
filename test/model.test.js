@@ -159,6 +159,39 @@ test('attachComments stores the key once so a comment stays above its instant wh
   assert.deepEqual(U.sortRows([replacement, unresolved]).map((r) => r.what), ['bob', 'fresh']);
 });
 
+test('epoch rows: undated set, team, repel and attract parse to EPOCH, write back undated, sort first', () => {
+  const set = U.rowFromArray(R('', '', 'set', 'period=1w'), 2);
+  assert.equal(set.start, -Infinity);
+  assert.ok(U.isEpochRow(set));
+  assert.deepEqual(plain(U.rowToArray(set)), R('', '', 'set', 'period=1w'));
+  for (const type of ['team', 'repel', 'attract']) assert.ok(U.isEpochRow(U.rowFromArray(R('', '', type, 'x'), 2)), type);
+  for (const type of ['shift', 'join', 'leave', 'exclude', 'include', 'score', 'detach', 'snapshot']) {
+    assert.equal(U.rowFromArray(R('', '', type, 'x'), 2).start, null, type);
+  }
+  assert.equal(U.rowFromArray(R('', '', '', 'note'), 2).start, null);
+  const t = dt('2026-10-05T09:00');
+  const sorted = U.sortRows([
+    U.makeRow({ type: 'shift', start: t, what: 'a' }), U.makeRow({ type: 'set', start: t, what: 'anchor' }),
+    U.makeRow({ type: 'team', start: -Infinity, what: 'a, b' }), U.makeRow({ type: 'comment', what: 'above epoch set' }),
+    U.makeRow({ type: 'set', start: -Infinity, what: 'period=1w' }), U.makeRow({ type: 'repel', start: -Infinity, what: 'other' }),
+    U.makeRow({ type: 'comment', what: 'trailing' }),
+  ]);
+  assert.deepEqual(sorted.map((r) => r.what), ['above epoch set', 'period=1w', 'other', 'a, b', 'anchor', 'a', 'trailing']);
+});
+
+test('epoch rows: validation of duplicates, bare anchor, extent and the first-row rule', () => {
+  const epochSet = R('', '', 'set', 'period=1w, tolerance=0');
+  const anchorRow = R('', '2026-10-05T09:00', 'set', 'anchor');
+  assert.deepEqual(messagesOf([epochSet, R('', '', 'team', 'alice'), anchorRow]), []);
+  assert.deepEqual(messagesOf([epochSet, R('', '', 'set', 'seed=2'), anchorRow]), ['more than one undated set row']);
+  assert.deepEqual(messagesOf([epochSet, R('', '', 'team', 'alice'), R('', '', 'team', 'bob'), anchorRow]), ['more than one undated team row']);
+  assert.deepEqual(messagesOf([R('', '', 'set', 'period=1w, anchor'), anchorRow]), ['anchor needs a dated set row']);
+  assert.deepEqual(messagesOf([epochSet, R('', '', 'repel', 'other', '', '2w'), anchorRow]), ['undated repel rows take no end or duration']);
+  assert.deepEqual(messagesOf([epochSet, R('', '', 'shift', 'alice'), anchorRow]), ['missing start']);
+  // Whether a period and an anchor are in force is the scheduler's check, not a row rule.
+  assert.deepEqual(messagesOf([R('', '', 'set', 'tolerance=0'), anchorRow]), []);
+});
+
 test('sortRows orders by start then type, stable, nulls last', () => {
   const t = dt('2026-10-05T09:00');
   const mk = (type, start, what) => U.makeRow({ type, start, what });
@@ -311,12 +344,11 @@ test('validateLedger reports each stateless rule with row references', () => {
 });
 
 test('validateLedger rotation-level rules', () => {
-  assert.match(messagesOf([TEAM, SET.with(1, '2026-10-06T09:00')])[0], /r: first row must be a set row \(period own or from #Global\)/);
-  assert.match(messagesOf([R('', '2026-10-05T09:00', 'set', 'tolerance=1'), TEAM])[0], /first row must be a set row \(period own or from #Global\)/);
-  assert.match(messagesOf([R('', '2026-10-05T09:00', 'set', ''), TEAM])[0], /first row must be a set row \(period own or from #Global\)/);
-  const globalPeriod = [U.makeRow({ type: 'set', start: dt('2026-09-01'), what: 'period=1w' })];
-  const emptyFirst = [R('', '2026-10-05T09:00', 'set', ''), TEAM].map((cells, i) => U.rowFromArray(cells, i + 2));
-  assert.deepEqual(plain(U.validateLedger(emptyFirst, 'r', globalPeriod).errors), []);
+  // A ledger whose first row is not a set row, or whose set rows lack a period, is stateless-valid; the
+  // scheduler reports the missing grid.
+  assert.deepEqual(messagesOf([TEAM, SET.with(1, '2026-10-06T09:00')]), []);
+  assert.deepEqual(messagesOf([R('', '2026-10-05T09:00', 'set', 'tolerance=1'), TEAM]), []);
+  assert.deepEqual(messagesOf([R('', '2026-10-05T09:00', 'set', ''), TEAM]), []);
   assert.deepEqual(messagesOf([SET, TEAM, R('', '2026-10-06T09:00', 'set', '')]), []);
   assert.match(messagesOf([])[0], /r: ledger is empty/);
   assert.deepEqual(messagesOf([R('', '2026-10-05T09:00', 'set', 'anchor, period=1w'), TEAM]), []);

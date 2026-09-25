@@ -318,6 +318,15 @@ var ROW_TYPES = {
   shift:    { order: 12, what: 'shift',  required: false, extent: true },
 };
 
+// Epoch rows (DESIGN 3.4): set, team, repel and attract rows without a start apply from the beginning of the
+// timeline. Their start is -Infinity internally so they sort and compare before every dated row.
+var EPOCH = -Infinity;
+var EPOCH_TYPES = ['set', 'team', 'repel', 'attract'];
+
+function isEpochRow(row) {
+  return row.start === EPOCH;
+}
+
 var BASELINE_KEYWORDS = ['median', 'mean', 'min', 'max'];
 var TIEBREAKS = ['order', 'shuffle'];
 var GRID_MODES = ['calendar', 'counted'];
@@ -459,18 +468,6 @@ function parseSetArg(text, start) {
   return out;
 }
 
-// Value of a key from the global set rows dated at or before t; undefined when none sets it.
-function globalValueAt(globalSetRows, key, t) {
-  var value;
-  sortRows(globalSetRows || []).forEach(function (row) {
-    if (row.start === null || row.start > t) return;
-    var parsed = parseSetArg(row.what, row.start);
-    if (parsed.reset.indexOf(key) >= 0) value = undefined;
-    else if (key in parsed.values) value = parsed.values[key];
-  });
-  return value;
-}
-
 function isNobody(what) {
   var w = (what ?? '').trim().toLowerCase();
   return w === '' || w === '-' || w === 'none';
@@ -507,18 +504,20 @@ function rowFromArray(cells, rowIndex) {
   var startText = cellText(cells[1]);
   var endText = cellText(cells[4]);
   var durationText = cellText(cells[5]);
+  var type = cellText(cells[2]).toLowerCase() || 'comment';
   var start = parseDateTime(startText);
+  if (start === null && startText === '' && EPOCH_TYPES.indexOf(type) >= 0) start = EPOCH;
   var end = parseDateTime(endText);
   var interval = parseInterval(durationText);
   var duration = interval && interval.unit === 'clock' ? interval.minutes : null;
-  if (end === null && duration !== null && start !== null) end = start + duration;
+  if (end === null && duration !== null && start !== null && isFinite(start)) end = start + duration;
   return {
     rowIndex: rowIndex,
     pin: pin,
     pinned: pin !== '',
     start: start,
     startText: startText,
-    type: cellText(cells[2]).toLowerCase() || 'comment',
+    type: type,
     what: cellText(cells[3]),
     end: end,
     endText: endText,
@@ -536,7 +535,7 @@ function makeRow(fields) {
   };
   for (var k in fields) row[k] = fields[k];
   if (fields.pin && !('pinned' in fields)) row.pinned = true;
-  if (row.end === null && row.duration !== null && row.start !== null) row.end = row.start + row.duration;
+  if (row.end === null && row.duration !== null && row.start !== null && isFinite(row.start)) row.end = row.start + row.duration;
   return row;
 }
 
@@ -547,7 +546,7 @@ function rowToArray(row) {
   var end = derivedEnd ? '' : row.end !== null ? formatDateTime(row.end) : row.endText;
   return [
     row.pin,
-    row.start !== null ? formatDateTime(row.start) : row.startText,
+    row.start !== null && isFinite(row.start) ? formatDateTime(row.start) : row.startText,
     row.type === 'comment' ? '' : row.type,
     row.what,
     end,
@@ -670,6 +669,10 @@ function validateRow(row) {
   var spec = ROW_TYPES[row.type];
   if (!spec) return row.type === '' ? 'missing type' : 'unknown type "' + row.type + '"';
   if (row.start === null) return row.startText === '' ? 'missing start' : 'bad start "' + row.startText + '"';
+  if (isEpochRow(row)) {
+    if (row.endText !== '' || row.durationText !== '') return 'undated ' + row.type + ' rows take no end or duration';
+    if (row.type === 'set' && 'anchor' in parseSetArg(row.what, row.start).values) return 'anchor needs a dated set row';
+  }
   if (row.endText !== '' && row.durationText !== '') return 'end and duration are mutually exclusive';
   if (row.endText !== '' && parseDateTime(row.endText) === null) return 'bad end "' + row.endText + '"';
   if (row.durationText !== '' && (!row.durationInterval || !intervalIsPositive(row.durationInterval))) return 'bad duration "' + row.durationText + '"; use ' + POSITIVE_INTERVAL_HINT;
@@ -683,12 +686,13 @@ function rowError(row, message) {
   return { rowIndex: row.rowIndex, start: row.start, startText: row.startText, message: message };
 }
 
-// Stateless checks of DESIGN 5.1. Drops error rows; returns remaining rows sorted. globalSetRows: the valid
-// set rows of #Global, which may supply the period the first set row must otherwise carry.
-function validateLedger(rows, rotationName, globalSetRows) {
+// Stateless checks of DESIGN 5.1. Drops error rows; returns remaining rows sorted. Whether the grid is in
+// force (period and anchor) is checked by the scheduler, where the settings timeline exists.
+function validateLedger(rows, rotationName) {
   var errors = [];
   var kept = [];
   var snapshots = 0;
+  var epochs = {};
   for (var i = 0; i < rows.length; i++) {
     var row = rows[i];
     if (row.type === 'error') continue;
@@ -696,15 +700,15 @@ function validateLedger(rows, rotationName, globalSetRows) {
     if (row.type === 'comment') continue;
     var message = validateRow(row);
     if (message === null && row.type === 'snapshot' && ++snapshots > 1) message = 'more than one snapshot row';
+    if (message === null && isEpochRow(row)) {
+      if (epochs[row.type]) message = 'more than one undated ' + row.type + ' row';
+      epochs[row.type] = true;
+    }
     if (message !== null) errors.push(rowError(row, message));
   }
   var sorted = sortRows(attachComments(kept));
-  var first = firstOfType(sorted, Object.keys(ROW_TYPES));
-  if (!first) {
+  if (!firstOfType(sorted, Object.keys(ROW_TYPES))) {
     errors.push({ rowIndex: null, start: null, startText: '', message: rotationName + ': ledger is empty' });
-  } else if (first.start !== null) {
-    var period = first.type === 'set' && (parseSetArg(first.what, first.start).values.period || globalValueAt(globalSetRows, 'period', first.start));
-    if (!period) errors.push(rowError(first, rotationName + ': first row must be a set row (period own or from ' + GLOBAL_TAB + ')'));
   }
   return { rows: sorted, errors: errors };
 }
@@ -866,8 +870,9 @@ class Settings {
     return this.values[key];
   }
 
+  // No grid without a period and an anchor (an epoch set row gives a period but never an anchor).
   grid(holidays) {
-    return this.values.period === null ? null : new Grid(this.values, holidays);
+    return this.values.period === null || this.values.anchor === null ? null : new Grid(this.values, holidays);
   }
 
   unitsOptions(holidays) {
@@ -895,7 +900,7 @@ class SettingsTimeline {
     var usable = function (r) { return r.start !== null && parseSetArg(r.what, r.start).error === null; };
     var events = sortRows((globalSetRows || []).filter(usable)).map(function (r) { return { row: r, layer: 'global' }; })
       .concat(sortRows(setRows.filter(usable)).map(function (r) { return { row: r, layer: 'rotation' }; }))
-      .sort(function (a, b) { return a.row.start - b.row.start; });
+      .sort(function (a, b) { return a.row.start < b.row.start ? -1 : a.row.start > b.row.start ? 1 : 0; });
     var effective = function () {
       var values = defaultSettings();
       var sources = {};
@@ -915,8 +920,8 @@ class SettingsTimeline {
       Object.keys(parsed.values).forEach(function (key) { if (parsed.reset.indexOf(key) < 0) layer[key] = parsed.values[key]; });
       parsed.reset.forEach(function (key) { delete layer[key]; });
       var after = effective();
-      // A period change without an explicit anchor re-anchors this layer at the row.
-      if ('period' in parsed.values && after.values.period !== before.values.period && !('anchor' in parsed.values)) {
+      // A period change without an explicit anchor re-anchors this layer at the row; an epoch row has no instant.
+      if ('period' in parsed.values && after.values.period !== before.values.period && !('anchor' in parsed.values) && isFinite(ev.row.start)) {
         layer.anchor = ev.row.start;
         after = effective();
       }
@@ -937,6 +942,17 @@ class SettingsTimeline {
   at(t) {
     var entry = this.entryAt(t);
     return entry ? entry.settings.clone() : new Settings();
+  }
+
+  // Instant from which the grid (period and anchor) is in force, or null when no set row of either layer
+  // ever completes it. hasPeriod tells the two cases apart.
+  gridStart() {
+    var entry = this.entries.find(function (e) { return e.settings.get('period') !== null && e.settings.get('anchor') !== null; });
+    return entry ? entry.start : null;
+  }
+
+  hasPeriod() {
+    return this.entries.some(function (e) { return e.settings.get('period') !== null; });
   }
 
   // Source of each key at t: 'rotation', 'global' or 'default'.
@@ -1145,7 +1161,7 @@ function ledgerRows(rows) {
 
 // An instant inside a skipped day of a counted grid moves to the next boundary, so S never lands there.
 function onCountedDay(timeline, t) {
-  var grid = t === null || t === undefined ? null : timeline.gridAt(t);
+  var grid = t === null || t === undefined || !isFinite(t) ? null : timeline.gridAt(t);
   return grid ? grid.onCounted(t) : t;
 }
 
@@ -1263,7 +1279,7 @@ function resolveDurations(rows, timeline, sizeAt) {
 // frozen (DESIGN 5, run scope): the rotation is swept as it stands so relations see its shifts, but nothing is
 // pruned, no slot is filled and the snapshot stays where it is; it is not written. globalSetRows: #Global.
 function prepareRotation(input, index, holidays, frozen, globalSetRows) {
-  var validated = validateLedger(input.rows, input.name, globalSetRows);
+  var validated = validateLedger(input.rows, input.name);
   var rot = { name: input.name, index: index, frozen: frozen, rows: validated.rows, errors: validated.errors.slice(), problems: [], warnings: [] };
   if (rot.errors.length) return rot;
   var rows = rot.rows;
@@ -1275,8 +1291,20 @@ function prepareRotation(input, index, holidays, frozen, globalSetRows) {
   var timeline = new SettingsTimeline(rowsOfType(rows, 'set'), holidays, globalSetRows);
   var previous = firstOfType(rows, ['snapshot']);
   var S = frozen || input.snapshotAt === null || input.snapshotAt === undefined ? advance(rows, null, holidays, globalSetRows) : input.snapshotAt;
-  var first = firstOfType(rows, ['set']);
-  S = raiseTo(raiseTo(S, previous ? previous.start : null), onCountedDay(timeline, first.start));
+  // The schedule starts where the grid takes effect: a period from any set row and an anchor from a dated one
+  // of either layer. No dated row may precede that instant (it would have no grid).
+  var gridAt = timeline.gridStart();
+  var firstDated = rows.find(function (r) { return r.type !== 'comment' && r.start !== null && isFinite(r.start); });
+  if (gridAt === null) {
+    var missing = timeline.hasPeriod() ? 'no anchor; add a dated set anchor row here or in ' : 'no period in force; add period to a set row here or in ';
+    rot.errors.push({ rowIndex: null, start: null, startText: '', message: input.name + ': ' + missing + GLOBAL_TAB });
+    return rot;
+  }
+  if (firstDated && firstDated.start < gridAt) {
+    rot.errors.push(rowError(firstDated, input.name + ': row before the anchor at ' + formatDateTime(gridAt)));
+    return rot;
+  }
+  S = raiseTo(raiseTo(S, previous ? previous.start : null), onCountedDay(timeline, gridAt));
   rot.timeline = timeline;
   rot.previousAt = previous ? previous.start : null;
   rot.previousWhat = previous ? previous.what : '';
@@ -1356,7 +1384,9 @@ function rotationItems(rot) {
 function mergeItems(rots) {
   var items = [];
   rots.forEach(function (rot) { items = items.concat(rotationItems(rot)); });
-  return items.sort(function (a, b) { return (a.start - b.start) || (rots[a.rot].rank - rots[b.rot].rank) || (a.order - b.order); });
+  return items.sort(function (a, b) {
+    return (a.start < b.start ? -1 : a.start > b.start ? 1 : 0) || (rots[a.rot].rank - rots[b.rot].rank) || (a.order - b.order);
+  });
 }
 
 // Settings at an instant come from the timeline (own and global set rows), so set rows are not sweep items.
@@ -1957,15 +1987,22 @@ function parseGlobal(rows, rotationNames) {
   var setRows = [];
   var relationRows = [];
   var kept = sortRows(attachComments(rows.filter(function (r) { return r.type !== 'error'; })));
+  var epochs = {};
+  var duplicateEpoch = function (row) {
+    if (!isEpochRow(row)) return null;
+    if (epochs[row.type]) return 'more than one undated ' + row.type + ' row';
+    epochs[row.type] = true;
+    return null;
+  };
   kept.forEach(function (row) {
     if (row.type === 'comment') return;
     if (row.type === 'set') {
-      var problem = validateRow(row);
+      var problem = validateRow(row) || duplicateEpoch(row);
       if (problem === null) setRows.push(row); else setErrors.push(rowError(row, problem));
       return;
     }
     var message = !isRelationRow(row) ? (row.type === '' ? 'missing type' : 'type "' + row.type + '" is not allowed in ' + GLOBAL_TAB)
-      : validateRow(row) || validateRelationRow(row, rotationNames, null);
+      : validateRow(row) || validateRelationRow(row, rotationNames, null) || duplicateEpoch(row);
     if (message === null && row.durationInterval && row.durationInterval.unit !== 'clock') message = 'duration in ' + GLOBAL_TAB + ' takes clock units only';
     if (message === null) relationRows.push(row); else errors.push(rowError(row, message));
   });
@@ -2016,7 +2053,7 @@ class Relations {
 
   // Ends sort before starts at equal instants; later-added rows win among starts.
   sorted(list) {
-    return list.slice().sort(function (x, y) { return (x.t - y.t) || (x.starts - y.starts) || (x.seq - y.seq); });
+    return list.slice().sort(function (x, y) { return (x.t < y.t ? -1 : x.t > y.t ? 1 : 0) || (x.starts - y.starts) || (x.seq - y.seq); });
   }
 
   // { kind, reader } in force between a and b at t, or null.
@@ -2153,11 +2190,10 @@ function recentMonday(t) {
   return dayStart(day - (weekdayOfDay(day) + 6) % 7);
 }
 
-// Every setting spelled out at its default: period=1w, bare anchor, the rest key=default.
+// Every setting spelled out at its default: period=1w, the rest key=default; anchor is left to the dated row.
 function templateSetWhat() {
-  return Object.keys(SETTINGS).map(function (key) {
+  return Object.keys(SETTINGS).filter(function (key) { return key !== 'anchor'; }).map(function (key) {
     if (key === 'period') return 'period=' + TEMPLATE_PERIOD;
-    if (key === 'anchor') return 'anchor';
     var def = SETTINGS[key].def;
     return key + '=' + (def !== null && typeof def === 'object' ? def.text : String(def));
   }).join(', ');
@@ -2172,11 +2208,13 @@ var ROTATION_HELP = [
   'leave: name [, name ...]',
   'exclude / include: name [, name ...]',
   'set: key, key=value',
+  'set / team without start: apply from the beginning; the dated set anchor row fixes where shifts start',
 ];
 var GLOBAL_HELP = [
   'ROWS:',
   'repel / attract / detach: Rotation1, Rotation2',
   'set: key, key=value',
+  'set / repel / attract without start: apply from the beginning',
 ];
 var HOLIDAYS_SAMPLE_NOTE = 'New Year';
 
@@ -2187,7 +2225,7 @@ var HELP_TEXT = [
   '',
   'COLUMNS: pin | start | type | what | end | duration | note',
   'pin: any value pins the row; the script never modifies or deletes a pinned row',
-  'start: YYYY-MM-DD or YYYY-MM-DDTHH:MM in the spreadsheet time zone; mandatory on every row but comments',
+  'start: YYYY-MM-DD or YYYY-MM-DDTHH:MM in the spreadsheet time zone; mandatory except on comments and on set, team, repel and attract rows that apply from the beginning',
   'type: one of the row types below; an empty type makes the row a comment',
   'what: the payload of the row, see ROWS',
   'end / duration: optional extent of a shift or exclude; at most one of the two',
@@ -2200,6 +2238,7 @@ var HELP_TEXT = [
   'leave: name [, name ...]',
   'exclude / include: name [, name ...]; exclude takes end or duration, otherwise it lasts until an include',
   'set: key, key=value',
+  'undated set / team / repel / attract: epoch rows that apply from the beginning of the timeline and sort first; at most one per type per tab; anchor needs a dated set row',
   'repel / attract / detach: Rotation1, Rotation2 (mutual in #Global; in a rotation tab one-sided, naming the other rotation)',
   'snapshot: written by the script at the start of the current shift with the roster and scores; delete it to replay the whole history',
   'error: written by the script above the row it describes; removed on the next run',
@@ -2255,9 +2294,9 @@ function helpRows(lines) {
   return lines.map(function (text) { return ['', '', '', '', '', '', text]; });
 }
 
-// Header, help rows and a set row with every setting at its default, dated firstStart, for a new #Global tab.
-function globalTemplateRows(firstStart) {
-  return [LEDGER_HEADER.slice()].concat(helpRows(GLOBAL_HELP), [['', formatDateTime(firstStart), 'set', templateSetWhat(), '', '', '']]);
+// Header, help rows and an undated (epoch) set row with every setting at its default for a new #Global tab.
+function globalTemplateRows() {
+  return [LEDGER_HEADER.slice()].concat(helpRows(GLOBAL_HELP), [['', '', 'set', templateSetWhat(), '', '', '']]);
 }
 
 // Header plus one sample holiday: New Year of the calendar year before `now`.
@@ -2266,12 +2305,13 @@ function holidaysTemplateRows(now) {
   return [HOLIDAYS_HEADER.slice(), [String(year).padStart(4, '0') + '-01-01', HOLIDAYS_SAMPLE_NOTE]];
 }
 
-// Header, help rows, set and team cell rows of a new rotation tab, dated firstStart.
+// Header, help rows, an epoch set row with every default, an epoch team row and one dated set anchor row at
+// firstStart, for a new rotation tab.
 function templateRows(firstStart) {
-  var start = formatDateTime(firstStart);
   return [LEDGER_HEADER.slice()].concat(helpRows(ROTATION_HELP), [
-    ['', start, 'set', templateSetWhat(), '', '', ''],
-    ['', start, 'team', TEMPLATE_TEAM, '', '', ''],
+    ['', '', 'set', templateSetWhat(), '', '', ''],
+    ['', '', 'team', TEMPLATE_TEAM, '', '', ''],
+    ['', formatDateTime(firstStart), 'set', 'anchor', '', '', ''],
   ]);
 }
 
@@ -2294,7 +2334,7 @@ function gridFor(timeline, t) {
 // row and nPost rows from the tail on. rows: dated row objects at or after the timeline's first set row.
 function gridRows(rows, nPre, nPost, timeline) {
   var sorted = sortRows(rows);
-  var dated = sorted.filter(function (r) { return r.start !== null; });
+  var dated = sorted.filter(function (r) { return r.start !== null && isFinite(r.start); });
   if (!dated.length) return sorted;
   var changes = timeline.gridChanges();
   var shifts = rowsOfType(sorted, 'shift');
@@ -2347,35 +2387,38 @@ function fillShiftsGridCells(selectedCells, tabCells, holidayTexts, globalCells)
   var localSets = sortRows(rowsOfType(rowsFromCells(tabCells), 'set'));
   var globalSets = rowsOfType(rowsFromCells(globalCells || []), 'set');
   var timeline = new SettingsTimeline(localSets, holidays, globalSets);
-  var firstStart = localSets.length ? localSets[0].start : null;
-  if (firstStart === null || timeline.at(firstStart).get('period') === null) {
-    return { error: 'the tab needs a set row with period before the grid can be filled' };
+  var datedSets = localSets.filter(function (r) { return isFinite(r.start); });
+  var firstStart = datedSets.length ? datedSets[0].start : null;
+  if (firstStart === null || timeline.gridAt(firstStart) === null) {
+    return { error: 'the tab needs a dated set row with a period and an anchor in force before the grid can be filled' };
   }
-  var dated = [];
+  var rows = [];
   var comments = [];
-  var pre = 0, post = 0;
+  var pre = 0, post = 0, datedCount = 0;
   for (var i = 0; i < selectedCells.length; i++) {
     var cells = selectedCells[i];
     var startText = cellText(cells[1]);
     var row = rowFromArray(cells, i + 1);
     row.cells = cells.slice();
     if (startText === '') {
-      if (isBlankRow(cells) || isTemplateShiftRow(cells)) { if (dated.length) post++; else pre++; continue; }
-      if (row.type !== 'comment') return { error: 'selected row ' + (i + 1) + ' has content but no start' };
-      comments.push(row);
-      continue;
+      if (isBlankRow(cells) || isTemplateShiftRow(cells)) { if (datedCount) post++; else pre++; continue; }
+      if (row.type === 'comment') { comments.push(row); continue; }
+      if (!isEpochRow(row)) return { error: 'selected row ' + (i + 1) + ' has content but no start' };
+    } else {
+      if (row.start === null) return { error: 'selected row ' + (i + 1) + ': bad start "' + startText + '"' };
+      if (row.start < firstStart) return { error: 'selected row ' + (i + 1) + ' is dated before the first set row' };
+      if (row.type === 'comment' && hasOnlyStart(cells)) row.type = 'shift';
+      datedCount++;
+      post = 0;
     }
-    if (row.start === null) return { error: 'selected row ' + (i + 1) + ': bad start "' + startText + '"' };
-    if (row.start < firstStart) return { error: 'selected row ' + (i + 1) + ' is dated before the first set row' };
-    if (row.type === 'comment' && hasOnlyStart(cells)) row.type = 'shift';
     if (row.type !== 'comment') row.cells[2] = row.type;
-    dated = dated.concat(comments, [row]);
+    rows = rows.concat(comments, [row]);
     comments = [];
-    post = 0;
   }
-  if (!dated.length) return { error: 'the selection has no dated row to start from' };
-  var out = gridRows(dated, pre, post, timeline).concat(comments);
-  if (out[0].start < firstStart) return { error: pre + ' empty row(s) above would fall before the first set row' };
+  if (!datedCount) return { error: 'the selection has no dated row to start from' };
+  var out = gridRows(rows, pre, post, timeline).concat(comments);
+  var firstOut = out.find(function (r) { return r.start !== null && isFinite(r.start); });
+  if (firstOut && firstOut.start < firstStart) return { error: pre + ' empty row(s) above would fall before the first set row' };
   return { rows: out.map(function (r) { return r.cells || rowToArray(r); }) };
 }
 
@@ -2864,7 +2907,7 @@ function ensureTab(ss, name, header) {
 // Template rows for a tab by name: rotation, #Global or #Holidays; null for tabs without a template.
 function templateFor(name, storage) {
   var now = parseDateTime(storage.nowText);
-  if (name === GLOBAL_TAB) return globalTemplateRows(recentMonday(now));
+  if (name === GLOBAL_TAB) return globalTemplateRows();
   if (name === HOLIDAYS_TAB) return holidaysTemplateRows(now);
   if (isSystemTab(name)) return null;
   return templateRows(recentMonday(now));

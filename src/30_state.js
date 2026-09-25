@@ -12,8 +12,9 @@ class Settings {
     return this.values[key];
   }
 
+  // No grid without a period and an anchor (an epoch set row gives a period but never an anchor).
   grid(holidays) {
-    return this.values.period === null ? null : new Grid(this.values, holidays);
+    return this.values.period === null || this.values.anchor === null ? null : new Grid(this.values, holidays);
   }
 
   unitsOptions(holidays) {
@@ -41,7 +42,7 @@ class SettingsTimeline {
     var usable = function (r) { return r.start !== null && parseSetArg(r.what, r.start).error === null; };
     var events = sortRows((globalSetRows || []).filter(usable)).map(function (r) { return { row: r, layer: 'global' }; })
       .concat(sortRows(setRows.filter(usable)).map(function (r) { return { row: r, layer: 'rotation' }; }))
-      .sort(function (a, b) { return a.row.start - b.row.start; });
+      .sort(function (a, b) { return a.row.start < b.row.start ? -1 : a.row.start > b.row.start ? 1 : 0; });
     var effective = function () {
       var values = defaultSettings();
       var sources = {};
@@ -61,8 +62,8 @@ class SettingsTimeline {
       Object.keys(parsed.values).forEach(function (key) { if (parsed.reset.indexOf(key) < 0) layer[key] = parsed.values[key]; });
       parsed.reset.forEach(function (key) { delete layer[key]; });
       var after = effective();
-      // A period change without an explicit anchor re-anchors this layer at the row.
-      if ('period' in parsed.values && after.values.period !== before.values.period && !('anchor' in parsed.values)) {
+      // A period change without an explicit anchor re-anchors this layer at the row; an epoch row has no instant.
+      if ('period' in parsed.values && after.values.period !== before.values.period && !('anchor' in parsed.values) && isFinite(ev.row.start)) {
         layer.anchor = ev.row.start;
         after = effective();
       }
@@ -83,6 +84,17 @@ class SettingsTimeline {
   at(t) {
     var entry = this.entryAt(t);
     return entry ? entry.settings.clone() : new Settings();
+  }
+
+  // Instant from which the grid (period and anchor) is in force, or null when no set row of either layer
+  // ever completes it. hasPeriod tells the two cases apart.
+  gridStart() {
+    var entry = this.entries.find(function (e) { return e.settings.get('period') !== null && e.settings.get('anchor') !== null; });
+    return entry ? entry.start : null;
+  }
+
+  hasPeriod() {
+    return this.entries.some(function (e) { return e.settings.get('period') !== null; });
   }
 
   // Source of each key at t: 'rotation', 'global' or 'default'.

@@ -332,6 +332,20 @@ test('runner: #Global rows are written back with error rows and reported; absent
   assert.equal(runStorage(new MemoryStorage({ ledgers }), '2026-10-05T10:00').global, null);
 });
 
+test('epoch relation rows: an undated repel in #Global equals a dated one from the first instant, one-sided too', () => {
+  const dated = regen([rotation('primary', 'alice, bob, carol'), rotation('secondary', 'alice, bob, carol')], [R('', '2026-10-05T09:00', 'repel', 'primary, secondary')]);
+  const epoch = regen([rotation('primary', 'alice, bob, carol'), rotation('secondary', 'alice, bob, carol')], [R('', '', 'repel', 'primary, secondary')]);
+  assert.deepEqual(plain(epoch.errors), []);
+  assert.deepEqual(whoOf(epoch, 'secondary'), whoOf(dated, 'secondary'));
+  assert.notDeepEqual(whoOf(epoch, 'secondary'), whoOf(epoch, 'primary'));
+  assert.deepEqual(cellsOf(epoch.global.rows).map((c) => [c[1], c[2]]), [['', 'repel']]);
+  const twice = regen([rotation('primary', 'alice'), rotation('secondary', 'alice')], [R('', '', 'repel', 'primary, secondary'), R('', '', 'repel', 'secondary, primary')]);
+  assert.deepEqual(plain(twice.errors.map((e) => e.message)), ['more than one undated repel row']);
+  const oneSided = regen([rotation('secondary', 'alice, bob, carol', [R('', '', 'attract', 'primary')]), rotation('primary', 'alice, bob, carol')], []);
+  assert.deepEqual(plain(oneSided.errors), []);
+  assert.deepEqual(whoOf(oneSided, 'secondary'), whoOf(oneSided, 'primary'));
+});
+
 test('global set rows layer under rotations: shared tolerance, local override and bare reset', () => {
   const globalRows = [R('', '2026-09-01', 'set', 'tolerance=7')];
   const ledger = (extra) => ({ name: 'primary', rows: rows([R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=5w, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), R('', '2026-10-05T09:00', 'team', ABC), R('', '2026-10-05T09:00', 'score', 'alice+=20'), ...extra]), snapshotAt: MON });

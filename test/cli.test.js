@@ -37,8 +37,9 @@ test('init: history-from dates the set row at the first boundary and adds empty 
   assert.equal(out.start, '2026-09-14T09:00');
   const rows = U.parseCsv(fs.readFileSync(path.join(dir, 'ops.csv'), 'utf8')).slice(1).filter((r) => r[2] !== '');
   assert.deepEqual(structuredClone(rows.map((r) => [r[1], r[2], r[3]])), [
-    ['2026-09-14T09:00', 'set', rows[0][3]],
-    ['2026-09-14T09:00', 'team', 'alice, bob, carol'],
+    ['', 'set', rows[0][3]],
+    ['', 'team', 'alice, bob, carol'],
+    ['2026-09-14T09:00', 'set', 'anchor'],
     ['2026-09-14T09:00', 'shift', ''],
     ['2026-09-21T09:00', 'shift', ''],
     ['2026-09-28T09:00', 'shift', ''],

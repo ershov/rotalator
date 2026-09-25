@@ -17,12 +17,12 @@ test('recentMonday: most recent Monday 00:00 at or before t', () => {
   assert.equal(U.formatDateTime(U.recentMonday(dt('2026-10-11T23:00'))), '2026-10-05');
 });
 
-const SET_DEFAULTS = 'period=1w, anchor, grid=calendar, horizon=20w, skip_weekends=true, skip_holidays=true, tolerance=0.5sl, min_distance=0.5ts, tiebreak=order, seed=0, baseline=median, precredit=1ts, autopin=a:2sl';
+const SET_DEFAULTS = 'period=1w, grid=calendar, horizon=20w, skip_weekends=true, skip_holidays=true, tolerance=0.5sl, min_distance=0.5ts, tiebreak=order, seed=0, baseline=median, precredit=1ts, autopin=a:2sl';
 
-test('templateRows: header, help comments, every setting at its default, sample team', () => {
+test('templateRows: header, help comments, epoch set and team rows, dated set anchor', () => {
   const rows = plain(U.templateRows(dt('2026-10-05T09:00')));
   assert.deepEqual(rows[0], plain(U.LEDGER_HEADER));
-  assert.deepEqual(rows.slice(1, 8).map((r) => r[6]), [
+  assert.deepEqual(rows.slice(1, 9).map((r) => r[6]), [
     'ROWS:',
     'shift: one member, or nobody',
     'team / score: name, name=baseline, name=number, name+=n, name-=n [, ...]',
@@ -30,17 +30,27 @@ test('templateRows: header, help comments, every setting at its default, sample 
     'leave: name [, name ...]',
     'exclude / include: name [, name ...]',
     'set: key, key=value',
+    'set / team without start: apply from the beginning; the dated set anchor row fixes where shifts start',
   ]);
-  assert.ok(rows.slice(1, 8).every((r) => r.slice(0, 6).every((c) => c === '')), 'help rows are undated comments');
-  assert.deepEqual(rows[8], R('', '2026-10-05T09:00', 'set', SET_DEFAULTS));
-  assert.deepEqual(rows[9], R('', '2026-10-05T09:00', 'team', 'alice, bob, carol'));
+  assert.ok(rows.slice(1, 9).every((r) => r.slice(0, 6).every((c) => c === '')), 'help rows are undated comments');
+  assert.deepEqual(rows[9], R('', '', 'set', SET_DEFAULTS));
+  assert.deepEqual(rows[10], R('', '', 'team', 'alice, bob, carol'));
+  assert.deepEqual(rows[11], R('', '2026-10-05T09:00', 'set', 'anchor'));
+  assert.equal(rows.length, 12);
   const parsed = U.rowsFromCells(rows.slice(1));
   assert.deepEqual(plain(U.validateLedger(parsed, 'r').errors), []);
-  const set = parsed.find((r) => r.type === 'set');
-  const values = U.parseSetArg(set.what, set.start).values;
-  assert.deepEqual(plain(values), { ...plain(U.defaultSettings()), period: 7 * 1440, anchor: dt('2026-10-05T09:00') });
-  // The help comments attach to the set row and sort above it.
-  assert.deepEqual(U.sortRows(parsed).map((r) => r.type).slice(6, 9), ['comment', 'set', 'team']);
+  const epochSet = parsed.find((r) => r.type === 'set');
+  assert.ok(U.isEpochRow(epochSet));
+  const values = U.parseSetArg(epochSet.what, epochSet.start).values;
+  const expected = { ...plain(U.defaultSettings()), period: 7 * 1440 };
+  delete expected.anchor;
+  assert.deepEqual(plain(values), expected);
+  assert.equal('anchor' in values, false);
+  // The help comments attach to the epoch set row; epoch rows sort first, the dated anchor row after them.
+  assert.deepEqual(U.sortRows(parsed).map((r) => r.type).slice(7, 11), ['comment', 'set', 'team', 'set']);
+  const timeline = new U.SettingsTimeline(U.rowsOfType(parsed, 'set'), new Set());
+  assert.equal(timeline.gridStart(), dt('2026-10-05T09:00'));
+  assert.equal(timeline.at(dt('2026-10-05T09:00')).get('anchor'), dt('2026-10-05T09:00'));
 });
 
 test('HELP_TEXT covers every row type, setting, interval unit and menu item', () => {
@@ -59,11 +69,15 @@ test('HELP_TEXT covers every row type, setting, interval unit and menu item', ()
 });
 
 test('globalTemplateRows and holidaysTemplateRows', () => {
-  const rows = plain(U.globalTemplateRows(dt('2026-10-05')));
+  const rows = plain(U.globalTemplateRows());
   assert.deepEqual(rows[0], plain(U.LEDGER_HEADER));
-  assert.deepEqual(rows.slice(1, 4).map((r) => r[6]), ['ROWS:', 'repel / attract / detach: Rotation1, Rotation2', 'set: key, key=value']);
-  assert.deepEqual(rows[4], R('', '2026-10-05', 'set', SET_DEFAULTS));
-  assert.equal(rows.length, 5);
+  assert.deepEqual(rows.slice(1, 5).map((r) => r[6]), ['ROWS:', 'repel / attract / detach: Rotation1, Rotation2', 'set: key, key=value', 'set / repel / attract without start: apply from the beginning']);
+  assert.deepEqual(rows[5], R('', '', 'set', SET_DEFAULTS));
+  assert.equal(rows.length, 6);
+  const parsed = U.parseGlobal(U.rowsFromCells(rows.slice(1)), ['r']);
+  assert.deepEqual(plain(parsed.errors), []);
+  assert.equal(parsed.setRows.length, 1);
+  assert.ok(U.isEpochRow(parsed.setRows[0]));
   assert.deepEqual(plain(U.holidaysTemplateRows(dt('2026-10-07T12:00'))), [['date', 'note'], ['2025-01-01', 'New Year']]);
   assert.deepEqual(plain(U.holidaysTemplateRows(dt('0100-02-03'))), [['date', 'note'], ['0099-01-01', 'New Year']]);
 });
@@ -154,13 +168,40 @@ test('fillShiftsGridCells: dated comments stay, undated comments travel with the
   ]);
 });
 
+test('fillShiftsGridCells: epoch rows at the top stay in place; gaps after the anchor row are filled', () => {
+  const tab = [R('', '', 'set', 'period=1w, horizon=4w'), R('', '', 'team', 'alice, bob'), R('', '2026-10-05T09:00', 'set', 'anchor')];
+  const selected = [
+    R('', '', '', 'help text'),
+    tab[0], tab[1], tab[2],
+    R('', '', '', ''),
+    R('', '2026-10-12T09:00', 'shift', 'alice'),
+    R('', '', '', ''),
+  ];
+  const out = plain(U.fillShiftsGridCells(selected, tab, []));
+  assert.equal(out.error, undefined);
+  assert.deepEqual(out.rows.map((r) => [r[1], r[2], r[3]]), [
+    ['', '', 'help text'],
+    ['', 'set', 'period=1w, horizon=4w'],
+    ['', 'team', 'alice, bob'],
+    ['2026-10-05T09:00', 'set', 'anchor'],
+    ['2026-10-05T09:00', 'shift', ''],
+    ['2026-10-12T09:00', 'shift', 'alice'],
+    ['2026-10-19T09:00', 'shift', ''],
+  ]);
+  // A blank row above the anchor row would become a shift before the anchor, which is refused.
+  const before = plain(U.fillShiftsGridCells([R('', '', '', ''), tab[0], tab[1], tab[2], R('', '2026-10-12T09:00', 'shift', 'alice')], tab, []));
+  assert.equal(before.error, '1 empty row(s) above would fall before the first set row');
+});
+
 test('fillShiftsGridCells: refusals', () => {
   const tab = [SET, R('', '2026-10-05T09:00', 'team', 'alice')];
   assert.equal(plain(U.fillShiftsGridCells([R('', '', 'shift', 'alice'), tab[1]], tab, [])).error, 'selected row 1 has content but no start');
-  assert.equal(plain(U.fillShiftsGridCells([R('', '', 'team', ''), tab[1]], tab, [])).error, 'selected row 1 has content but no start');
+  assert.equal(plain(U.fillShiftsGridCells([R('', '', 'join', 'x'), tab[1]], tab, [])).error, 'selected row 1 has content but no start');
   assert.equal(plain(U.fillShiftsGridCells([tab[1], R('', 'soon', 'shift', '')], tab, [])).error, 'selected row 2: bad start "soon"');
   assert.equal(plain(U.fillShiftsGridCells([R('', '', '', ''), R('', '', '', '')], tab, [])).error, 'the selection has no dated row to start from');
-  assert.match(plain(U.fillShiftsGridCells([tab[1]], [tab[1]], [])).error, /set row with period/);
+  assert.match(plain(U.fillShiftsGridCells([tab[1]], [tab[1]], [])).error, /dated set row with a period and an anchor/);
+  const epochOnly = [R('', '', 'set', 'period=1w'), tab[1]];
+  assert.match(plain(U.fillShiftsGridCells([tab[1]], epochOnly, [])).error, /dated set row with a period and an anchor/);
   assert.equal(plain(U.fillShiftsGridCells([R('', '2026-09-28T09:00', 'shift', '')], tab, [])).error, 'selected row 1 is dated before the first set row');
   assert.equal(plain(U.fillShiftsGridCells([R('', '', '', ''), R('', '', '', ''), R('', '2026-10-12T09:00', 'shift', 'alice')], tab, [])).error, '2 empty row(s) above would fall before the first set row');
   assert.equal(plain(U.fillShiftsGridCells([R('', '', '', ''), R('', '2026-10-12T09:00', 'shift', 'alice')], tab, [])).rows.length, 2);

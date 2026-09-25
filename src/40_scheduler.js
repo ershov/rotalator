@@ -17,7 +17,7 @@ function ledgerRows(rows) {
 
 // An instant inside a skipped day of a counted grid moves to the next boundary, so S never lands there.
 function onCountedDay(timeline, t) {
-  var grid = t === null || t === undefined ? null : timeline.gridAt(t);
+  var grid = t === null || t === undefined || !isFinite(t) ? null : timeline.gridAt(t);
   return grid ? grid.onCounted(t) : t;
 }
 
@@ -135,7 +135,7 @@ function resolveDurations(rows, timeline, sizeAt) {
 // frozen (DESIGN 5, run scope): the rotation is swept as it stands so relations see its shifts, but nothing is
 // pruned, no slot is filled and the snapshot stays where it is; it is not written. globalSetRows: #Global.
 function prepareRotation(input, index, holidays, frozen, globalSetRows) {
-  var validated = validateLedger(input.rows, input.name, globalSetRows);
+  var validated = validateLedger(input.rows, input.name);
   var rot = { name: input.name, index: index, frozen: frozen, rows: validated.rows, errors: validated.errors.slice(), problems: [], warnings: [] };
   if (rot.errors.length) return rot;
   var rows = rot.rows;
@@ -147,8 +147,20 @@ function prepareRotation(input, index, holidays, frozen, globalSetRows) {
   var timeline = new SettingsTimeline(rowsOfType(rows, 'set'), holidays, globalSetRows);
   var previous = firstOfType(rows, ['snapshot']);
   var S = frozen || input.snapshotAt === null || input.snapshotAt === undefined ? advance(rows, null, holidays, globalSetRows) : input.snapshotAt;
-  var first = firstOfType(rows, ['set']);
-  S = raiseTo(raiseTo(S, previous ? previous.start : null), onCountedDay(timeline, first.start));
+  // The schedule starts where the grid takes effect: a period from any set row and an anchor from a dated one
+  // of either layer. No dated row may precede that instant (it would have no grid).
+  var gridAt = timeline.gridStart();
+  var firstDated = rows.find(function (r) { return r.type !== 'comment' && r.start !== null && isFinite(r.start); });
+  if (gridAt === null) {
+    var missing = timeline.hasPeriod() ? 'no anchor; add a dated set anchor row here or in ' : 'no period in force; add period to a set row here or in ';
+    rot.errors.push({ rowIndex: null, start: null, startText: '', message: input.name + ': ' + missing + GLOBAL_TAB });
+    return rot;
+  }
+  if (firstDated && firstDated.start < gridAt) {
+    rot.errors.push(rowError(firstDated, input.name + ': row before the anchor at ' + formatDateTime(gridAt)));
+    return rot;
+  }
+  S = raiseTo(raiseTo(S, previous ? previous.start : null), onCountedDay(timeline, gridAt));
   rot.timeline = timeline;
   rot.previousAt = previous ? previous.start : null;
   rot.previousWhat = previous ? previous.what : '';
@@ -228,7 +240,9 @@ function rotationItems(rot) {
 function mergeItems(rots) {
   var items = [];
   rots.forEach(function (rot) { items = items.concat(rotationItems(rot)); });
-  return items.sort(function (a, b) { return (a.start - b.start) || (rots[a.rot].rank - rots[b.rot].rank) || (a.order - b.order); });
+  return items.sort(function (a, b) {
+    return (a.start < b.start ? -1 : a.start > b.start ? 1 : 0) || (rots[a.rot].rank - rots[b.rot].rank) || (a.order - b.order);
+  });
 }
 
 // Settings at an instant come from the timeline (own and global set rows), so set rows are not sweep items.

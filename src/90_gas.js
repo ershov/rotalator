@@ -416,7 +416,7 @@ function ensureTab(ss, name, header) {
 // Template rows for a tab by name: rotation, #Global or #Holidays; null for tabs without a template.
 function templateFor(name, storage) {
   var now = parseDateTime(storage.nowText);
-  if (name === GLOBAL_TAB) return globalTemplateRows(recentMonday(now));
+  if (name === GLOBAL_TAB) return globalTemplateRows();
   if (name === HOLIDAYS_TAB) return holidaysTemplateRows(now);
   if (isSystemTab(name)) return null;
   return templateRows(recentMonday(now));

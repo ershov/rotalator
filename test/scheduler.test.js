@@ -95,9 +95,9 @@ test('bootstrap fills the horizon round robin and is idempotent', () => {
   assert.equal(out.status.rotations[0].horizonEnd, MON + 5 * W);
 });
 
-test('a template-shaped ledger dated today gets no snapshot row until the roster exists at S', () => {
+test('a ledger whose team row is dated at S gets no snapshot row until the roster exists at S', () => {
   const today = U.recentMonday(dt('2026-10-07T12:00'));
-  const cells = U.templateRows(today).slice(1);
+  const cells = [R('', U.formatDateTime(today), 'set', 'period=1w, horizon=4w'), R('', U.formatDateTime(today), 'team', 'alice, bob, carol')];
   const first = U.regenerate({ rotations: [{ name: 'r', rows: U.rowsFromCells(cells), snapshotAt: U.advance(U.rowsFromCells(cells), dt('2026-10-05T10:00'), new Set()) }], holidays: [], global: [], now: dt('2026-10-05T10:00') });
   assert.deepEqual(plain(first.errors), []);
   assert.equal(ofType(first, 'snapshot').length, 0);
@@ -105,6 +105,13 @@ test('a template-shaped ledger dated today gets no snapshot row until the roster
   assert.ok(ofType(first, 'shift').length > 0);
   const written = cellsOf(first);
   assert.deepEqual(cellsOf(run(written, '2026-10-05T10:00')), written, 'idempotent without a snapshot row');
+  // The template's epoch team row predates S, so a template-shaped ledger gets its snapshot on the first run.
+  const template = U.templateRows(today).slice(1);
+  const fresh = run(template, '2026-10-05T10:00');
+  assert.deepEqual(plain(fresh.errors), []);
+  assert.equal(ofType(fresh, 'snapshot').length, 1);
+  assert.equal(ofType(fresh, 'snapshot')[0].what, 'alice=0, bob=0, carol=0');
+  assert.deepEqual(cellsOf(run(cellsOf(fresh), '2026-10-05T10:00')), cellsOf(fresh));
   // A week later S has moved past the team row: the snapshot appears with the roster and a full replay gave the same scores.
   const next = run(written, '2026-10-13T10:00');
   const snapshot = ofType(next, 'snapshot');
@@ -124,6 +131,51 @@ test('a rotation with a snapshot keeps an (empty) snapshot row when everyone lea
   assert.equal(U.formatDateTime(snapshot[0].start), '2026-10-19T09:00');
   assert.equal(snapshot[0].what, '');
   assert.deepEqual(cellsOf(run(cellsOf(dormant), '2026-10-20T10:00')), cellsOf(dormant));
+});
+
+test('epoch set and team rows replay exactly like their dated equivalents at the first instant', () => {
+  const dated = run([SET, TEAM, R('', '2026-10-12T09:00', 'exclude', 'bob', '', '1w')], '2026-10-13T10:00');
+  const epoch = run([
+    R('', '', 'set', 'period=1w, horizon=5w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'),
+    R('', '', 'team', 'alice, bob, carol'),
+    R('', '2026-10-05T09:00', 'set', 'anchor'),
+    R('', '2026-10-12T09:00', 'exclude', 'bob', '', '1w'),
+  ], '2026-10-13T10:00');
+  assert.deepEqual(plain(epoch.errors), []);
+  const body = (out) => cellsOf(out).filter((c) => c[2] !== 'set' && c[2] !== 'team');
+  assert.deepEqual(body(epoch), body(dated));
+  assert.deepEqual(plain(epoch.status.rotations[0].roster.map((m) => [m.name, m.score, m.projected])), plain(dated.status.rotations[0].roster.map((m) => [m.name, m.score, m.projected])));
+  const written = cellsOf(epoch);
+  assert.deepEqual(written.slice(0, 3).map((c) => [c[1], c[2]]), [['', 'set'], ['', 'team'], ['2026-10-05T09:00', 'set']]);
+  assert.deepEqual(cellsOf(run(written, '2026-10-13T10:00')), written);
+  const sources = epoch.status.rotations[0].settings.values;
+  assert.equal(sources.find((v) => v.key === 'period').source, 'rotation');
+  assert.equal(sources.find((v) => v.key === 'anchor').value, '2026-10-05T09:00');
+});
+
+test('the grid must be in force before the first dated row: no period, no anchor, row before the anchor', () => {
+  const noAnchor = run([R('', '', 'set', 'period=1w, horizon=5w'), R('', '', 'team', 'alice, bob'), R('', '2026-10-05T09:00', 'shift', 'alice')], '2026-10-05T10:00');
+  assert.deepEqual(plain(noAnchor.errors.map((e) => e.message)), ['r: no anchor; add a dated set anchor row here or in #Global']);
+  assert.equal(noAnchor.regenerated, false);
+  const noPeriod = run([R('', '', 'set', 'tolerance=1'), R('', '', 'team', 'alice, bob'), R('', '2026-10-05T09:00', 'set', 'anchor')], '2026-10-05T10:00');
+  assert.deepEqual(plain(noPeriod.errors.map((e) => e.message)), ['r: no period in force; add period to a set row here or in #Global']);
+  const nothing = run([R('', '2026-10-05T09:00', 'set', 'tolerance=1'), TEAM], '2026-10-05T10:00');
+  assert.deepEqual(plain(nothing.errors.map((e) => e.message)), ['r: no period in force; add period to a set row here or in #Global']);
+  // An epoch set without period followed by a dated set with period is fine: the dated row anchors the grid.
+  const late = run([R('', '', 'set', 'tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), R('', '', 'team', 'alice, bob'), R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w')], '2026-10-05T10:00');
+  assert.deepEqual(plain(late.errors), []);
+  assert.deepEqual(shifts(late).map((s) => s[1]), ['alice', 'bob', 'alice']);
+  // A team row dated before the set row that starts the grid is a row before the anchor.
+  const teamFirst = run([R('', '2026-10-01T09:00', 'team', 'alice, bob'), R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w')], '2026-10-05T10:00');
+  assert.deepEqual(plain(teamFirst.errors.map((e) => [e.rowIndex, e.message])), [[2, 'r: row before the anchor at 2026-10-05T09:00']]);
+  const early = run([R('', '', 'set', 'period=1w, horizon=5w'), R('', '', 'team', 'alice, bob'), R('', '2026-09-28T09:00', 'shift', 'alice'), R('', '2026-10-05T09:00', 'set', 'anchor')], '2026-10-05T10:00');
+  assert.deepEqual(plain(early.errors.map((e) => [e.rowIndex, e.message])), [[4, 'r: row before the anchor at 2026-10-05T09:00']]);
+  const globalAnchor = U.regenerate({
+    rotations: [{ name: 'r', rows: rows([R('', '', 'set', 'tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), R('', '', 'team', 'alice, bob')]), snapshotAt: MON }],
+    holidays: [], global: rows([R('', '', 'set', 'period=1w, horizon=3w'), R('', '2026-10-05T09:00', 'set', 'anchor')]),
+  });
+  assert.deepEqual(plain(globalAnchor.errors), []);
+  assert.deepEqual(shifts(globalAnchor).map((s) => [s[0], s[1]]), [['2026-10-05T09:00', 'alice'], ['2026-10-12T09:00', 'bob'], ['2026-10-19T09:00', 'alice']]);
 });
 
 test('a stale run leaves the gap uncredited and resumes at the grid boundary', () => {

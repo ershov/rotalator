@@ -114,13 +114,14 @@ script, then reload.
 2. Open `Rotation 1 Primary` (or rename it: the tab name is the rotation
    name). The first rows are help comments listing what each row type takes
    in `what`; they stay at the top and can be deleted. Below them a `set` row
-   lists every setting at its default, dated the most recent Monday 00:00
-   with a bare `anchor`, so the first shift starts there and shifts change at
-   midnight; change the time in `start` if the team hands over during the
-   day. Adjust `period`, `horizon`, `skip_weekends` and the rest as needed.
-   The `team` row has sample names: replace them with your members. Rows with
-   an empty `type` are comments: put notes anywhere in the ledger, the script
-   keeps them in place.
+   without `start` lists every setting at its default; it applies from the
+   beginning. Adjust `period`, `horizon`, `skip_weekends` and the rest as
+   needed. The `team` row, also without `start`, has sample names: replace
+   them with your members. The dated `set anchor` row below them is where
+   the first shift starts, the most recent Monday 00:00, so shifts change at
+   midnight; change its `start` if the team hands over at another time or
+   day. Rows with an empty `type` are comments: put notes anywhere in the
+   ledger, the script keeps them in place.
 3. More rotations: add a tab, name it, and choose **Rotalator > Set Up Tab**
    with the tab active. It only fills empty tabs. On `#Holidays` it writes
    the header and the sample row, on `#Global` the header, help rows and a
@@ -226,12 +227,12 @@ script's set. Keep custom rules on other tabs.
 a `type` other than `shift`. Date it, clear its `type` to make it a comment,
 or clear the row, then run again.
 
-**Error row `first row must be a set row (period own or from #Global)`.**
-The earliest row by `start` must be a `set` row, and a `period=` must be in
-force there, either in that row or from a `#Global` `set` row dated at or
-before it. Typical causes: a shift or team row dated earlier than the `set`
-row, a mistyped year in the `set` row, or `period` missing from its `what`
-and from `#Global`.
+**Error `no period in force`, `no anchor` or `row before the anchor`.** The
+grid must be complete before the first dated row: a `period=` in some `set`
+row (in the tab, undated or dated, or in `#Global`) and an anchor from a
+dated `set` row (`anchor`, or the row that sets `period`). Typical causes: a
+shift or team row dated earlier than the `set anchor` row, a mistyped year
+in that row, or `period` missing from every `set` row and from `#Global`.
 
 **A rotation tab is not picked up.** Its first row must be exactly the seven
 header cells and its name must not start with `#`. The `tabs` block in
@@ -276,7 +277,9 @@ Everything **Set Up Spreadsheet** and **Set Up Tab** do can be typed by hand.
    row shows a converted date, reapply plain text to the column.
 4. Row 2: a `set` row with at least `period`, dated at the intended start of
    the first shift so it becomes the grid anchor. Row 3: a `team` row with
-   the roster, same `start`.
+   the roster, same `start`. Or, like the templates, leave `start` empty on
+   the `set` and `team` rows so they apply from the beginning and add a third
+   row `set anchor` dated at the first shift.
 5. Add a `#Holidays` tab with the header `date | note` in row 1, and
    optionally a `#Global` tab with the same seven-cell header as a ledger (see
    the README for global `set` rows and relation rows).

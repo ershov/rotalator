@@ -43,6 +43,15 @@ var ROW_TYPES = {
   shift:    { order: 12, what: 'shift',  required: false, extent: true },
 };
 
+// Epoch rows (DESIGN 3.4): set, team, repel and attract rows without a start apply from the beginning of the
+// timeline. Their start is -Infinity internally so they sort and compare before every dated row.
+var EPOCH = -Infinity;
+var EPOCH_TYPES = ['set', 'team', 'repel', 'attract'];
+
+function isEpochRow(row) {
+  return row.start === EPOCH;
+}
+
 var BASELINE_KEYWORDS = ['median', 'mean', 'min', 'max'];
 var TIEBREAKS = ['order', 'shuffle'];
 var GRID_MODES = ['calendar', 'counted'];
@@ -184,18 +193,6 @@ function parseSetArg(text, start) {
   return out;
 }
 
-// Value of a key from the global set rows dated at or before t; undefined when none sets it.
-function globalValueAt(globalSetRows, key, t) {
-  var value;
-  sortRows(globalSetRows || []).forEach(function (row) {
-    if (row.start === null || row.start > t) return;
-    var parsed = parseSetArg(row.what, row.start);
-    if (parsed.reset.indexOf(key) >= 0) value = undefined;
-    else if (key in parsed.values) value = parsed.values[key];
-  });
-  return value;
-}
-
 function isNobody(what) {
   var w = (what ?? '').trim().toLowerCase();
   return w === '' || w === '-' || w === 'none';
@@ -232,18 +229,20 @@ function rowFromArray(cells, rowIndex) {
   var startText = cellText(cells[1]);
   var endText = cellText(cells[4]);
   var durationText = cellText(cells[5]);
+  var type = cellText(cells[2]).toLowerCase() || 'comment';
   var start = parseDateTime(startText);
+  if (start === null && startText === '' && EPOCH_TYPES.indexOf(type) >= 0) start = EPOCH;
   var end = parseDateTime(endText);
   var interval = parseInterval(durationText);
   var duration = interval && interval.unit === 'clock' ? interval.minutes : null;
-  if (end === null && duration !== null && start !== null) end = start + duration;
+  if (end === null && duration !== null && start !== null && isFinite(start)) end = start + duration;
   return {
     rowIndex: rowIndex,
     pin: pin,
     pinned: pin !== '',
     start: start,
     startText: startText,
-    type: cellText(cells[2]).toLowerCase() || 'comment',
+    type: type,
     what: cellText(cells[3]),
     end: end,
     endText: endText,
@@ -261,7 +260,7 @@ function makeRow(fields) {
   };
   for (var k in fields) row[k] = fields[k];
   if (fields.pin && !('pinned' in fields)) row.pinned = true;
-  if (row.end === null && row.duration !== null && row.start !== null) row.end = row.start + row.duration;
+  if (row.end === null && row.duration !== null && row.start !== null && isFinite(row.start)) row.end = row.start + row.duration;
   return row;
 }
 
@@ -272,7 +271,7 @@ function rowToArray(row) {
   var end = derivedEnd ? '' : row.end !== null ? formatDateTime(row.end) : row.endText;
   return [
     row.pin,
-    row.start !== null ? formatDateTime(row.start) : row.startText,
+    row.start !== null && isFinite(row.start) ? formatDateTime(row.start) : row.startText,
     row.type === 'comment' ? '' : row.type,
     row.what,
     end,
@@ -395,6 +394,10 @@ function validateRow(row) {
   var spec = ROW_TYPES[row.type];
   if (!spec) return row.type === '' ? 'missing type' : 'unknown type "' + row.type + '"';
   if (row.start === null) return row.startText === '' ? 'missing start' : 'bad start "' + row.startText + '"';
+  if (isEpochRow(row)) {
+    if (row.endText !== '' || row.durationText !== '') return 'undated ' + row.type + ' rows take no end or duration';
+    if (row.type === 'set' && 'anchor' in parseSetArg(row.what, row.start).values) return 'anchor needs a dated set row';
+  }
   if (row.endText !== '' && row.durationText !== '') return 'end and duration are mutually exclusive';
   if (row.endText !== '' && parseDateTime(row.endText) === null) return 'bad end "' + row.endText + '"';
   if (row.durationText !== '' && (!row.durationInterval || !intervalIsPositive(row.durationInterval))) return 'bad duration "' + row.durationText + '"; use ' + POSITIVE_INTERVAL_HINT;
@@ -408,12 +411,13 @@ function rowError(row, message) {
   return { rowIndex: row.rowIndex, start: row.start, startText: row.startText, message: message };
 }
 
-// Stateless checks of DESIGN 5.1. Drops error rows; returns remaining rows sorted. globalSetRows: the valid
-// set rows of #Global, which may supply the period the first set row must otherwise carry.
-function validateLedger(rows, rotationName, globalSetRows) {
+// Stateless checks of DESIGN 5.1. Drops error rows; returns remaining rows sorted. Whether the grid is in
+// force (period and anchor) is checked by the scheduler, where the settings timeline exists.
+function validateLedger(rows, rotationName) {
   var errors = [];
   var kept = [];
   var snapshots = 0;
+  var epochs = {};
   for (var i = 0; i < rows.length; i++) {
     var row = rows[i];
     if (row.type === 'error') continue;
@@ -421,15 +425,15 @@ function validateLedger(rows, rotationName, globalSetRows) {
     if (row.type === 'comment') continue;
     var message = validateRow(row);
     if (message === null && row.type === 'snapshot' && ++snapshots > 1) message = 'more than one snapshot row';
+    if (message === null && isEpochRow(row)) {
+      if (epochs[row.type]) message = 'more than one undated ' + row.type + ' row';
+      epochs[row.type] = true;
+    }
     if (message !== null) errors.push(rowError(row, message));
   }
   var sorted = sortRows(attachComments(kept));
-  var first = firstOfType(sorted, Object.keys(ROW_TYPES));
-  if (!first) {
+  if (!firstOfType(sorted, Object.keys(ROW_TYPES))) {
     errors.push({ rowIndex: null, start: null, startText: '', message: rotationName + ': ledger is empty' });
-  } else if (first.start !== null) {
-    var period = first.type === 'set' && (parseSetArg(first.what, first.start).values.period || globalValueAt(globalSetRows, 'period', first.start));
-    if (!period) errors.push(rowError(first, rotationName + ': first row must be a set row (period own or from ' + GLOBAL_TAB + ')'));
   }
   return { rows: sorted, errors: errors };
 }

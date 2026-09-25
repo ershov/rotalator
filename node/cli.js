@@ -98,7 +98,7 @@ function initDir(dir, { rotation = DEFAULT_ROTATION, start = null, historyFrom =
   const holidaysFile = path.join(dir, 'holidays.csv');
   if (!fs.existsSync(holidaysFile)) { fs.writeFileSync(holidaysFile, U.formatCsv(structuredClone(U.holidaysTemplateRows(nowMin)))); written.push(holidaysFile); }
   if (!fs.existsSync(nowFile)) { fs.writeFileSync(nowFile, nowText + '\n'); written.push(nowFile); }
-  return { files: written, start: cells.find((r) => r[2] === 'set')[1], now: nowText };
+  return { files: written, start: cells.find((r) => r[2] === 'set' && r[1] !== '')[1], now: nowText };
 }
 
 function takeValue(argv, i, flag) {

@@ -140,6 +140,20 @@ are kept sorted by `start`; the script re-sorts on every write.
 | error | message | | script |
 | (empty) | free text | | users |
 
+Epoch rows: a `set`, `team`, `repel` or `attract` row with an empty `start`
+applies from the beginning of the timeline. Internally its start is
+`-Infinity`, so it sorts before every dated row (type order among epoch rows,
+3.6) and compares as earlier than any instant. At most one epoch row per type
+per tab; a second one gets an `error` row. Epoch rows take no `end` or
+`duration`. An epoch `set` row may carry every key but `anchor` (bare
+`anchor` there is the error `anchor needs a dated set row`), and a `period`
+in it does not imply an anchor: the grid starts where a dated `set` row of
+either layer anchors it (3.5). On replay an epoch `set` row is a `set` row
+from the top, an epoch `team` row is pre-snapshot history like any `team` row
+before the snapshot, and an epoch relation row is relation state from the
+beginning (`#Global` mutual, rotation tab one-sided). Other undated typed
+rows are errors; undated untyped rows are comments.
+
 **attract / repel / detach.** Relations between rotations, see 7. In a rotation
 tab the row relates that rotation to each listed rotation one-sidedly; in
 `#Global` it relates all listed rotations mutually. `end` or `duration` revert
@@ -269,9 +283,11 @@ settings timeline is built from unvalidated rows (Fill Shifts Grid, snapshot
 advance). The `#Status` settings block shows the source of each key:
 `rotation`, `global` or `default`.
 
-The first row of a new rotation must be a `set` row, with `period` unless
-`#Global` supplies it at that instant, followed by a `team` row. Dating the
-`set` row at the intended first shift start makes it the anchor. The
+A new rotation needs a `period` in some `set` row and an anchor from a dated
+`set` row (a bare `anchor`, or a `period` change) in the rotation or in
+`#Global` before its first dated row (5.1), plus a `team` row. The templates
+use this shape: epoch `set` and `team` rows (3.4), then a dated `set anchor`
+row at the first shift start. The
 templates and `init` date it at the most recent Monday 00:00: day-aligned
 boundaries keep the arithmetic simple (a shift is a
 whole number of days, `skip_weekends` and `skip_holidays` cut at midnight), and
@@ -285,6 +301,9 @@ Rows with equal `start` sort as: comment, `error`, `set`, `attract`, `repel`,
 `shift`. State changes at an instant therefore apply before the shift
 starting at it, and a `score` correction applies right after the `team` row
 of the same instant. Sorting is stable, so user order is kept otherwise.
+Epoch rows (3.4) sort before every dated row, in the same type order among
+themselves, and an undated comment above an epoch row attaches to it and stays
+on top of the tab.
 
 An undated comment attaches to the next dated row below it in the ledger as
 read: its sort key becomes that row's `start` with an order just before that
@@ -345,9 +364,14 @@ Parse every ledger row. Drop `error` rows. Collect validation errors with row
 references: unknown type, bad datetime, bad duration, both `end` and
 `duration` set, `what` missing where required, an item form the type does not
 accept (a `shift` with two names, `leave` with `name=1`, `anchor=value`, a
-bare `period`), unknown setting key, `join` of a current member, `leave` or
-`exclude` of an unknown member, first row other than a comment not a `set`
-with `period`. Comments are skipped. If any error exists in any tab, no
+bare `period`), unknown setting key, a second epoch row of the same type, an
+epoch row with `end` or `duration` or a bare `anchor`, `join` of a current
+member, `leave` or `exclude` of an unknown member. Comments are skipped.
+Before the sweep the grid of each rotation must be in force before its first
+dated row: a `period` from any `set` row of either layer and an anchor from a
+dated one; otherwise the run stops, like a validation error, with `no period
+in force`, `no anchor` or `row before the anchor`. If any error exists in any
+tab, no
 regeneration happens in this run; see 6.
 
 ### 5.2 Advance the snapshot
@@ -834,18 +858,20 @@ exclude / include: name [, name ...]
 set: key, key=value
 ```
 
-then a `set` row listing every setting explicitly at its default
-(`period=1w`, bare `anchor`, `horizon=90d`, ...) dated the most recent Monday
-00:00, and a `team` row with sample names. `#Global` gets the header, the
+then an epoch `set` row (no `start`) listing every setting explicitly at its
+default except `anchor` (`period=1w`, `horizon=20w`, ...), an epoch `team`
+row with sample names, and one dated `set anchor` row at the most recent
+Monday 00:00 where the first shift starts. `#Global` gets the header, the
 help rows
 
 ```
 ROWS:
 repel / attract / detach: Rotation1, Rotation2
 set: key, key=value
+set / repel / attract without start: apply from the beginning
 ```
 
-and the same `set` row of defaults dated like the rotation template.
+and an epoch `set` row of the same defaults.
 `#Holidays` gets its header and one sample row, `<previous year>-01-01 | New
 Year`. Tabs the script writes get a toast and nothing else.
 
@@ -857,7 +883,8 @@ not a comment is dated; a dated row with nothing but its `start` (and `pin`)
 gets `type` = `shift`. `what`, `end` and `duration` are never written; the
 other cells of existing rows travel with their rows. An undated row is either
 an empty grid position (blank, or `type` = `shift` and nothing else), a
-comment (empty `type` with other content), or an error: an undated row with a
+comment (empty `type` with other content), an epoch row (3.4), which stays in
+place before everything, or an error: an undated row with another
 `type` stops the command with a toast naming it. Dated comments are kept in
 place like other non-shift rows; undated comments travel with the next dated
 row below them, and trailing ones stay at the end. The grid comes from the

@@ -29,15 +29,22 @@ function parseGlobal(rows, rotationNames) {
   var setRows = [];
   var relationRows = [];
   var kept = sortRows(attachComments(rows.filter(function (r) { return r.type !== 'error'; })));
+  var epochs = {};
+  var duplicateEpoch = function (row) {
+    if (!isEpochRow(row)) return null;
+    if (epochs[row.type]) return 'more than one undated ' + row.type + ' row';
+    epochs[row.type] = true;
+    return null;
+  };
   kept.forEach(function (row) {
     if (row.type === 'comment') return;
     if (row.type === 'set') {
-      var problem = validateRow(row);
+      var problem = validateRow(row) || duplicateEpoch(row);
       if (problem === null) setRows.push(row); else setErrors.push(rowError(row, problem));
       return;
     }
     var message = !isRelationRow(row) ? (row.type === '' ? 'missing type' : 'type "' + row.type + '" is not allowed in ' + GLOBAL_TAB)
-      : validateRow(row) || validateRelationRow(row, rotationNames, null);
+      : validateRow(row) || validateRelationRow(row, rotationNames, null) || duplicateEpoch(row);
     if (message === null && row.durationInterval && row.durationInterval.unit !== 'clock') message = 'duration in ' + GLOBAL_TAB + ' takes clock units only';
     if (message === null) relationRows.push(row); else errors.push(rowError(row, message));
   });
@@ -88,7 +95,7 @@ class Relations {
 
   // Ends sort before starts at equal instants; later-added rows win among starts.
   sorted(list) {
-    return list.slice().sort(function (x, y) { return (x.t - y.t) || (x.starts - y.starts) || (x.seq - y.seq); });
+    return list.slice().sort(function (x, y) { return (x.t < y.t ? -1 : x.t > y.t ? 1 : 0) || (x.starts - y.starts) || (x.seq - y.seq); });
   }
 
   // { kind, reader } in force between a and b at t, or null.

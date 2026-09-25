@@ -131,6 +131,27 @@ test('SettingsTimeline skips set rows whose what does not parse, in either layer
   assert.equal(tl.at(dt('2026-10-07T09:00')).get('seed'), 2);
 });
 
+test('SettingsTimeline: epoch set rows apply from the beginning and never anchor; gridStart finds the dated row', () => {
+  const epoch = U.makeRow({ type: 'set', start: -Infinity, what: 'period=1w, tolerance=1' });
+  const tl = new U.SettingsTimeline([epoch, setRow('2026-10-05T09:00', 'anchor')]);
+  assert.equal(tl.entries[0].start, -Infinity);
+  assert.equal(tl.at(dt('2000-01-01')).get('period'), W);
+  assert.equal(tl.at(dt('2000-01-01')).get('anchor'), null);
+  assert.equal(tl.gridAt(dt('2000-01-01')), null, 'no grid without an anchor');
+  assert.equal(tl.gridStart(), MON);
+  assert.equal(tl.hasPeriod(), true);
+  assert.equal(tl.at(MON).get('anchor'), MON);
+  assert.deepEqual(plain(tl.entries.map((e) => e.gridChanged)), [true, true]);
+  assert.equal(new U.SettingsTimeline([epoch]).gridStart(), null);
+  assert.equal(new U.SettingsTimeline([setRow('2026-10-05T09:00', 'anchor')]).gridStart(), null);
+  assert.equal(new U.SettingsTimeline([setRow('2026-10-05T09:00', 'anchor')]).hasPeriod(), false);
+  const global = new U.SettingsTimeline([setRow('2026-10-12T09:00', 'tolerance=2')], new Set(), [U.makeRow({ type: 'set', start: -Infinity, what: 'period=1w, seed=4' })]);
+  assert.equal(global.at(MON).get('seed'), 4);
+  assert.equal(global.sourcesAt(MON).period, 'global');
+  assert.equal(global.gridStart(), null);
+  assert.equal(global.hasPeriod(), true);
+});
+
 test('SettingsTimeline replays set rows with start <= t and lists grid-changing rows', () => {
   const rows = [
     setRow('2026-10-21T09:00', 'period=2d'),
