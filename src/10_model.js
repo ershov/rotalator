@@ -136,16 +136,16 @@ var SETTINGS = {
   period:        { parse: parsePeriod,             def: null,                 bare: 'none' },
   anchor:        { parse: null,                    def: null,                 bare: 'start' },
   grid:          { parse: parseKeyword(GRID_MODES), def: 'calendar',           bare: 'default' },
-  horizon:       { parse: parsePositiveInterval,   def: parseInterval('90d'), bare: 'default', hint: POSITIVE_INTERVAL_HINT },
-  skip_weekends: { parse: parseBoolean,            def: false,                bare: 'default' },
-  skip_holidays: { parse: parseBoolean,            def: false,                bare: 'default' },
-  tolerance:     { parse: parseTolerance,          def: 0,                    bare: 'default', hint: 'a number of days or ' + INTERVAL_HINT },
-  min_distance:  { parse: parseInterval,           def: parseInterval('0'),   bare: 'default', hint: INTERVAL_HINT },
+  horizon:       { parse: parsePositiveInterval,   def: parseInterval('20w'), bare: 'default', hint: POSITIVE_INTERVAL_HINT },
+  skip_weekends: { parse: parseBoolean,            def: true,                 bare: 'default' },
+  skip_holidays: { parse: parseBoolean,            def: true,                 bare: 'default' },
+  tolerance:     { parse: parseTolerance,          def: parseTolerance('0.5sl'), bare: 'default', hint: 'a number of days or ' + INTERVAL_HINT },
+  min_distance:  { parse: parseInterval,           def: parseInterval('0.5ts'), bare: 'default', hint: INTERVAL_HINT },
   tiebreak:      { parse: parseKeyword(TIEBREAKS), def: 'order',              bare: 'default' },
   seed:          { parse: parseInteger,            def: 0,                    bare: 'default' },
   baseline:      { parse: parseBaselineKeyword,    def: 'median',             bare: 'default' },
   precredit:     { parse: parseInterval,           def: parseInterval('1ts'), bare: 'default', hint: INTERVAL_HINT },
-  autopin:       { parse: parseAutopin,            def: parseAutopin('a:0'),  bare: 'default', hint: AUTOPIN_HINT },
+  autopin:       { parse: parseAutopin,            def: parseAutopin('a:2sl'), bare: 'default', hint: AUTOPIN_HINT },
 };
 
 function defaultSettings() {

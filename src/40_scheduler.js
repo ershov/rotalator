@@ -469,8 +469,11 @@ function autopinRows(rot, rows, now) {
 }
 
 // Script rows go in front of the kept rows so undated comments still attach to the next kept row below them.
+// No snapshot row for a rotation that has none yet and an empty roster at S (a fresh rotation whose team row
+// sorts after S); a rotation that already has one keeps its replay boundary even when the roster empties.
 function rotationOutput(rot, now) {
-  var rows = [makeRow({ type: 'snapshot', start: rot.S, what: rot.snapshotWhat })];
+  var fresh = rot.snapshotWhat === '' && rot.previousAt === null;
+  var rows = fresh ? [] : [makeRow({ type: 'snapshot', start: rot.S, what: rot.snapshotWhat })];
   rot.entries.forEach(function (e) { if (e.generated) rows.push(e.generated); });
   return { name: rot.name, rows: autopinRows(rot, sortRows(rows.concat(rot.problems.map(errorRow), rot.kept)), now) };
 }

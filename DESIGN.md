@@ -165,7 +165,8 @@ therefore needs `duration` or `end`. Its claim (see 5.4) ends at the explicit
 starting after the snapshot belong to the script and are regenerated every
 run. Any user edit to a future shift must be pinned or it is lost. After each
 run the script pins the shifts up to `now + autopin` itself (5.8), so with
-the default `autopin=a:0` every shift that has started is pinned and only the
+the default `autopin=a:2sl` every shift that has started and the next two
+regular shifts are pinned and only the
 future floats.
 
 **team.** Sets the full roster. `alice, bob, carol=median, dave=12, erin+=2`.
@@ -213,7 +214,12 @@ as of that instant: `alice=12.5, bob=11`. The snapshot is the single
 boundary in the ledger: rows before it are ignored on replay, except `set`
 rows and `shift` or `exclude` intervals that extend past it, which are clipped
 to start at the snapshot; the shift starting at the same instant is the
-current shift and is kept; unpinned shifts after it are regenerated. The
+current shift and is kept; unpinned shifts after it are regenerated. No
+snapshot row is written for a rotation that has none yet and an empty roster
+at `S` (a fresh rotation whose `team` row sorts after `S`); the next run
+writes it once a roster exists, and replay without a snapshot is the full
+replay from the top. A rotation that already has a snapshot keeps one even
+when its roster empties, so its replay boundary survives dormancy. The
 script never moves the snapshot backwards. Deleting the snapshot forces a full
 replay from the top, which is the intended reset mechanism. Rows older than the
 snapshot other than `set` rows may be cut to an archive tab by hand at any
@@ -229,16 +235,16 @@ removed on read, so they are purely diagnostic and never accumulate. See 6.
 | period | required | `Nd` or `Nw`; `w` is `7d`. Always `period=value`. |
 | anchor | start of the `set` row | A grid instant. Also the earliest instant the schedule can begin. Written as a bare `anchor`; it takes no value and the row's `start` is the anchor. |
 | grid | calendar | `calendar`: a boundary every `period` of wall-clock time. `counted`: a boundary every `period` of counted days, the days not skipped by `skip_weekends` and `skip_holidays` (see 4); a shift whose boundary would fall in skipped days runs through them to the next counted day. `1w` is then seven counted days and drifts across weekdays when weekends are skipped. |
-| horizon | 90d | Interval. Generate slots up to the first grid boundary at or after the snapshot plus `horizon`. |
-| skip_weekends | false | Saturdays and Sundays credit zero units. |
-| skip_holidays | false | Dates in `#Holidays` credit zero units. |
-| tolerance | 0 | Candidates are members within `tolerance` of the lowest projected score. A plain number is score units (days). With a unit: `sl` is the units a regular shift earns at the slot's start honouring skips, `ts` that times the roster size, clock units nominal days (`1w` is 7). |
-| min_distance | 0 | Interval of rest required on both sides of a slot, `[a - D, b + D)`. `2sl` is two regular shifts; a plain number other than `0` is an error. |
+| horizon | 20w | Interval. Generate slots up to the first grid boundary at or after the snapshot plus `horizon`. |
+| skip_weekends | true | Saturdays and Sundays credit zero units. |
+| skip_holidays | true | Dates in `#Holidays` credit zero units. |
+| tolerance | 0.5sl | Candidates are members within `tolerance` of the lowest projected score. A plain number is score units (days). With a unit: `sl` is the units a regular shift earns at the slot's start honouring skips, `ts` that times the roster size, clock units nominal days (`1w` is 7). |
+| min_distance | 0.5ts | Interval of rest required on both sides of a slot, `[a - D, b + D)`. `2sl` is two regular shifts; a plain number other than `0` is an error. |
 | tiebreak | order | `order` or `shuffle`. |
 | seed | 0 | Integer mixed into the shuffle hash. |
 | baseline | median | Default for joiners: `median`, `mean`, `min`, `max`. |
 | precredit | 1ts | Interval after the snapshot within which pinned shifts are pre-credited: one full cycle by default. `0` disables. |
-| autopin | a:0 | `false`, or a signed interval relative to `now` (`0`, `2w`, `-2w`, `1sl`, `0.5ts`), optionally `marker:interval` (`a:2w`; the marker is everything before the last colon, default `a`, so the default is spelled `a:0`). After the schedule step, every `shift` row starting at or before `now + autopin` whose pin cell is empty gets the marker (5.8). |
+| autopin | a:2sl | `false`, or a signed interval relative to `now` (`0`, `2w`, `-2w`, `1sl`, `0.5ts`), optionally `marker:interval` (`a:2w`; the marker is everything before the last colon, default `a`, so the default is spelled `a:2sl`). After the schedule step, every `shift` row starting at or before `now + autopin` whose pin cell is empty gets the marker (5.8). |
 
 A bare key restores the default in this table (`tolerance`, `tiebreak`,
 `precredit`, ...); a bare `anchor` re-anchors the grid at the row's `start`
@@ -418,7 +424,8 @@ that extend past it are clipped.
 - Slot: choose an assignee, credit the units, emit an unpinned `shift`.
 - When the walk passes `S` for a rotation, record roster and scores for the
   new snapshot. Scores at that instant include the part of any interval before
-  it.
+  it. A rotation without a snapshot and with an empty roster at `S` gets no
+  snapshot row (3.4).
 
 ### 5.7 Selection for a slot `[a, b)`
 

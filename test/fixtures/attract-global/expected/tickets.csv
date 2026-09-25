@@ -1,5 +1,5 @@
 pin,start,type,what,end,duration,note
-,2026-06-01T09:00,set,"period=1w, horizon=6w",,,
+,2026-06-01T09:00,set,"period=1w, horizon=6w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0",,,
 ,2026-06-01T09:00,team,"carol, dave, alice, bob",,,
 a,2026-06-01T09:00,shift,alice,,,
 a,2026-06-08T09:00,shift,bob,,,

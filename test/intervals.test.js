@@ -66,16 +66,16 @@ test('min_distance in sl, ts and clock units gives the same windows in calendar 
   assert.deepEqual(who(base('period=1w, horizon=6w, min_distance=7d')), expected);
   // 1ts with two members is two weeks: from the third slot on it relaxes one shift length.
   const two = R('', '2026-10-05T09:00', 'team', 'alice, bob');
-  const cycle = run([set('period=1w, horizon=3w, min_distance=1ts'), two], '2026-10-05T10:00');
+  const cycle = run([set('period=1w, horizon=3w, min_distance=1ts, tolerance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), two], '2026-10-05T10:00');
   assert.deepEqual(shifts(cycle).map((s) => s[2]), ['', '', 'min_distance relaxed to 1sl']);
   // A fractional distance keeps its remainder on the last step.
-  const half = run([set('period=1w, horizon=3w, min_distance=1.5sl'), two], '2026-10-05T10:00');
+  const half = run([set('period=1w, horizon=3w, min_distance=1.5sl, tolerance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), two], '2026-10-05T10:00');
   assert.deepEqual(shifts(half).map((s) => s[2]), ['', '', 'min_distance relaxed to 0.5sl']);
 });
 
 test('min_distance in counted mode: 2d equals 2sl on a daily grid and skips the weekend', () => {
   const counted = (distance) => run([
-    R('', '2026-10-05T09:00', 'set', 'period=1d, horizon=10d, grid=counted, skip_weekends=true, min_distance=' + distance),
+    R('', '2026-10-05T09:00', 'set', 'period=1d, horizon=10d, grid=counted, skip_weekends=true, tolerance=0, skip_holidays=false, autopin=a:0, min_distance=' + distance),
     TEAM, R('', '2026-10-05T09:00', 'score', 'carol+=10'),
   ], '2026-10-05T10:00');
   const strict = ['alice', 'bob', 'carol', 'alice', 'bob', 'carol', 'alice', 'bob', 'carol', 'alice'];
@@ -89,23 +89,23 @@ test('ts follows the roster size at the instant: precredit and duration change w
   const small = R('', '2026-10-05T09:00', 'team', 'alice, bob');
   const join = R('', '2026-10-12T09:00', 'join', 'carol, dave');
   // Two members at S: 1ts is two weeks, the pin in week four is outside and alice takes the first slot.
-  const two = run([set('period=1w, horizon=6w'), small, join, pin], '2026-10-05T10:00');
+  const two = run([set('period=1w, horizon=6w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), small, join, pin], '2026-10-05T10:00');
   assert.equal(who(two)[0], 'alice');
   // Four members at S: 1ts is four weeks, the pin is inside and alice skips the first slot.
-  const four = run([set('period=1w, horizon=6w'), R('', '2026-10-05T09:00', 'team', 'alice, bob, carol, dave'), pin], '2026-10-05T10:00');
+  const four = run([set('period=1w, horizon=6w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), R('', '2026-10-05T09:00', 'team', 'alice, bob, carol, dave'), pin], '2026-10-05T10:00');
   assert.equal(who(four)[0], 'bob');
   // A 1ts duration dated after the join spans four weeks; dated before it, two.
-  const later = run([set('period=1w, horizon=8w'), small, join, R('x', '2026-10-19T09:00', 'shift', 'alice', '', '1ts')], '2026-10-05T10:00');
+  const later = run([set('period=1w, horizon=8w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), small, join, R('x', '2026-10-19T09:00', 'shift', 'alice', '', '1ts')], '2026-10-05T10:00');
   assert.equal(shiftEnd(later, '2026-10-19T09:00'), '2026-11-16T09:00');
-  const earlier = run([set('period=1w, horizon=8w'), small, join, R('x', '2026-10-05T09:00', 'shift', 'alice', '', '1ts')], '2026-10-05T10:00');
+  const earlier = run([set('period=1w, horizon=8w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), small, join, R('x', '2026-10-05T09:00', 'shift', 'alice', '', '1ts')], '2026-10-05T10:00');
   assert.equal(shiftEnd(earlier, '2026-10-05T09:00'), '2026-10-19T09:00');
   assert.equal(cellsOf(earlier).find((c) => c[0] === 'x')[5], '1ts');
 });
 
 test('precredit default 1ts equals the old auto: a window of roster-size shifts', () => {
   const pinned = [TEAM, R('x', '2026-10-12T09:00', 'shift', 'alice')];
-  const byDefault = run([set('period=1w, horizon=5w')].concat(pinned), '2026-10-05T10:00');
-  const explicit = run([set('period=1w, horizon=5w, precredit=3sl')].concat(pinned), '2026-10-05T10:00');
+  const byDefault = run([set('period=1w, horizon=5w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0')].concat(pinned), '2026-10-05T10:00');
+  const explicit = run([set('period=1w, horizon=5w, precredit=3sl, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0')].concat(pinned), '2026-10-05T10:00');
   assert.deepEqual(who(byDefault), ['bob', 'alice', 'carol', 'alice', 'bob']);
   assert.deepEqual(shifts(byDefault), shifts(explicit));
   assert.equal(byDefault.status.rotations[0].settings.values.find((v) => v.key === 'precredit').value, '1ts');
@@ -114,7 +114,8 @@ test('precredit default 1ts equals the old auto: a window of roster-size shifts'
 test('tolerance suffixes: sl honours skipped days, ts scales by roster size, clock units are nominal days', () => {
   // alice starts 11 ahead; after two slots the others have 5. A band of 5 (one weekly shift with skipped
   // weekends) keeps her out of the third slot; a band of 7 lets her in.
-  const ahead = (what) => run([set(what), TEAM, R('', '2026-10-05T09:00', 'score', 'alice+=11')], '2026-10-05T10:00');
+  const old = (what) => what + (what.includes('skip_weekends') ? '' : ', skip_weekends=false') + ', min_distance=0, skip_holidays=false, autopin=a:0';
+  const ahead = (what) => run([set(old(what)), TEAM, R('', '2026-10-05T09:00', 'score', 'alice+=11')], '2026-10-05T10:00');
   const out = ['bob', 'carol', 'bob'];
   const inBand = ['bob', 'carol', 'alice'];
   assert.deepEqual(who(ahead('period=1w, horizon=3w, skip_weekends=true, tolerance=1sl')), out);
@@ -128,40 +129,42 @@ test('tolerance suffixes: sl honours skipped days, ts scales by roster size, clo
 });
 
 test('advance resolves sl durations before looking for the shift containing now', () => {
-  const pinned = (duration) => rows([set('period=1w, horizon=5w'), TEAM, R('x', '2026-10-05T09:00', 'shift', 'carol', '', duration)]);
+  const pinned = (duration) => rows([set('period=1w, horizon=5w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), TEAM, R('x', '2026-10-05T09:00', 'shift', 'carol', '', duration)]);
   assert.equal(fmt(U.advance(pinned('2w'), dt('2026-10-14T12:00'))), '2026-10-05T09:00');
   assert.equal(fmt(U.advance(pinned('2sl'), dt('2026-10-14T12:00'))), '2026-10-05T09:00');
   assert.equal(fmt(U.advance(pinned('1sl'), dt('2026-10-14T12:00'))), '2026-10-12T09:00');
-  const out = run([set('period=1w, horizon=5w'), TEAM, R('x', '2026-10-05T09:00', 'shift', 'carol', '', '2sl')], '2026-10-14T12:00');
-  assert.equal(fmt(out.rotations[0].rows.find((r) => r.type === 'snapshot').start), '2026-10-05T09:00');
+  const out = run([set('period=1w, horizon=5w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), TEAM, R('x', '2026-10-05T09:00', 'shift', 'carol', '', '2sl')], '2026-10-14T12:00');
+  // The roster is empty at S (team row at the same instant), so no snapshot row is written; the status shows S.
+  assert.equal(out.rotations[0].rows.some((r) => r.type === 'snapshot'), false);
+  assert.equal(fmt(out.status.rotations[0].snapshotAt), '2026-10-05T09:00');
 });
 
 test('duration in sl on a pin and on an exclude, in calendar and counted mode', () => {
-  const weekly = run([set('period=1w, horizon=5w'), TEAM, R('x', '2026-10-12T09:00', 'shift', 'carol', '', '2sl')], '2026-10-05T10:00');
+  const weekly = run([set('period=1w, horizon=5w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), TEAM, R('x', '2026-10-12T09:00', 'shift', 'carol', '', '2sl')], '2026-10-05T10:00');
   assert.deepEqual(shifts(weekly).map((s) => s[0]), ['2026-10-05T09:00', '2026-10-12T09:00', '2026-10-26T09:00', '2026-11-02T09:00']);
   assert.equal(shiftEnd(weekly, '2026-10-12T09:00'), '2026-10-26T09:00');
   assert.equal(cellsOf(weekly).find((c) => c[0] === 'x')[5], '2sl');
   assert.deepEqual(cellsOf(run(cellsOf(weekly), '2026-10-05T10:00')), cellsOf(weekly));
   const counted = run([
-    R('', '2026-10-05T09:00', 'set', 'period=1d, horizon=5d, grid=counted, skip_weekends=true'), TEAM,
+    R('', '2026-10-05T09:00', 'set', 'period=1d, horizon=5d, grid=counted, skip_weekends=true, tolerance=0, min_distance=0, skip_holidays=false, autopin=a:0'), TEAM,
     R('x', '2026-10-08T09:00', 'shift', 'carol', '', '2sl'),
   ], '2026-10-05T10:00');
   assert.equal(shiftEnd(counted, '2026-10-08T09:00'), '2026-10-12T09:00');
   assert.deepEqual(shifts(counted).map((s) => s[0]), ['2026-10-05T09:00', '2026-10-06T09:00', '2026-10-07T09:00', '2026-10-08T09:00']);
-  const excluded = run([set('period=1w, horizon=4w'), TEAM, R('', '2026-10-12T09:00', 'exclude', 'alice', '', '1ts')], '2026-10-05T10:00');
+  const excluded = run([set('period=1w, horizon=4w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), TEAM, R('', '2026-10-12T09:00', 'exclude', 'alice', '', '1ts')], '2026-10-05T10:00');
   assert.deepEqual(who(excluded), ['alice', 'bob', 'carol', 'bob']);
-  const halfDay = run([set('period=1w, horizon=3w'), TEAM, R('x', '2026-10-07T09:00', 'shift', 'carol', '', '0.5d', 'cover')], '2026-10-05T10:00');
+  const halfDay = run([set('period=1w, horizon=3w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), TEAM, R('x', '2026-10-07T09:00', 'shift', 'carol', '', '0.5d', 'cover')], '2026-10-05T10:00');
   assert.equal(shiftEnd(halfDay, '2026-10-07T09:00'), '2026-10-07T21:00');
   assert.equal(cellsOf(halfDay).find((c) => c[0] === 'x')[5], '0.5d');
 });
 
 test('interval settings are validated with hints; #Global relation rows take clock durations only', () => {
-  const bad = run([set('period=1w, min_distance=2'), TEAM], '2026-10-05T10:00');
+  const bad = run([set('period=1w, min_distance=2, horizon=90d, tolerance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), TEAM], '2026-10-05T10:00');
   assert.match(bad.errors[0].message, /bad value for min_distance: "2"; use an interval like 2sl, 1ts, 3d or 0/);
-  const badDuration = run([set('period=1w'), TEAM, R('x', '2026-10-12T09:00', 'shift', 'alice', '', '2x')], '2026-10-05T10:00');
+  const badDuration = run([set('period=1w, horizon=90d, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), TEAM, R('x', '2026-10-12T09:00', 'shift', 'alice', '', '2x')], '2026-10-05T10:00');
   assert.match(badDuration.errors[0].message, /bad duration "2x"; use a positive interval like 2sl, 1ts or 3d/);
   const global = U.regenerate({
-    rotations: [{ name: 'a', rows: rows([set('period=1w, horizon=3w'), TEAM]), snapshotAt: MON }, { name: 'b', rows: rows([set('period=1w, horizon=3w'), TEAM]), snapshotAt: MON }],
+    rotations: [{ name: 'a', rows: rows([set('period=1w, horizon=3w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), TEAM]), snapshotAt: MON }, { name: 'b', rows: rows([set('period=1w, horizon=3w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), TEAM]), snapshotAt: MON }],
     holidays: [], global: rows([R('', '2026-10-05T09:00', 'repel', 'a, b', '', '2sl'), R('', '2026-10-05T09:00', 'repel', 'a, b', '', '2w')]),
   });
   assert.deepEqual(plain(global.errors.map((e) => e.message)), ['duration in #Global takes clock units only']);

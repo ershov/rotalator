@@ -26,13 +26,13 @@ next      bob               from 2026-09-14T09:00
   horizon        6w                      rotation
   skip_weekends  true                    rotation
   skip_holidays  true                    rotation
-  tolerance      0                       default
-  min_distance   0                       default
+  tolerance      0                       rotation
+  min_distance   0                       rotation
   tiebreak       shuffle                 rotation
   seed           3                       rotation
   baseline       median                  default
   precredit      1ts                     default
-  autopin        a:0                     default
+  autopin        a:0                     rotation
 
 start             primary
 2026-06-01T09:00  carol

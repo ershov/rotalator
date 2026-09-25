@@ -23,15 +23,15 @@ next      alice             from 2026-09-14T09:00
   anchor         2026-06-01T09:00        rotation
   grid           calendar                default
   horizon        6w                      rotation
-  skip_weekends  false                   default
-  skip_holidays  false                   default
-  tolerance      0                       default
-  min_distance   0                       default
+  skip_weekends  false                   rotation
+  skip_holidays  false                   rotation
+  tolerance      0                       rotation
+  min_distance   0                       rotation
   tiebreak       order                   default
   seed           0                       default
   baseline       median                  default
   precredit      1ts                     default
-  autopin        a:0                     default
+  autopin        a:0                     rotation
 
 warnings
 rotation  start             message

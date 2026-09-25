@@ -6,7 +6,7 @@ const U = require('../node/load.js').load();
 const plain = (v) => structuredClone(v);
 const dt = (s) => U.parseDateTime(s);
 const R = (pin, start, type, what, end = '', duration = '', note = '') => [pin, start, type, what, end, duration, note];
-const SET = R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=4w');
+const SET = R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=4w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0');
 const shifts = (rows) => plain(rows.map((r) => [U.formatDateTime(r.start), r.type, r.what]));
 const timelineOf = (cells) => new U.SettingsTimeline(U.rowsOfType(U.rowsFromCells(cells), 'set'), new Set());
 
@@ -17,7 +17,7 @@ test('recentMonday: most recent Monday 00:00 at or before t', () => {
   assert.equal(U.formatDateTime(U.recentMonday(dt('2026-10-11T23:00'))), '2026-10-05');
 });
 
-const SET_DEFAULTS = 'period=1w, anchor, grid=calendar, horizon=90d, skip_weekends=false, skip_holidays=false, tolerance=0, min_distance=0, tiebreak=order, seed=0, baseline=median, precredit=1ts, autopin=a:0';
+const SET_DEFAULTS = 'period=1w, anchor, grid=calendar, horizon=20w, skip_weekends=true, skip_holidays=true, tolerance=0.5sl, min_distance=0.5ts, tiebreak=order, seed=0, baseline=median, precredit=1ts, autopin=a:2sl';
 
 test('templateRows: header, help comments, every setting at its default, sample team', () => {
   const rows = plain(U.templateRows(dt('2026-10-05T09:00')));
@@ -74,7 +74,7 @@ test('gridRows: extension after the last claim, backfill before the first row', 
   assert.deepEqual(shifts(out), [
     ['2026-09-21T09:00', 'shift', ''],
     ['2026-09-28T09:00', 'shift', ''],
-    ['2026-10-05T09:00', 'set', 'period=1w, horizon=4w'],
+    ['2026-10-05T09:00', 'set', 'period=1w, horizon=4w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'],
     ['2026-10-05T09:00', 'team', 'alice, bob'],
     ['2026-10-05T09:00', 'shift', ''],
     ['2026-10-12T09:00', 'shift', 'alice'],
@@ -93,7 +93,7 @@ test('gridRows: gaps split at boundaries, odd ends and durations respected, non-
   ];
   const out = U.gridRows(U.rowsFromCells(cells), 0, 2, timelineOf(cells));
   assert.deepEqual(shifts(out), [
-    ['2026-10-05T09:00', 'set', 'period=1w, horizon=4w'],
+    ['2026-10-05T09:00', 'set', 'period=1w, horizon=4w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'],
     ['2026-10-05T09:00', 'shift', 'alice'],
     ['2026-10-19T09:00', 'shift', ''],
     ['2026-10-21T09:00', 'shift', 'bob'],
@@ -167,7 +167,7 @@ test('fillShiftsGridCells: refusals', () => {
 });
 
 test('fillShiftsGridCells: counted grid runs through skipped days using holidays', () => {
-  const tab = [R('', '2026-10-05T09:00', 'set', 'period=1d, grid=counted, skip_weekends=true, skip_holidays=true'), R('', '2026-10-05T09:00', 'team', 'alice')];
+  const tab = [R('', '2026-10-05T09:00', 'set', 'period=1d, grid=counted, skip_weekends=true, skip_holidays=true, horizon=90d, tolerance=0, min_distance=0, autopin=a:0'), R('', '2026-10-05T09:00', 'team', 'alice')];
   const selected = [R('', '2026-10-08T09:00', 'shift', 'alice'), R('', '', '', ''), R('', '', '', ''), R('', '', '', '')];
   const out = plain(U.fillShiftsGridCells(selected, tab, ['2026-10-09']));
   assert.deepEqual(out.rows.map((r) => r[1]), ['2026-10-08T09:00', '2026-10-12T09:00', '2026-10-13T09:00', '2026-10-14T09:00']);

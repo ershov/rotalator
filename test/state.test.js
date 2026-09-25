@@ -39,9 +39,9 @@ test('SettingsTimeline: period change sets anchor, bare anchor re-anchors, grid 
   assert.equal(grid.period, W);
   assert.equal(grid.anchor, dt('2026-12-07T09:00'));
   const late = tl.at(dt('2027-01-01'));
-  assert.equal(late.get('tolerance'), 0);
-  assert.equal(late.get('skip_weekends'), false);
-  assert.deepEqual(plain(tl.at(dt('2026-10-07T09:00')).unitsOptions(new Set([1]))), { skip_weekends: true, skip_holidays: false, holidays: new Set([1]) });
+  assert.deepEqual(plain(late.get('tolerance')), plain(U.defaultSettings().tolerance));
+  assert.equal(late.get('skip_weekends'), true);
+  assert.deepEqual(plain(tl.at(dt('2026-10-07T09:00')).unitsOptions(new Set([1]))), { skip_weekends: true, skip_holidays: true, holidays: new Set([1]) });
   const copy = tl.at(MON);
   copy.values.tolerance = 9;
   assert.equal(tl.at(MON).get('tolerance'), 1);
@@ -68,7 +68,7 @@ test('SettingsTimeline: global set rows layer under the rotation; bare keys retu
   ], new Set(), global);
   const at = (s) => tl.at(dt(s));
   const src = (s, key) => tl.sourcesAt(dt(s))[key];
-  assert.equal(at('2026-08-01').get('tolerance'), 0);
+  assert.deepEqual(plain(at('2026-08-01').get('tolerance')), plain(U.defaultSettings().tolerance));
   assert.equal(src('2026-08-01', 'tolerance'), 'default');
   assert.equal(at('2026-09-15').get('tolerance'), 7);
   assert.equal(src('2026-09-15', 'tolerance'), 'global');
@@ -126,7 +126,7 @@ test('SettingsTimeline skips set rows whose what does not parse, in either layer
   const global = [setRow('2026-10-05T09:00', 'period=1w'), setRow('2026-10-12T09:00', 'tolerance=abc'), setRow('2026-10-13T09:00', 'tolerance=3')];
   const tl = new U.SettingsTimeline([setRow('2026-10-06T09:00', 'seed=x, tolerance=9'), setRow('2026-10-07T09:00', 'seed=2')], new Set(), global);
   assert.deepEqual(plain(tl.entries.map((e) => U.formatDateTime(e.start))), ['2026-10-05T09:00', '2026-10-07T09:00', '2026-10-13T09:00']);
-  assert.equal(tl.at(dt('2026-10-12T09:00')).get('tolerance'), 0);
+  assert.deepEqual(plain(tl.at(dt('2026-10-12T09:00')).get('tolerance')), plain(U.defaultSettings().tolerance));
   assert.equal(tl.at(dt('2026-10-13T09:00')).get('tolerance'), 3);
   assert.equal(tl.at(dt('2026-10-07T09:00')).get('seed'), 2);
 });

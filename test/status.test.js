@@ -12,13 +12,13 @@ const R = (pin, start, type, what, end, duration, note) => [pin, start, type, wh
 // Monday 2026-10-05: bob excluded for ten days from the snapshot, carol pins the third week, dave alone in secondary.
 const ledgers = {
   primary: [
-    R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w'),
+    R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'),
     R('', '2026-10-05T09:00', 'team', 'alice, bob, carol'),
     R('', '2026-10-05T09:00', 'exclude', 'bob', '', '10d', 'travel'),
     R('x', '2026-10-19T09:00', 'shift', 'carol', '', '', 'volunteered'),
   ],
   secondary: [
-    R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w'),
+    R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'),
     R('', '2026-10-05T09:00', 'team', 'dave'),
   ],
 };
@@ -96,7 +96,7 @@ test('statusRows and shiftsRows: rows, header and divider metadata', () => {
   assert.deepEqual(rows[11].slice(14, 17), ['anchor', '2026-10-05T09:00', 'rotation']);
   assert.deepEqual(rows[12].slice(14, 17), ['grid', 'calendar', 'default']);
   assert.deepEqual(rows[21].slice(14, 17), ['precredit', '1ts', 'default']);
-  assert.deepEqual(rows[22].slice(14, 17), ['autopin', 'a:0', 'default']);
+  assert.deepEqual(rows[22].slice(14, 17), ['autopin', 'a:0', 'rotation']);
   assert.deepEqual(trim([rows[23]]), [[]]);
   assert.deepEqual(rows[24].slice(0, 2), ['rotation', 'secondary']);
   assert.deepEqual(structuredClone(out.headerRows), [0, 2, 9, 24]);
@@ -150,7 +150,7 @@ test('statusRowsVertical: the CLI stacks the three groups of a rotation', () => 
 test('status: relations matrix from pair states at now', () => {
   const three = structuredClone(ledgers);
   three.primary.push(R('', '2026-10-05T09:00', 'repel', 'secondary'));
-  three.tertiary = [R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w'), R('', '2026-10-05T09:00', 'team', 'erin')];
+  three.tertiary = [R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), R('', '2026-10-05T09:00', 'team', 'erin')];
   const global = [R('', '2026-10-05T09:00', 'attract', 'secondary, tertiary', '', '1w')];
   const { status, errors } = runStorage(new MemoryStorage({ ledgers: three, global }), NOW);
   assert.deepEqual(errors, []);
@@ -191,15 +191,15 @@ test('status: effective settings at now, every key, note on a later set row', ()
     { key: 'anchor', value: '2026-10-05T09:00', source: 'rotation' },
     { key: 'grid', value: 'calendar', source: 'default' },
     { key: 'horizon', value: '3w', source: 'rotation' },
-    { key: 'skip_weekends', value: 'false', source: 'default' },
-    { key: 'skip_holidays', value: 'false', source: 'default' },
-    { key: 'tolerance', value: '0', source: 'default' },
-    { key: 'min_distance', value: '0', source: 'default' },
+    { key: 'skip_weekends', value: 'false', source: 'rotation' },
+    { key: 'skip_holidays', value: 'false', source: 'rotation' },
+    { key: 'tolerance', value: '0', source: 'rotation' },
+    { key: 'min_distance', value: '0', source: 'rotation' },
     { key: 'tiebreak', value: 'order', source: 'default' },
     { key: 'seed', value: '0', source: 'default' },
     { key: 'baseline', value: 'median', source: 'default' },
     { key: 'precredit', value: '1ts', source: 'default' },
-    { key: 'autopin', value: 'a:0', source: 'default' },
+    { key: 'autopin', value: 'a:0', source: 'rotation' },
   ]);
   const rows = trim(U.statusRows(runStorage(new MemoryStorage({ ledgers: withLater }), NOW).status).rows);
   assert.deepEqual(rows.find((r) => r[14] === 'note').slice(14), ['note', 'a set row at 2026-10-19T09:00 changes these values']);
@@ -220,7 +220,7 @@ test('status: effective settings at now, every key, note on a later set row', ()
 
 test('status: warnings block only when there are warnings', () => {
   const crowded = { primary: [
-    R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w, min_distance=2sl'),
+    R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w, min_distance=2sl, tolerance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'),
     R('', '2026-10-05T09:00', 'team', 'alice, bob'),
   ] };
   const { status } = runStorage(new MemoryStorage({ ledgers: crowded }), NOW);
@@ -256,12 +256,12 @@ test('status on validation error: errors block, no rotations, no shifts', () => 
 test('All shifts grid: shared start rows, nobody as -, now row after an equal start', () => {
   const mixed = {
     weekly: [
-      R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=2w'),
+      R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=2w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'),
       R('', '2026-10-05T09:00', 'team', 'alice, bob'),
       R('', '2026-10-05T09:00', 'exclude', 'alice, bob', '', '1w', 'offsite'),
     ],
     daily: [
-      R('', '2026-10-05T09:00', 'set', 'period=1d, horizon=3d'),
+      R('', '2026-10-05T09:00', 'set', 'period=1d, horizon=3d, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'),
       R('', '2026-10-05T09:00', 'team', 'carol'),
     ],
   };

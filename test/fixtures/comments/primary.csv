@@ -1,6 +1,6 @@
 pin,start,type,what,end,duration,note
 ,,,"Primary on-call rotation. Edit rows below; the script keeps them sorted.",,,
-,2026-06-01T09:00,set,"period=1w, horizon=6w",,,
+,2026-06-01T09:00,set,"period=1w, horizon=6w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0",,,
 ,2026-06-01T09:00,team,"alice, bob, carol, dave",,,
 ,2026-06-01T09:00,shift,alice,,,
 ,2026-06-08T09:00,shift,bob,,,

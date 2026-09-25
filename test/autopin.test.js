@@ -10,7 +10,8 @@ const dt = (s) => U.parseDateTime(s);
 const R = (pin, start, type, what, end, duration, note) => [pin, start, type, what, end ?? '', duration ?? '', note ?? ''];
 const rows = (cells) => cells.map((c, i) => U.rowFromArray(c, i + 2));
 
-const SET = (extra = '') => R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=6w' + (extra ? ', ' + extra : ''));
+const BASE = 'period=1w, horizon=6w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false';
+const SET = (extra = 'autopin=a:0') => R('', '2026-10-05T09:00', 'set', BASE + (extra ? ', ' + extra : ''));
 const TEAM = R('', '2026-10-05T09:00', 'team', 'alice, bob, carol');
 // Three past shifts, the current one at 10-26 and generated ones after it.
 const HISTORY = [
@@ -67,9 +68,9 @@ test('grid units resolve at now with the roster size: 1ts is three weeks for thr
 
 test('autopin comes through #Global and is overridden locally', () => {
   const global = [R('', '2026-01-01', 'set', 'autopin=2w')];
-  assert.deepEqual(pins(run([SET(), TEAM, ...HISTORY], NOW, global)).map((p) => p[1]), ['a', 'a', 'a', 'a', 'a', 'a', 'x', '', '']);
+  assert.deepEqual(pins(run([SET(''), TEAM, ...HISTORY], NOW, global)).map((p) => p[1]), ['a', 'a', 'a', 'a', 'a', 'a', 'x', '', '']);
   assert.deepEqual(pins(run([SET('autopin=false'), TEAM, ...HISTORY], NOW, global)).map((p) => p[1]), ['', '', '', '', '', '', 'x', '', '']);
-  const out = run([SET(), TEAM, ...HISTORY], NOW, global);
+  const out = run([SET(''), TEAM, ...HISTORY], NOW, global);
   assert.deepEqual(plain(out.status.rotations[0].settings.values.find((v) => v.key === 'autopin')), { key: 'autopin', value: '2w', source: 'global' });
 });
 

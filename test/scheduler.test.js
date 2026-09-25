@@ -22,7 +22,7 @@ function run(cells, now, holidays = []) {
   return U.regenerate({ rotations: [{ name: 'r', rows: ledger, snapshotAt: S }], holidays, global: [] });
 }
 
-const SET = R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=5w');
+const SET = R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=5w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0');
 const TEAM = R('', '2026-10-05T09:00', 'team', 'alice, bob, carol');
 
 test('advance: shift containing now', () => {
@@ -49,7 +49,7 @@ test('advance: grid floor when no shift covers now', () => {
 test('advance: raised to anchor', () => {
   const ledger = rows([SET, TEAM]);
   assert.equal(U.advance(ledger, dt('2026-09-30T12:00')), MON);
-  const realigned = rows([R('', '2026-09-01', 'set', 'period=1w'), R('', '2026-09-01', 'team', 'alice'), R('', '2026-10-05T09:00', 'set', 'anchor')]);
+  const realigned = rows([R('', '2026-09-01', 'set', 'period=1w, horizon=90d, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), R('', '2026-09-01', 'team', 'alice'), R('', '2026-10-05T09:00', 'set', 'anchor')]);
   assert.equal(U.advance(realigned, dt('2026-10-07T12:00')), MON);
   assert.equal(U.advance(realigned, dt('2026-09-15T12:00')), dt('2026-09-15'));
 });
@@ -74,8 +74,7 @@ test('bootstrap fills the horizon round robin and is idempotent', () => {
   const out = run([SET, TEAM], '2026-10-05T10:00');
   assert.deepEqual(plain(out.errors), []);
   assert.deepEqual(cellsOf(out), [
-    R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=5w'),
-    R('', '2026-10-05T09:00', 'snapshot', ''),
+    R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=5w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'),
     R('', '2026-10-05T09:00', 'team', 'alice, bob, carol'),
     R('', '2026-10-05T09:00', 'shift', 'alice'),
     R('', '2026-10-12T09:00', 'shift', 'bob'),
@@ -96,6 +95,37 @@ test('bootstrap fills the horizon round robin and is idempotent', () => {
   assert.equal(out.status.rotations[0].horizonEnd, MON + 5 * W);
 });
 
+test('a template-shaped ledger dated today gets no snapshot row until the roster exists at S', () => {
+  const today = U.recentMonday(dt('2026-10-07T12:00'));
+  const cells = U.templateRows(today).slice(1);
+  const first = U.regenerate({ rotations: [{ name: 'r', rows: U.rowsFromCells(cells), snapshotAt: U.advance(U.rowsFromCells(cells), dt('2026-10-05T10:00'), new Set()) }], holidays: [], global: [], now: dt('2026-10-05T10:00') });
+  assert.deepEqual(plain(first.errors), []);
+  assert.equal(ofType(first, 'snapshot').length, 0);
+  assert.equal(first.status.rotations[0].snapshotAt, today);
+  assert.ok(ofType(first, 'shift').length > 0);
+  const written = cellsOf(first);
+  assert.deepEqual(cellsOf(run(written, '2026-10-05T10:00')), written, 'idempotent without a snapshot row');
+  // A week later S has moved past the team row: the snapshot appears with the roster and a full replay gave the same scores.
+  const next = run(written, '2026-10-13T10:00');
+  const snapshot = ofType(next, 'snapshot');
+  assert.equal(snapshot.length, 1);
+  assert.equal(U.formatDateTime(snapshot[0].start), '2026-10-12');
+  assert.match(snapshot[0].what, /^alice=\d+(\.\d+)?, bob=\d+(\.\d+)?, carol=\d+(\.\d+)?$/);
+});
+
+test('a rotation with a snapshot keeps an (empty) snapshot row when everyone leaves', () => {
+  const first = run([SET, TEAM], '2026-10-05T10:00');
+  const withSnapshot = run(cellsOf(first), '2026-10-13T10:00');
+  assert.equal(ofType(withSnapshot, 'snapshot').length, 1);
+  const dormant = run(cellsOf(withSnapshot).concat([R('', '2026-10-14T09:00', 'leave', 'alice, bob, carol')]), '2026-10-20T10:00');
+  assert.deepEqual(plain(dormant.errors.map((e) => e.message)).filter((m) => !/no eligible member/.test(m)), []);
+  const snapshot = ofType(dormant, 'snapshot');
+  assert.equal(snapshot.length, 1);
+  assert.equal(U.formatDateTime(snapshot[0].start), '2026-10-19T09:00');
+  assert.equal(snapshot[0].what, '');
+  assert.deepEqual(cellsOf(run(cellsOf(dormant), '2026-10-20T10:00')), cellsOf(dormant));
+});
+
 test('a stale run leaves the gap uncredited and resumes at the grid boundary', () => {
   const first = run([SET, TEAM], '2026-10-05T10:00');
   const stale = cellsOf(first).filter((c) => c[2] !== 'shift' || c[1] < '2026-10-19');
@@ -108,10 +138,12 @@ test('a stale run leaves the gap uncredited and resumes at the grid boundary', (
 test('snapshot advances, records scores at S, keeps history and the current shift, prunes the rest', () => {
   const first = run([SET, TEAM], '2026-10-05T10:00');
   const cells = cellsOf(first);
-  cells[4] = R('', '2026-10-12T09:00', 'shift', 'carol', '', '', 'edited by hand');
+  // A fresh rotation has no snapshot row yet (empty roster at S), so the second week is at index 4.
+  assert.equal(cells.findIndex((c) => c[2] === 'snapshot'), -1);
+  cells[cells.findIndex((c) => c[1] === '2026-10-12T09:00')] = R('', '2026-10-12T09:00', 'shift', 'carol', '', '', 'edited by hand');
   const out = run(cells, '2026-10-13T10:00');
   assert.deepEqual(cellsOf(out), [
-    R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=5w'),
+    R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=5w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'),
     R('', '2026-10-05T09:00', 'team', 'alice, bob, carol'),
     R('', '2026-10-05T09:00', 'shift', 'alice'),
     R('', '2026-10-12T09:00', 'snapshot', 'alice=7, bob=0, carol=0'),
@@ -134,7 +166,9 @@ test('snapshot inside a long pinned shift credits the part before S and the rest
     ['2026-10-05T09:00', 'alice', ''], ['2026-10-26T09:00', 'bob', ''], ['2026-11-02T09:00', 'carol', ''],
   ]);
   const second = run(cellsOf(first), '2026-10-20T10:00');
-  assert.equal(U.formatDateTime(ofType(second, 'snapshot')[0].start), '2026-10-05T09:00');
+  // S stays at the pin's start, where the roster is still empty, so no snapshot row appears yet.
+  assert.equal(second.status.rotations[0].snapshotAt, MON);
+  assert.equal(ofType(second, 'snapshot').length, 0);
   assert.deepEqual(cellsOf(second), cellsOf(first));
   const late = run(cellsOf(first), '2026-11-03T10:00');
   assert.equal(ofType(late, 'snapshot')[0].what, 'alice=21, bob=7, carol=0');
@@ -146,7 +180,7 @@ test('snapshot inside a long pinned shift credits the part before S and the rest
 });
 
 test('shuffle tiebreak is deterministic across runs and changes with seed', () => {
-  const set = (seed) => R('', '2026-10-05T09:00', 'set', `period=1w, horizon=8w, tiebreak=shuffle, seed=${seed}`);
+  const set = (seed) => R('', '2026-10-05T09:00', 'set', `period=1w, horizon=8w, tiebreak=shuffle, seed=${seed}, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0`);
   const team = R('', '2026-10-05T09:00', 'team', 'alice, bob, carol, dave, erin');
   const a = run([set(0), team], '2026-10-05T10:00');
   const b = run([set(0), team], '2026-10-05T10:00');
@@ -185,14 +219,14 @@ test('pin inside the precredit window skips a turn; outside it does not', () => 
   const inside = run([SET, TEAM, R('x', '2026-10-12T09:00', 'shift', 'alice')], '2026-10-05T10:00');
   assert.deepEqual(shifts(inside).map((s) => s[1]), ['bob', 'alice', 'carol', 'alice', 'bob']);
   const disabled = run([
-    R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=5w, precredit=0'), TEAM,
+    R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=5w, precredit=0, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), TEAM,
     R('x', '2026-10-12T09:00', 'shift', 'alice'),
   ], '2026-10-05T10:00');
   assert.deepEqual(shifts(disabled).map((s) => s[1]), ['alice', 'alice', 'bob', 'carol', 'bob']);
   const farPin = R('x', '2026-11-02T09:00', 'shift', 'alice');
-  const outside = run([R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=7w'), TEAM, farPin], '2026-10-05T10:00');
+  const outside = run([R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=7w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), TEAM, farPin], '2026-10-05T10:00');
   assert.deepEqual(shifts(outside).map((s) => s[1]), ['alice', 'bob', 'carol', 'alice', 'alice', 'bob', 'carol']);
-  const widened = run([R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=7w, precredit=5sl'), TEAM, farPin], '2026-10-05T10:00');
+  const widened = run([R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=7w, precredit=5sl, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), TEAM, farPin], '2026-10-05T10:00');
   assert.deepEqual(shifts(widened).map((s) => s[1]), ['bob', 'carol', 'alice', 'bob', 'alice', 'carol', 'alice']);
   assert.deepEqual(cellsOf(run(cellsOf(widened), '2026-10-05T10:00')), cellsOf(widened));
 });
@@ -237,7 +271,7 @@ test('exclusion older than the snapshot is clipped and still applies', () => {
 
 test('min_distance keeps rest between shifts and is relaxed with a note', () => {
   const out = run([
-    R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=4w, min_distance=2sl'),
+    R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=4w, min_distance=2sl, tolerance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'),
     R('', '2026-10-05T09:00', 'team', 'alice, bob'),
   ], '2026-10-05T10:00');
   assert.deepEqual(shifts(out), [
@@ -249,7 +283,7 @@ test('min_distance keeps rest between shifts and is relaxed with a note', () => 
   assert.deepEqual(plain(out.status.warnings.map((w) => w.message)), ['min_distance relaxed to 1sl', 'min_distance relaxed to 1sl']);
   assert.deepEqual(plain(out.errors), []);
   const three = run([
-    R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=6w, min_distance=1sl'),
+    R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=6w, min_distance=1sl, tolerance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'),
     R('', '2026-10-05T09:00', 'team', 'alice, bob, carol'),
     R('', '2026-10-19T09:00', 'exclude', 'carol', '', '1w'),
   ], '2026-10-05T10:00');
@@ -265,14 +299,14 @@ test('min_distance keeps rest between shifts and is relaxed with a note', () => 
 
 test('tolerance widens the candidate band and order tiebreak walks the roster', () => {
   const out = run([
-    R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=4w, tolerance=7'),
+    R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=4w, tolerance=7, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'),
     R('', '2026-10-05T09:00', 'team', 'alice, bob, carol'),
   ], '2026-10-05T10:00');
   assert.deepEqual(shifts(out).map((s) => s[1]), ['alice', 'bob', 'carol', 'alice']);
 });
 
 test('team diff with baselines: leavers, joiners, adjustments and order', () => {
-  const first = run([R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=6w'), TEAM], '2026-10-05T10:00');
+  const first = run([R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=6w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), TEAM], '2026-10-05T10:00');
   const cells = cellsOf(first);
   cells.push(R('', '2026-10-19T09:00', 'team', 'carol, dave=max, alice, erin, bob+=10'));
   const out = run(cells, '2026-10-12T10:00');
@@ -297,7 +331,7 @@ test('team diff with baselines: leavers, joiners, adjustments and order', () => 
 });
 
 test('join with each baseline and leave', () => {
-  const first = run([R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=6w'), TEAM], '2026-10-05T10:00');
+  const first = run([R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=6w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), TEAM], '2026-10-05T10:00');
   const scoresAfter = (extra, now) => {
     const out = run(cellsOf(first).concat(extra), now);
     assert.deepEqual(plain(out.errors), []);
@@ -324,7 +358,7 @@ test('join with each baseline and leave', () => {
 });
 
 test('period change via set realigns the grid and cuts the running claim', () => {
-  const out = run([SET, TEAM, R('', '2026-10-21T09:00', 'set', 'period=2d')], '2026-10-05T10:00');
+  const out = run([SET, TEAM, R('', '2026-10-21T09:00', 'set', 'period=2d, horizon=90d, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0')], '2026-10-05T10:00');
   assert.deepEqual(shifts(out).map((s) => s[0]), [
     '2026-10-05T09:00', '2026-10-12T09:00', '2026-10-19T09:00', '2026-10-21T09:00', '2026-10-23T09:00', '2026-10-25T09:00',
     '2026-10-27T09:00', '2026-10-29T09:00', '2026-10-31T09:00', '2026-11-02T09:00', '2026-11-04T09:00', '2026-11-06T09:00', '2026-11-08T09:00',
@@ -340,7 +374,7 @@ test('period change via set realigns the grid and cuts the running claim', () =>
 
 test('unassignable slot emits a nobody shift and an error row', () => {
   const out = run([
-    R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w'),
+    R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'),
     R('', '2026-10-05T09:00', 'team', 'alice, bob'),
     R('', '2026-10-12T09:00', 'exclude', 'alice', '', '1w'),
     R('', '2026-10-12T09:00', 'exclude', 'bob', '', '1w'),
@@ -393,7 +427,7 @@ test('stateful errors: join of a member, leave of a stranger, no regeneration in
 });
 
 test('list rows: join, leave, exclude and include with several names; score with aggregates and bare names', () => {
-  const out = run([R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=8w'), TEAM,
+  const out = run([R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=8w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), TEAM,
     R('', '2026-10-12T09:00', 'join', 'dave=max, erin'),
     R('', '2026-10-12T09:00', 'exclude', 'alice, bob', '', '3w', 'offsite'),
     R('', '2026-10-19T09:00', 'include', 'alice; bob'),
@@ -452,8 +486,7 @@ test('comments are kept in place, ignored by replay and generation, and survive 
   const cells = cellsOf(out);
   assert.deepEqual(cells.map((c) => [c[1], c[2], c[3]]), [
     ['', '', 'header comment'],
-    ['2026-10-05T09:00', 'set', 'period=1w, horizon=5w'],
-    ['2026-10-05T09:00', 'snapshot', ''],
+    ['2026-10-05T09:00', 'set', 'period=1w, horizon=5w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'],
     ['2026-10-05T09:00', 'team', 'alice, bob, carol'],
     ['2026-10-05T09:00', 'shift', 'alice'],
     ['2026-10-07', '', 'dated comment'],
@@ -490,12 +523,14 @@ test('comment above a generated shift stays above that instant across runs; a co
   assert.deepEqual(cellsOf(run(written, '2026-10-05T10:00')), written);
   const later = cellsOf(run(written, '2026-10-13T10:00'));
   assert.deepEqual(later[later.findIndex((c) => c[3] === 'swap this one') + 1].slice(1, 3), ['2026-10-19T09:00', 'shift']);
-  // A comment above the snapshot row keeps that instant and slot, so it ends above the row that followed the snapshot.
-  const snapAt = written.findIndex((c) => c[2] === 'snapshot');
-  written.splice(snapAt, 0, R('', '', '', 'above the snapshot'));
-  const moved = cellsOf(run(written, '2026-10-13T10:00'));
+  // A comment above the snapshot row (first written once the roster exists, at 10-12) keeps that instant and
+  // slot: when the snapshot moves on it ends above the row that followed it there.
+  const snapAt = later.findIndex((c) => c[2] === 'snapshot');
+  assert.equal(later[snapAt][1], '2026-10-12T09:00');
+  later.splice(snapAt, 0, R('', '', '', 'above the snapshot'));
+  const moved = cellsOf(run(later, '2026-10-20T10:00'));
   const s = moved.findIndex((c) => c[3] === 'above the snapshot');
-  assert.deepEqual(moved[s + 1].slice(1, 4), ['2026-10-05T09:00', 'team', 'alice, bob, carol']);
+  assert.deepEqual(moved[s + 1].slice(1, 3), ['2026-10-12T09:00', 'shift']);
   assert.equal(moved.findIndex((c) => c[2] === 'snapshot') > s, true);
   const empty = run([R('', '', '', 'nothing else')], '2026-10-05T10:00');
   assert.deepEqual(plain(empty.errors.map((e) => e.message)), ['r: ledger is empty']);
@@ -538,7 +573,7 @@ test('only: a frozen rotation keeps its snapshot and validation errors there sti
 
 test('score rows and skip settings affect credit', () => {
   const out = run([
-    R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w, skip_weekends=true, skip_holidays=true'),
+    R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w, skip_weekends=true, skip_holidays=true, tolerance=0, min_distance=0, autopin=a:0'),
     R('', '2026-10-05T09:00', 'team', 'alice, bob'),
     R('', '2026-10-05T09:00', 'score', 'alice+=100'),
   ], '2026-10-05T10:00', [U.parseDay('2026-10-14')]);
@@ -553,7 +588,7 @@ test('multiple rotations are swept together, each with its own state', () => {
   const out = U.regenerate({
     rotations: [
       { name: 'primary', rows: rows([SET, TEAM]), snapshotAt: MON },
-      { name: 'secondary', rows: rows([R('', '2026-10-05T09:00', 'set', 'period=2w, horizon=5w'), R('', '2026-10-05T09:00', 'team', 'dave, erin')]), snapshotAt: MON },
+      { name: 'secondary', rows: rows([R('', '2026-10-05T09:00', 'set', 'period=2w, horizon=5w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), R('', '2026-10-05T09:00', 'team', 'dave, erin')]), snapshotAt: MON },
     ],
     holidays: [], global: [],
   });
@@ -565,7 +600,7 @@ test('multiple rotations are swept together, each with its own state', () => {
 
 test('regenerate without snapshotAt falls back to the ledger and never moves the snapshot back', () => {
   const first = run([SET, TEAM], '2026-10-05T10:00');
-  const cells = cellsOf(first).map((c) => (c[2] === 'snapshot' ? R('', '2026-10-12T09:00', 'snapshot', 'alice=7, bob=0, carol=0') : c));
+  const cells = cellsOf(first).concat([R('', '2026-10-12T09:00', 'snapshot', 'alice=7, bob=0, carol=0')]);
   const out = U.regenerate({ rotations: [{ name: 'r', rows: rows(cells) }], holidays: [], global: [] });
   assert.equal(U.formatDateTime(ofType(out, 'snapshot')[0].start), '2026-10-12T09:00');
   const back = U.regenerate({ rotations: [{ name: 'r', rows: rows(cells), snapshotAt: MON }], holidays: [], global: [] });

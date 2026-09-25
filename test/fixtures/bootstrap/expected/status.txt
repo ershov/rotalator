@@ -23,16 +23,16 @@ next      alice             from 2026-06-01T09:00
   period                                                             default
   anchor                                                             default
   grid           calendar                                            default
-  horizon        90d                                                 default
-  skip_weekends  false                                               default
-  skip_holidays  false                                               default
-  tolerance      0                                                   default
-  min_distance   0                                                   default
+  horizon        20w                                                 default
+  skip_weekends  true                                                default
+  skip_holidays  true                                                default
+  tolerance      0.5sl                                               default
+  min_distance   0.5ts                                               default
   tiebreak       order                                               default
   seed           0                                                   default
   baseline       median                                              default
   precredit      1ts                                                 default
-  autopin        a:0                                                 default
+  autopin        a:2sl                                               default
   note           a set row at 2026-06-01T09:00 changes these values
 
 start             primary

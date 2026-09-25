@@ -176,16 +176,16 @@ like any ledger error.
 | `period` | required | Regular shift length, `Nd` or `Nw` (`w` is `7d`). |
 | `anchor` | `start` of the `set` row | A grid instant. Shifts start and end at `anchor + k * period`. Also the earliest instant the schedule can begin. Write a bare `anchor` in a `set` row dated at the new grid instant to realign the grid. |
 | `grid` | `calendar` | `calendar`: shifts change every `period` of wall-clock time. `counted`: every `period` of counted days, the days not skipped by `skip_weekends` and `skip_holidays`; with `skip_weekends=true` a daily shift starting on Friday runs until Monday, and `1w` means seven counted days and drifts across weekdays. An anchor inside a skipped day counts as the boundary between the surrounding counted days. |
-| `horizon` | `90d` | Interval. Generate shifts up to the first grid boundary at or after the snapshot plus `horizon`. |
-| `skip_weekends` | `false` | Saturdays and Sundays credit zero days. |
-| `skip_holidays` | `false` | Dates in `#Holidays` credit zero days. |
-| `tolerance` | `0` | Members within `tolerance` of the lowest projected score are candidates. A plain number is days of score; `1sl` is what one regular shift earns at that point (honouring skipped days), `1ts` one full cycle, clock units are nominal days. |
-| `min_distance` | `0` | Interval of rest required on both sides of a slot: `2sl` is two regular shifts, `3d` three days. Relaxed one shift length at a time when nobody is eligible. A plain number other than `0` is an error. |
+| `horizon` | `20w` | Interval. Generate shifts up to the first grid boundary at or after the snapshot plus `horizon`. |
+| `skip_weekends` | `true` | Saturdays and Sundays credit zero days. |
+| `skip_holidays` | `true` | Dates in `#Holidays` credit zero days. |
+| `tolerance` | `0.5sl` | Members within `tolerance` of the lowest projected score are candidates. A plain number is days of score; `1sl` is what one regular shift earns at that point (honouring skipped days), `1ts` one full cycle, clock units are nominal days. |
+| `min_distance` | `0.5ts` | Interval of rest required on both sides of a slot: `2sl` is two regular shifts, `3d` three days. Relaxed one shift length at a time when nobody is eligible. A plain number other than `0` is an error. |
 | `tiebreak` | `order` | `order`: walk the roster cyclically after the previous assignee. `shuffle`: deterministic hash of seed, rotation, slot start and member. |
 | `seed` | `0` | Integer mixed into the shuffle hash. |
 | `baseline` | `median` | Default score for joiners: `median`, `mean`, `min`, `max`. |
 | `precredit` | `1ts` | Interval after the snapshot within which pinned shifts are credited before slots are assigned; `1ts` is one full cycle of the current roster. `0` disables. |
-| `autopin` | `a:0` | After each run, every shift starting up to `now + autopin` whose pin cell is empty gets the marker `a`: `0` pins the shifts that have started, `2w` also the next two weeks, `-2w` leaves the last two weeks unpinned, `1sl` and `0.5ts` are grid units, `false` pins nothing. `a:2w` (anything before the last colon) sets the marker. Existing pins are kept. |
+| `autopin` | `a:2sl` | After each run, every shift starting up to `now + autopin` whose pin cell is empty gets the marker `a`: `0` pins the shifts that have started, `2w` also the next two weeks, `-2w` leaves the last two weeks unpinned, `1sl` and `0.5ts` are grid units, `false` pins nothing. `a:2w` (anything before the last colon) sets the marker. Existing pins are kept. |
 
 ### Intervals
 
@@ -199,7 +199,8 @@ the shift length, one full cycle of the roster as it is at that point
 whole minutes. From a grid instant `1sl` reaches the next boundary; from any
 other instant it is one period along the grid timeline. With `grid=counted`,
 intervals count counted days, so `2d` is two working days, and with
-`skip_weekends` the default `horizon=90d` spans about 18 calendar weeks.
+`skip_weekends` the default `horizon=20w` is 20 counted weeks, about 28
+calendar weeks.
 `period` itself takes clock units only.
 
 The first row of a rotation must be a `set` row with at least `period`,
@@ -290,7 +291,9 @@ cycle) and every run pins the shifts up to two weeks ahead, so team or
 settings changes only reshape the schedule beyond that window and people can
 rely on what they see. Unpinning a shift inside the window by hand is undone
 on the next run; lower `autopin` (or set it to `false`) to let near-future
-shifts float again. The default `a:0` pins only the shifts that have started.
+shifts float again. The default `a:2sl` pins the shifts that have started
+and the next two regular shifts; `a:0` pins only the shifts that have
+started.
 
 **Swap two shifts.** Exchange the `what` of both rows and pin both.
 

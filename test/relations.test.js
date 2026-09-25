@@ -18,7 +18,7 @@ const shiftsOf = (out, name) => plain(rotRows(out, name).filter((r) => r.type ==
 const whoOf = (out, name) => shiftsOf(out, name).map((s) => s[1]);
 const errorsOf = (out, name) => plain(rotRows(out, name).filter((r) => r.type === 'error').map((r) => r.what));
 
-const SET = R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w');
+const SET = R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0');
 const rotation = (name, team, extra = []) => ({ name, rows: rows([SET, R('', '2026-10-05T09:00', 'team', team), ...extra]), snapshotAt: MON });
 const REL = (type, start, what, end, duration) => R('', start, type, what, end, duration);
 const regen = (rotations, global = [], only) => U.regenerate({ rotations, holidays: [], global: rows(global), only });
@@ -185,7 +185,7 @@ test('attract prefers the holder of the overlapping shift inside the tolerance b
   assert.deepEqual(whoOf(regen(excluded, [REL('attract', '2026-10-05T09:00', 'alerts, tickets')]), 'tickets'), ['carol', 'bob', 'dave']);
   const ahead = rotation('tickets', 'carol, dave, alice, bob', [R('', '2026-10-05T09:00', 'score', 'alice+=1')]);
   assert.deepEqual(whoOf(regen([rotation('alerts', 'alice, bob, carol, dave'), ahead], [REL('attract', '2026-10-05T09:00', 'alerts, tickets')]), 'tickets'), ['carol', 'bob', 'dave']);
-  const tolerant = { ...ahead, rows: rows([R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w, tolerance=1'), R('', '2026-10-05T09:00', 'team', 'carol, dave, alice, bob'), R('', '2026-10-05T09:00', 'score', 'alice+=1')]) };
+  const tolerant = { ...ahead, rows: rows([R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w, tolerance=1, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), R('', '2026-10-05T09:00', 'team', 'carol, dave, alice, bob'), R('', '2026-10-05T09:00', 'score', 'alice+=1')]) };
   assert.deepEqual(whoOf(regen([rotation('alerts', 'alice, bob, carol, dave'), tolerant], [REL('attract', '2026-10-05T09:00', 'alerts, tickets')]), 'tickets'), ['alice', 'bob', 'carol']);
   // One-sided attract in tickets' own tab has the same effect; in alerts' tab it does nothing for tickets.
   assert.deepEqual(whoOf(regen([rotation('alerts', 'alice, bob, carol, dave'), rotation('tickets', 'carol, dave, alice, bob', [REL('attract', '2026-10-05T09:00', 'alerts')])]), 'tickets'), ['alice', 'bob', 'carol']);
@@ -193,7 +193,7 @@ test('attract prefers the holder of the overlapping shift inside the tolerance b
 });
 
 test('different periods: weekly reads daily and daily reads weekly, overlap on intervals', () => {
-  const daily = (extra = []) => ({ name: 'daily', rows: rows([R('', '2026-10-05T09:00', 'set', 'period=1d, horizon=2w'), R('', '2026-10-05T09:00', 'team', 'alice, bob'), ...extra]), snapshotAt: MON });
+  const daily = (extra = []) => ({ name: 'daily', rows: rows([R('', '2026-10-05T09:00', 'set', 'period=1d, horizon=2w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), R('', '2026-10-05T09:00', 'team', 'alice, bob'), ...extra]), snapshotAt: MON });
   const weekly = (extra = []) => rotation('weekly', 'alice, bob', [R('x', '2026-10-12T09:00', 'shift', 'bob'), ...extra]);
   // daily reads weekly: every day of alice's week goes to bob, every day of bob's pinned week to alice.
   const dailyReads = regen([weekly(), daily([REL('repel', '2026-10-05T09:00', 'weekly')])]);
@@ -222,7 +222,7 @@ test('soft repel: min_distance relaxes first, then repel with a warning and note
   ]);
   assert.deepEqual(plain(out.status.warnings.map((w) => [w.rotation, w.message])), new Array(3).fill(['secondary', 'repel relaxed: alice also on primary']));
   // With min_distance=1sl and two members, the distance is relaxed before repel is dropped.
-  const tight = { name: 'secondary', rows: rows([R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w, min_distance=1sl'), R('', '2026-10-05T09:00', 'team', 'alice, bob'), R('', '2026-10-05T09:00', 'exclude', 'bob', '', '3w')]), snapshotAt: MON };
+  const tight = { name: 'secondary', rows: rows([R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w, min_distance=1sl, tolerance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), R('', '2026-10-05T09:00', 'team', 'alice, bob'), R('', '2026-10-05T09:00', 'exclude', 'bob', '', '3w')]), snapshotAt: MON };
   const relaxed = regen([rotation('primary', 'alice, bob'), tight], [REL('repel', '2026-10-05T09:00', 'primary, secondary')]);
   assert.deepEqual(shiftsOf(relaxed, 'secondary').map((s) => [s[1], s[2]]), [
     ['alice', 'repel relaxed: alice also on primary'],
@@ -271,7 +271,7 @@ test('relation row errors are non-blocking: unknown rotation, self reference, cy
 
 test('rows no longer in force do not order the sweep: ended, superseded and re-listed relations', () => {
   // primary's ledger starts in 2025 so that it can carry relation rows dated then.
-  const primary = (extra = []) => ({ name: 'primary', rows: rows([R('', '2025-01-06T09:00', 'set', 'period=1w, horizon=3w'), R('', '2025-01-06T09:00', 'team', ABC), ...extra]), snapshotAt: MON });
+  const primary = (extra = []) => ({ name: 'primary', rows: rows([R('', '2025-01-06T09:00', 'set', 'period=1w, horizon=3w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), R('', '2025-01-06T09:00', 'team', ABC), ...extra]), snapshotAt: MON });
   const secondary = (extra) => rotation('secondary', ABC, extra);
   // (a) primary read secondary in 2025 and stopped; secondary reads primary now: no cycle, secondary yields.
   const ended = regen([primary([REL('repel', '2025-01-06T09:00', 'secondary', '2025-06-01T09:00')]), secondary([REL('repel', '2026-10-05T09:00', 'primary')])]);
@@ -334,7 +334,7 @@ test('runner: #Global rows are written back with error rows and reported; absent
 
 test('global set rows layer under rotations: shared tolerance, local override and bare reset', () => {
   const globalRows = [R('', '2026-09-01', 'set', 'tolerance=7')];
-  const ledger = (extra) => ({ name: 'primary', rows: rows([R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=5w'), R('', '2026-10-05T09:00', 'team', ABC), R('', '2026-10-05T09:00', 'score', 'alice+=20'), ...extra]), snapshotAt: MON });
+  const ledger = (extra) => ({ name: 'primary', rows: rows([R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=5w, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), R('', '2026-10-05T09:00', 'team', ABC), R('', '2026-10-05T09:00', 'score', 'alice+=20'), ...extra]), snapshotAt: MON });
   assert.deepEqual(whoOf(regen([ledger([])], globalRows), 'primary'), ['bob', 'carol', 'bob', 'carol', 'alice']);
   const overriding = regen([ledger([R('', '2026-10-05T09:00', 'set', 'tolerance=0')])], globalRows);
   assert.deepEqual(whoOf(overriding, 'primary'), ['bob', 'carol', 'bob', 'carol', 'bob']);
@@ -347,7 +347,7 @@ test('global set rows layer under rotations: shared tolerance, local override an
 });
 
 test('global period and anchor: a rotation may have neither and gets the grid from #Global', () => {
-  const globalRows = [R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w')];
+  const globalRows = [R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0')];
   const out = regen([{ name: 'r', rows: rows([R('', '2026-10-05T09:00', 'set', 'tolerance=0'), R('', '2026-10-05T09:00', 'team', 'alice, bob')]), snapshotAt: MON }], globalRows);
   assert.deepEqual(plain(out.errors), []);
   assert.deepEqual(shiftsOf(out, 'r').map((s) => s[0]), ['2026-10-05T09:00', '2026-10-12T09:00', '2026-10-19T09:00']);

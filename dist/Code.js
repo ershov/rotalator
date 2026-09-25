@@ -411,16 +411,16 @@ var SETTINGS = {
   period:        { parse: parsePeriod,             def: null,                 bare: 'none' },
   anchor:        { parse: null,                    def: null,                 bare: 'start' },
   grid:          { parse: parseKeyword(GRID_MODES), def: 'calendar',           bare: 'default' },
-  horizon:       { parse: parsePositiveInterval,   def: parseInterval('90d'), bare: 'default', hint: POSITIVE_INTERVAL_HINT },
-  skip_weekends: { parse: parseBoolean,            def: false,                bare: 'default' },
-  skip_holidays: { parse: parseBoolean,            def: false,                bare: 'default' },
-  tolerance:     { parse: parseTolerance,          def: 0,                    bare: 'default', hint: 'a number of days or ' + INTERVAL_HINT },
-  min_distance:  { parse: parseInterval,           def: parseInterval('0'),   bare: 'default', hint: INTERVAL_HINT },
+  horizon:       { parse: parsePositiveInterval,   def: parseInterval('20w'), bare: 'default', hint: POSITIVE_INTERVAL_HINT },
+  skip_weekends: { parse: parseBoolean,            def: true,                 bare: 'default' },
+  skip_holidays: { parse: parseBoolean,            def: true,                 bare: 'default' },
+  tolerance:     { parse: parseTolerance,          def: parseTolerance('0.5sl'), bare: 'default', hint: 'a number of days or ' + INTERVAL_HINT },
+  min_distance:  { parse: parseInterval,           def: parseInterval('0.5ts'), bare: 'default', hint: INTERVAL_HINT },
   tiebreak:      { parse: parseKeyword(TIEBREAKS), def: 'order',              bare: 'default' },
   seed:          { parse: parseInteger,            def: 0,                    bare: 'default' },
   baseline:      { parse: parseBaselineKeyword,    def: 'median',             bare: 'default' },
   precredit:     { parse: parseInterval,           def: parseInterval('1ts'), bare: 'default', hint: INTERVAL_HINT },
-  autopin:       { parse: parseAutopin,            def: parseAutopin('a:0'),  bare: 'default', hint: AUTOPIN_HINT },
+  autopin:       { parse: parseAutopin,            def: parseAutopin('a:2sl'), bare: 'default', hint: AUTOPIN_HINT },
 };
 
 function defaultSettings() {
@@ -1597,8 +1597,11 @@ function autopinRows(rot, rows, now) {
 }
 
 // Script rows go in front of the kept rows so undated comments still attach to the next kept row below them.
+// No snapshot row for a rotation that has none yet and an empty roster at S (a fresh rotation whose team row
+// sorts after S); a rotation that already has one keeps its replay boundary even when the roster empties.
 function rotationOutput(rot, now) {
-  var rows = [makeRow({ type: 'snapshot', start: rot.S, what: rot.snapshotWhat })];
+  var fresh = rot.snapshotWhat === '' && rot.previousAt === null;
+  var rows = fresh ? [] : [makeRow({ type: 'snapshot', start: rot.S, what: rot.snapshotWhat })];
   rot.entries.forEach(function (e) { if (e.generated) rows.push(e.generated); });
   return { name: rot.name, rows: autopinRows(rot, sortRows(rows.concat(rot.problems.map(errorRow), rot.kept)), now) };
 }
@@ -2206,16 +2209,16 @@ var HELP_TEXT = [
   'period=1w: regular shift length in clock units; required in the first set row of a rotation',
   'anchor: bare key, the row start becomes the grid anchor; every shift starts at anchor + k x period',
   'grid=calendar: or counted, a boundary every period of counted (not skipped) days',
-  'horizon=90d: generate shifts up to this interval after the snapshot',
-  'skip_weekends=false: Saturdays and Sundays credit nothing',
-  'skip_holidays=false: dates listed in #Holidays credit nothing',
-  'tolerance=0: days (or an interval) above the lowest score that still count as candidates',
-  'min_distance=0: rest required on both sides of a shift, as an interval',
+  'horizon=20w: generate shifts up to this interval after the snapshot',
+  'skip_weekends=true: Saturdays and Sundays credit nothing',
+  'skip_holidays=true: dates listed in #Holidays credit nothing',
+  'tolerance=0.5sl: days (or an interval) above the lowest score that still count as candidates',
+  'min_distance=0.5ts: rest required on both sides of a shift, as an interval',
   'tiebreak=order: or shuffle (deterministic hash with seed)',
   'seed=0: integer mixed into the shuffle',
   'baseline=median: score given to a joiner: median, mean, min or max of the roster',
   'precredit=1ts: how far ahead pinned shifts are credited before turns are decided',
-  'autopin=a:0: after each run, shifts starting up to now + this interval get the pin marker a (false: never; a:2w sets the marker); pinned shifts are kept, so this fixes the near future',
+  'autopin=a:2sl: after each run, shifts starting up to now + this interval get the pin marker a (false: never; a:2w sets the marker); pinned shifts are kept, so this fixes the near future',
   '',
   'INTERVALS (duration, horizon, min_distance, precredit, tolerance):',
   'clock units w d h m; one token may be fractional (1.5w, 0.5d), integer tokens chain from large to small (1d12h)',
