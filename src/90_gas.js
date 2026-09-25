@@ -8,6 +8,7 @@ var TAB_COLOR_GENERATED = '#4285f4';
 var TAB_COLOR_EDITABLE = '#9e9e9e';
 var TAB_COLOR_HELP = '#76a5af';
 var HELP_COLUMN_WIDTH = 900;
+var HELP_COLUMNS = 1;
 var DEFAULT_ROTATION_TAB = 'Rotation 1 Primary';
 var LEDGER_COLUMN_WIDTHS = { pin: 40, start: 150, type: 80, what: 320, end: 150, duration: 80, note: 640 };
 var HOLIDAYS_COLUMN_WIDTHS = { date: 110, note: 640 };
@@ -88,7 +89,7 @@ class SheetsStorage {
         if (!isKnownSystemTab(name)) ignored.push(name);
         return;
       }
-      var header = sheet.getRange(1, 1, 1, LEDGER_HEADER.length).getValues()[0];
+      var header = headerCells(sheet);
       if (!isLedgerHeader(header)) { ignored.push(name); return; }
       ledgers[name] = self.readValues(sheet, CELL_DATETIME_FORMAT).slice(1)
         .map(function (row) { return row.slice(0, LEDGER_HEADER.length); });
@@ -135,12 +136,7 @@ class SheetsStorage {
   }
 
   writeTextRows(sheet, row, rows) {
-    if (!rows.length) return;
-    var width = rows[0].length;
-    var range = sheet.getRange(row, 1, rows.length, width);
-    range.setNumberFormat('@');
-    range.setFontFamily(FONT_FAMILY);
-    range.setValues(rows);
+    writeTextCells(sheet, row, rows);
   }
 
   // Bold grey header rows, a green divider and yellow current cells, from the 0-based indexes the status
@@ -196,6 +192,7 @@ class SheetsStorage {
     var sheet = this.ss.getSheetByName(ALL_SHIFTS_TAB);
     shifts.rows[0].forEach(function (cell, i) { sheet.setColumnWidth(i + 1, i === 0 ? SHIFTS_START_WIDTH : SHIFTS_ROTATION_WIDTH); });
     sheet.setFrozenRows(1);
+    trimColumns(sheet, shifts.rows[0].length);
   }
 }
 
@@ -245,7 +242,7 @@ function dryRun() {
 function currentRotation() {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   var name = sheet.getName();
-  if (isSystemTab(name) || !isLedgerHeader(sheet.getRange(1, 1, 1, LEDGER_HEADER.length).getValues()[0])) {
+  if (isSystemTab(name) || !isLedgerHeader(headerCells(sheet))) {
     toast('"' + name + '" is not a rotation tab');
     return null;
   }
@@ -288,10 +285,22 @@ function isEmptySheet(sheet) {
   return sheet.getLastRow() === 0 && sheet.getLastColumn() === 0;
 }
 
-function writeHeaderRow(sheet, header) {
-  var range = sheet.getRange(1, 1, 1, header.length);
+// Writes rows as plain text in the script font from `row` down, growing the grid first: a trimmed or narrowed
+// tab may have fewer columns or rows than the data, and getRange beyond the grid throws instead of extending it.
+function writeTextCells(sheet, row, rows) {
+  if (!rows.length) return;
+  var width = rows[0].length;
+  if (sheet.getMaxColumns() < width) sheet.insertColumnsAfter(sheet.getMaxColumns(), width - sheet.getMaxColumns());
+  var last = row + rows.length - 1;
+  if (sheet.getMaxRows() < last) sheet.insertRowsAfter(sheet.getMaxRows(), last - sheet.getMaxRows());
+  var range = sheet.getRange(row, 1, rows.length, width);
   range.setNumberFormat('@');
-  range.setValues([header]);
+  range.setFontFamily(FONT_FAMILY);
+  range.setValues(rows);
+}
+
+function writeHeaderRow(sheet, header) {
+  writeTextCells(sheet, 1, [header]);
 }
 
 // Header, column widths and notes per tab kind; null for tabs the script does not shape: unknown '#' tabs
@@ -301,10 +310,24 @@ function tabLayout(sheet) {
   if (name === HOLIDAYS_TAB) return { header: HOLIDAYS_HEADER, widths: HOLIDAYS_COLUMN_WIDTHS, notes: true, freeze: true };
   if (name === ALL_SHIFTS_TAB) return { header: null, widths: null, notes: false, freeze: false };
   if (name === STATUS_TAB) return { header: null, widths: STATUS_COLUMN_WIDTHS, notes: false, freeze: false };
-  if (name === HELP_TAB) return { header: null, widths: [HELP_COLUMN_WIDTH], notes: false, freeze: false };
+  if (name === HELP_TAB) return { header: null, widths: [HELP_COLUMN_WIDTH], keep: HELP_COLUMNS, notes: false, freeze: false };
   if (isSystemTab(name) && !isKnownSystemTab(name)) return null;
-  if (!isSystemTab(name) && !isEmptySheet(sheet) && !isLedgerHeader(sheet.getRange(1, 1, 1, LEDGER_HEADER.length).getValues()[0])) return null;
+  if (!isSystemTab(name) && !isEmptySheet(sheet) && !isLedgerHeader(headerCells(sheet))) return null;
   return { header: LEDGER_HEADER, widths: LEDGER_COLUMN_WIDTHS, notes: true, freeze: true };
+}
+
+// First-row cells of the ledger columns, padded to the ledger width; a tab narrower than the ledger has no
+// header (getRange beyond the grid would throw).
+function headerCells(sheet) {
+  var cols = Math.min(LEDGER_HEADER.length, sheet.getMaxColumns());
+  var cells = sheet.getRange(1, 1, 1, cols).getValues()[0];
+  while (cells.length < LEDGER_HEADER.length) cells.push('');
+  return cells;
+}
+
+// Deletes the columns beyond `width` when they hold nothing, so the trim never removes content.
+function trimColumns(sheet, width) {
+  if (sheet.getMaxColumns() > width && sheet.getLastColumn() <= width) sheet.deleteColumns(width + 1, sheet.getMaxColumns() - width);
 }
 
 // Replaces the tab's conditional format rules with the script's set, one rule per formula over A:G.
@@ -324,8 +347,9 @@ function formatTab(sheet) {
   if (!layout) return;
   sheet.getRange(1, 1, sheet.getMaxRows(), sheet.getMaxColumns()).setFontFamily(FONT_FAMILY);
   var width = layout.header ? layout.header.length : layout.widths ? layout.widths.length : STATUS_WIDTH;
-  sheet.getRange('A:' + String.fromCharCode(64 + width)).setNumberFormat('@');
-  if (!layout.header && layout.widths) layout.widths.forEach(function (w, i) { sheet.setColumnWidth(i + 1, w); });
+  var present = Math.min(width, sheet.getMaxColumns());
+  sheet.getRange('A:' + String.fromCharCode(64 + present)).setNumberFormat('@');
+  if (!layout.header && layout.widths) layout.widths.slice(0, present).forEach(function (w, i) { sheet.setColumnWidth(i + 1, w); });
   if (layout.header && !isEmptySheet(sheet)) {
     var header = sheet.getRange(1, 1, 1, width);
     header.setFontWeight('bold').setBackground(COLOR_HEADER);
@@ -334,14 +358,30 @@ function formatTab(sheet) {
       sheet.setColumnWidth(i + 1, layout.widths[column]);
       if (layout.notes && COLUMN_NOTES[column]) header.getCell(1, i + 1).setNote(COLUMN_NOTES[column]);
     });
-    if (sheet.getMaxColumns() > width && sheet.getLastColumn() <= width) sheet.deleteColumns(width + 1, sheet.getMaxColumns() - width);
+    trimColumns(sheet, width);
   }
+  if (!layout.header && layout.keep) trimColumns(sheet, layout.keep);
   if (!isSystemTab(name)) setConditionalRules(sheet, LEDGER_FORMAT_RULES, LEDGER_HEADER.length);
   if (name === GLOBAL_TAB) setConditionalRules(sheet, GLOBAL_FORMAT_RULES, LEDGER_HEADER.length);
   if (isSystemTab(name)) {
     var editable = name === HOLIDAYS_TAB || name === GLOBAL_TAB;
     sheet.setTabColor(name === HELP_TAB ? TAB_COLOR_HELP : editable ? TAB_COLOR_EDITABLE : TAB_COLOR_GENERATED);
   }
+}
+
+// Moves the tab to the 1-based position and restores the previously active tab.
+function moveTab(ss, sheet, position) {
+  var active = ss.getActiveSheet();
+  ss.setActiveSheet(sheet);
+  ss.moveActiveSheet(position);
+  ss.setActiveSheet(active);
+}
+
+// #Global directly before #Holidays; only moves when both exist and #Holidays comes first.
+function orderGlobalBeforeHolidays(ss) {
+  var global = ss.getSheetByName(GLOBAL_TAB);
+  var holidays = ss.getSheetByName(HOLIDAYS_TAB);
+  if (global && holidays && holidays.getIndex() < global.getIndex()) moveTab(ss, global, holidays.getIndex());
 }
 
 // #Help: HELP_TEXT in column A, first row bold, moved to the last position; the active tab is kept.
@@ -353,10 +393,7 @@ function writeHelpTab(ss) {
   range.setWrap(true);
   range.setValues(HELP_TEXT.map(function (line) { return [line]; }));
   sheet.getRange(1, 1).setFontWeight('bold');
-  var active = ss.getActiveSheet();
-  ss.setActiveSheet(sheet);
-  ss.moveActiveSheet(ss.getNumSheets());
-  ss.setActiveSheet(active);
+  moveTab(ss, sheet, ss.getNumSheets());
   return sheet;
 }
 
@@ -382,9 +419,7 @@ function templateFor(name, storage) {
 }
 
 function writeTemplate(sheet, rows) {
-  var range = sheet.getRange(1, 1, rows.length, rows[0].length);
-  range.setNumberFormat('@');
-  range.setValues(rows);
+  writeTextCells(sheet, 1, rows);
 }
 
 // Creates a missing tab and fills an empty one from its template.
@@ -403,10 +438,11 @@ function setupSpreadsheet() {
     var first = ss.getSheetByName(DEFAULT_ROTATION_TAB) || ss.insertSheet(DEFAULT_ROTATION_TAB, 0);
     if (isEmptySheet(first)) writeTemplate(first, templateFor(DEFAULT_ROTATION_TAB, storage));
   }
-  ensureTemplateTab(ss, HOLIDAYS_TAB, storage);
   ensureTemplateTab(ss, GLOBAL_TAB, storage);
+  ensureTemplateTab(ss, HOLIDAYS_TAB, storage);
   ensureTab(ss, STATUS_TAB, null);
   ensureTab(ss, ALL_SHIFTS_TAB, SHIFTS_HEADER);
+  orderGlobalBeforeHolidays(ss);
   writeHelpTab(ss);
   ss.getSheets().forEach(formatTab);
   toast('Tabs, formatting and #Help are in place');
@@ -430,7 +466,7 @@ function fillShiftsGrid() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getActiveSheet();
   var name = sheet.getName();
-  var header = sheet.getRange(1, 1, 1, LEDGER_HEADER.length).getValues()[0];
+  var header = headerCells(sheet);
   if (isSystemTab(name) || !isLedgerHeader(header)) { toast('"' + name + '" is not a rotation tab'); return; }
   var selection = sheet.getActiveRange();
   var top = selection.getRow();

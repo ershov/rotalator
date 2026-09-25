@@ -225,7 +225,10 @@ A week is 7 days, or 5 with `skip_weekends`. Partial shifts credit fractions.
 ## Setting up
 
 The **Rotalator** menu has three tools that prepare the spreadsheet; none of
-them opens a dialog and none rewrites existing data.
+them opens a dialog and none rewrites existing data. Before the menu exists,
+run the `Setup` function once from the Apps Script editor: it is the first
+function in the list, installs the menu and asks for authorisation (see
+INSTALL.md).
 
 - **Set Up Spreadsheet** creates the missing system tabs, a first rotation
   `Rotation 1 Primary` from the template when there is none, and formats
@@ -236,8 +239,10 @@ them opens a dialog and none rewrites existing data.
   `#Global` get conditional row colours by `type` (errors red, settings blue,
   roster changes teal, snapshot green, comment rows yellow, `attract` and
   `repel` green, `detach` grey); the tab's existing conditional rules are
-  replaced. New `#Holidays` and `#Global` tabs get their templates, and the
-  `#Help` tab is rewritten and moved to the end. It is idempotent.
+  replaced. New `#Holidays` and `#Global` tabs get their templates, `#Global`
+  is kept directly before `#Holidays`, the `#Help` tab is rewritten and moved
+  to the end, and unused columns beyond each tab's content are removed. It is
+  idempotent.
 - **Set Up Tab** fills the active tab from its name. An empty rotation tab
   gets the header, help rows (comments listing what each row type takes in
   `what`, kept at the top of the tab), a `set` row with every setting at its

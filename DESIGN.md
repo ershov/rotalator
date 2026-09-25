@@ -641,7 +641,7 @@ tab is the all-rotations view.
 ## 8. Code layout
 
 ```
-build.sh              bundle src/ into dist/Code.js and copy the manifest
+build.sh              bundle src/ into dist/Code.js after Setup(), copy manifest
 test.sh               node --test test/**/*.test.js
 src/
   00_util.js          naive datetime, durations, lists, FNV-1a, CSV
@@ -744,8 +744,13 @@ Two paths, both in INSTALL.md.
   after changes to `src/`; `test/dist.test.js` fails when the two diverge.
   `clasp` is an external tool, not a project dependency.
 - Manual: create an Apps Script project bound to the spreadsheet, paste
-  `dist/Code.js` and `appsscript.json`, run `onOpen` once to authorise, use the
+  `dist/Code.js` and `appsscript.json`, run `Setup` once to authorise, use the
   menu to install the nightly trigger.
+
+`build.sh` prepends `function Setup() { onOpen(); }` with a two-line comment
+to the bundle so that the first function in the Apps Script editor's list
+installs the menu and triggers authorisation; `src/` has no such function
+and `test/dist.test.js` mirrors the prelude byte for byte.
 
 INSTALL.md also provides the hand-made spreadsheet template as an appendix:
 header row, ledger columns formatted as plain text, initial `set` and `team`
@@ -759,7 +764,9 @@ creates the missing `#Holidays`, `#Global`, `#Status` and `#All shifts` tabs
 Primary` from the rotation template when no rotation exists, rewrites the
 `#Help` tab from `HELP_TEXT` in `70_tools.js` (one line per row in column A,
 first row bold, column width 900, tab colour light cyan 1 `#76a5af`, no
-conditional rules) and moves it to the last position, and
+conditional rules, columns beyond A removed) and moves it to the last
+position, creates `#Global` before `#Holidays` and moves an existing
+`#Global` directly before `#Holidays` when it comes after it, and
 formats every rotation tab, `#Holidays`, `#Global`,
 `#All shifts` and empty non-`#` tabs: Roboto Mono on the whole tab, plain
 text number format on the whole ledger columns (`A:G`), which is expected to
@@ -790,7 +797,8 @@ run; the adapter then
 applies bold and the light grey background to the `headerRows` and light
 green to the `dividerRows` and light yellow to the `currentCells` reported
 with the rows (5.8). `#All shifts` gets its column widths on every run: 150
-for `start`, 240 per rotation column.
+for `start`, 240 per rotation column; columns beyond the last rotation are
+deleted when they hold nothing, like the ledger trim.
 
 Palette: header `#eeeeee`, error `#f4c7c3`, settings `#c9daf8`, roster
 `#d0e0e3`, snapshot and relation and divider `#d9ead3`, comment and current

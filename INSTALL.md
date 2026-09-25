@@ -66,7 +66,10 @@ clasp push -f
 `dist/.clasp.json` is ignored by git and stays in place between builds
 because `build.sh` only rewrites `Code.js` and `appsscript.json`.
 
-Reload the spreadsheet and continue with section 4.
+Reload the spreadsheet and continue with section 4. If no **Rotalator** menu
+appears, open **Extensions > Apps Script**, select `Setup` (the first
+function in the toolbar dropdown) and click **Run** once to authorise the
+script, then reload.
 
 ## 3. Manual deployment
 
@@ -77,8 +80,10 @@ Reload the spreadsheet and continue with section 4.
 3. Back in the editor, replace the content of `Code.gs` with `dist/Code.js`
    and the content of `appsscript.json` with `dist/appsscript.json`, time zone
    adjusted. Save.
-4. In the function dropdown of the toolbar select `onOpen` and click **Run**.
-   Grant the permissions (spreadsheet access and trigger management).
+4. In the function dropdown of the toolbar select `Setup` (the first function
+   in the list) and click **Run** once. It installs the menu and triggers the
+   authorisation prompt; grant the permissions (spreadsheet access and
+   trigger management).
 5. Reload the spreadsheet. A **Rotalator** menu appears next to **Help**.
 
 ## 4. Set up the spreadsheet from the menu
@@ -183,7 +188,7 @@ toast; their output is in **Executions** in the Apps Script editor.
 
 ## 7. Troubleshooting
 
-**No Rotalator menu after reload.** Open the script editor, select `onOpen`,
+**No Rotalator menu after reload.** Open the script editor, select `Setup`,
 click **Run**, accept the prompts, reload the spreadsheet.
 
 **"Google hasn't verified this app" during authorisation.** Expected for a
