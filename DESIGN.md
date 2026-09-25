@@ -796,9 +796,12 @@ green, `detach` light grey, comment rows (empty type with content,
 run; the adapter then
 applies bold and the light grey background to the `headerRows` and light
 green to the `dividerRows` and light yellow to the `currentCells` reported
-with the rows (5.8). `#All shifts` gets its column widths on every run: 150
-for `start`, 240 per rotation column; columns beyond the last rotation are
-deleted when they hold nothing, like the ledger trim.
+with the rows (5.8). `#All shifts` columns are auto-sized to their content on
+every run (`autoResizeColumns`) and then widened to at least 120px, so names
+always fit and short names never leave needle-thin columns; columns beyond
+the last rotation are deleted when they hold nothing, like the ledger trim.
+In `#Help` the first line and every heading (a line ending with `:`) are
+bold; `helpHeadingRows()` in `70_tools.js` lists them.
 
 Palette: header `#eeeeee`, error `#f4c7c3`, settings `#c9daf8`, roster
 `#d0e0e3`, snapshot and relation and divider `#d9ead3`, comment and current

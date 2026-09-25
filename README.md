@@ -343,8 +343,9 @@ validation error the tab lists the errors instead of rotations.
 at which any rotation changes hands: the cell holds who starts then, `-` for
 a shift with nobody, and stays empty for rotations that do not change at that
 instant. A `--now--` row separates past from future, and the cell of each
-rotation's current shift is highlighted. Both tabs are rewritten by every
-run, including dry runs.
+rotation's current shift is highlighted. Columns are sized to their content,
+at least 120px wide. Both tabs are rewritten by every run, including dry
+runs.
 
 ## Global defaults and relations between rotations
 

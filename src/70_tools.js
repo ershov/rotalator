@@ -112,6 +112,13 @@ var HELP_TEXT = [
   'MORE: README.md (features and everyday tasks) and INSTALL.md (setup, deployment, troubleshooting) in the Rotalator repository.',
 ];
 
+// 0-based indexes of the #Help lines written bold: the first line and every heading, a line ending with ':'.
+function helpHeadingRows() {
+  var out = [];
+  HELP_TEXT.forEach(function (line, i) { if (i === 0 || /:$/.test(line)) out.push(i); });
+  return out;
+}
+
 function helpRows(lines) {
   return lines.map(function (text) { return ['', '', '', '', '', '', text]; });
 }

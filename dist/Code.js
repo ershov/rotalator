@@ -2241,6 +2241,13 @@ var HELP_TEXT = [
   'MORE: README.md (features and everyday tasks) and INSTALL.md (setup, deployment, troubleshooting) in the Rotalator repository.',
 ];
 
+// 0-based indexes of the #Help lines written bold: the first line and every heading, a line ending with ':'.
+function helpHeadingRows() {
+  var out = [];
+  HELP_TEXT.forEach(function (line, i) { if (i === 0 || /:$/.test(line)) out.push(i); });
+  return out;
+}
+
 function helpRows(lines) {
   return lines.map(function (text) { return ['', '', '', '', '', '', text]; });
 }
@@ -2450,8 +2457,7 @@ var HELP_COLUMNS = 1;
 var DEFAULT_ROTATION_TAB = 'Rotation 1 Primary';
 var LEDGER_COLUMN_WIDTHS = { pin: 40, start: 150, type: 80, what: 320, end: 150, duration: 80, note: 640 };
 var HOLIDAYS_COLUMN_WIDTHS = { date: 110, note: 640 };
-var SHIFTS_START_WIDTH = 150;
-var SHIFTS_ROTATION_WIDTH = 240;
+var SHIFTS_MIN_COLUMN_WIDTH = 120;
 // #Status: keys | names or dates | dates | gap | gap | member | mark | score | projected | last | next |
 // exclusions | gap | gap | setting | value | source.
 var STATUS_COLUMN_WIDTHS = [100, 150, 150, 60, 60, 120, 60, 100, 100, 150, 150, 150, 60, 60, 100, 150, 100];
@@ -2628,9 +2634,14 @@ class SheetsStorage {
     var shifts = shiftsRows(data);
     this.writeTable(ALL_SHIFTS_TAB, shifts);
     var sheet = this.ss.getSheetByName(ALL_SHIFTS_TAB);
-    shifts.rows[0].forEach(function (cell, i) { sheet.setColumnWidth(i + 1, i === 0 ? SHIFTS_START_WIDTH : SHIFTS_ROTATION_WIDTH); });
+    var width = shifts.rows[0].length;
     sheet.setFrozenRows(1);
-    trimColumns(sheet, shifts.rows[0].length);
+    trimColumns(sheet, width);
+    // Columns fit their content, never narrower than the minimum.
+    sheet.autoResizeColumns(1, width);
+    for (var c = 1; c <= width; c++) {
+      if (sheet.getColumnWidth(c) < SHIFTS_MIN_COLUMN_WIDTH) sheet.setColumnWidth(c, SHIFTS_MIN_COLUMN_WIDTH);
+    }
   }
 }
 
@@ -2822,7 +2833,7 @@ function orderGlobalBeforeHolidays(ss) {
   if (global && holidays && holidays.getIndex() < global.getIndex()) moveTab(ss, global, holidays.getIndex());
 }
 
-// #Help: HELP_TEXT in column A, first row bold, moved to the last position; the active tab is kept.
+// #Help: HELP_TEXT in column A, first line and headings bold, moved to the last position; the active tab is kept.
 function writeHelpTab(ss) {
   var sheet = ss.getSheetByName(HELP_TAB) || ss.insertSheet(HELP_TAB);
   sheet.clear();
@@ -2830,7 +2841,7 @@ function writeHelpTab(ss) {
   range.setNumberFormat('@');
   range.setWrap(true);
   range.setValues(HELP_TEXT.map(function (line) { return [line]; }));
-  sheet.getRange(1, 1).setFontWeight('bold');
+  helpHeadingRows().forEach(function (i) { sheet.getRange(i + 1, 1).setFontWeight('bold'); });
   moveTab(ss, sheet, ss.getNumSheets());
   return sheet;
 }
