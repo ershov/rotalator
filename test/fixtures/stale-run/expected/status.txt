@@ -10,14 +10,14 @@ ignored
 rotation  primary
 snapshot  2026-09-28T09:00
 horizon   2026-11-09T09:00
-current   dave              until 2026-10-05T09:00
-next      alice             from 2026-10-05T09:00
+current   bob               until 2026-10-05T09:00
+next      carol             from 2026-10-05T09:00
 
   member  current  score  projected  last shift        next shift        exclusions
-  alice            28     42         2026-08-24T09:00  2026-10-05T09:00
-  bob              28     35         2026-08-31T09:00  2026-10-12T09:00
-  carol            28     35         2026-09-07T09:00  2026-10-19T09:00
-  dave    x        21     35         2026-09-28T09:00  2026-10-26T09:00
+  alice            35     42         2026-09-21T09:00  2026-10-19T09:00
+  bob     x        28     42         2026-09-28T09:00  2026-10-26T09:00
+  carol            28     42         2026-09-07T09:00  2026-10-05T09:00
+  dave             28     35         2026-09-14T09:00  2026-10-12T09:00
 
   settings       as of 2026-09-29T10:00  source
   period         1w                      rotation
@@ -50,10 +50,12 @@ start             primary
 2026-08-24T09:00  alice
 2026-08-31T09:00  bob
 2026-09-07T09:00  carol
-2026-09-28T09:00  dave
+2026-09-14T09:00  dave
+2026-09-21T09:00  alice
+2026-09-28T09:00  bob
 2026-09-29T10:00  --now--
-2026-10-05T09:00  alice
-2026-10-12T09:00  bob
-2026-10-19T09:00  carol
-2026-10-26T09:00  dave
-2026-11-02T09:00  alice
+2026-10-05T09:00  carol
+2026-10-12T09:00  dave
+2026-10-19T09:00  alice
+2026-10-26T09:00  bob
+2026-11-02T09:00  carol

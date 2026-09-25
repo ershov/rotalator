@@ -92,8 +92,9 @@ test('no autopin without now, on frozen rotations or on the error path', () => {
   const other = { name: 'o', rows: rows([SET(), R('', '2026-10-05T09:00', 'team', 'dave')]), snapshotAt: dt('2026-10-26T09:00') };
   const scoped = U.regenerate({ rotations: [{ name: 'r', rows: ledger, snapshotAt: dt('2026-10-26T09:00') }, other], holidays: [], global: [], now: dt(NOW), only: ['o'] });
   assert.deepEqual(plain(scoped.rotations.map((r) => r.name)), ['o']);
-  // The written rotation is pinned (its current shift only); the frozen one is not returned at all.
-  assert.deepEqual(plain(scoped.rotations[0].rows.filter((r) => r.type === 'shift').map((r) => r.pin)), ['a', '', '', '', '', '']);
+  // The written rotation is backfilled from its first roster row and pinned up to now; the frozen one is not
+  // returned at all.
+  assert.deepEqual(plain(scoped.rotations[0].rows.filter((r) => r.type === 'shift').map((r) => r.pin)), ['a', 'a', 'a', 'a', '', '', '', '', '']);
   const broken = run([SET(), TEAM, ...HISTORY, R('', '2026-10-29T09:00', 'join', 'alice')]);
   assert.equal(broken.regenerated, false);
   assert.deepEqual(pins(broken).map((p) => p[1]).filter(Boolean), ['x']);

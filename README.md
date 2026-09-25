@@ -222,11 +222,16 @@ with `no period in force`, `no anchor` or `row before the anchor`.
 1. Read every ledger tab and `#Holidays`, drop `error` rows, validate.
 2. Move the snapshot to the start of the shift that contains `now`, or to the
    grid boundary at or before `now`. The snapshot never moves backwards.
-3. Delete unpinned shifts after the snapshot. Keep everything else.
-4. Replay from the snapshot: apply `team`, `join`, `leave`, `score`,
+3. Delete unpinned shifts after the previous run's snapshot, past ones
+   included. Keep everything else: pinned shifts, comments, your rows. On the
+   first run of a rotation, which has no snapshot yet, shifts you typed as
+   history (unpinned, before `now`) are kept and pinned; gaps between them
+   are filled.
+4. Replay from that snapshot: apply `team`, `join`, `leave`, `score`,
    `exclude`, `include` rows in time order, credit kept shifts, and fill every
-   uncovered span up to the horizon with the member who has the lowest
-   projected score among the eligible ones.
+   uncovered span from the snapshot up to the horizon, past gaps included,
+   with the member who has the lowest projected score among the eligible
+   ones. A pinned `shift` row with an empty `what` is a gap you want kept.
 5. Write each ledger back sorted, with the new snapshot and generated shifts.
    Rewrite `#Status` and `#All shifts`.
 
@@ -295,8 +300,9 @@ is regenerated from that instant.
 
 **Amend a future shift.** Edit the generated row's `what`, put anything in
 `pin`, and run. Pins inside the next `precredit` shifts are credited up front,
-so the volunteer's regular turn is skipped. Unpinned edits to future shifts
-are lost on the next run.
+so the volunteer's regular turn is skipped. Unpinned edits to shifts are lost
+on the next run, whether the shift is future, current or past: every unpinned
+shift from the previous snapshot on is regenerated.
 
 **Keep the near future stable.** Set `autopin=2w` (or `1ts` for one full
 cycle) and every run pins the shifts up to two weeks ahead, so team or
@@ -305,7 +311,15 @@ rely on what they see. Unpinning a shift inside the window by hand is undone
 on the next run; lower `autopin` (or set it to `false`) to let near-future
 shifts float again. The default `a:2sl` pins the shifts that have started
 and the next two regular shifts; `a:0` pins only the shifts that have
-started.
+started. With `autopin=false` the shifts between the previous run's snapshot
+and now may be regenerated when unpinned; rows before that snapshot never
+move. Regeneration is deterministic and looks only at rows at or before each
+shift, so an unpinned past shift changes only when something before or at it
+changed (a roster row, an exclusion, a setting, or a pin within
+`min_distance` or the pre-credit window after it), never merely because it
+was regenerated. Autopin never pins a shift with nobody, so an unassignable
+slot keeps its `error` row until you fix the roster or pin the empty row
+yourself as a wanted gap.
 
 **Swap two shifts.** Exchange the `what` of both rows and pin both.
 
@@ -419,10 +433,10 @@ sorted; a dry run writes `#Preview Global`.
 ## What the script never touches
 
 - Pinned rows.
-- Rows at or before the snapshot, apart from re-sorting, writing `start`,
-  `end` and `type` in canonical form, and the `autopin` marker in empty pin
-  cells of shifts.
-- The current shift (the shift row starting at the snapshot instant).
+- Rows before the stored snapshot (the previous run's snapshot row), apart
+  from re-sorting, writing `start`, `end` and `type` in canonical form, and
+  the `autopin` marker in empty pin cells of shifts.
+- Comments.
 - The content of user rows: `team`, `join`, `leave`, `exclude`, `include`,
   `score`, `set`. They are re-sorted and canonicalised like any other row.
 - The header row, tabs that are not ledgers, `#` tabs other than its own, and

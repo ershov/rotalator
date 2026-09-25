@@ -134,7 +134,13 @@ function resolveDurations(rows, timeline, sizeAt) {
 
 // frozen (DESIGN 5, run scope): the rotation is swept as it stands so relations see its shifts, but nothing is
 // pruned, no slot is filled and the snapshot stays where it is; it is not written. globalSetRows: #Global.
-function prepareRotation(input, index, holidays, frozen, globalSetRows) {
+// The script's domain (DESIGN 5.3, 5.4) is everything after the stored snapshot P: unpinned shifts there are
+// pruned and every uncovered span from P (or, without a snapshot, from the first boundary at or after the first
+// roster row) up to horizonEnd is filled, past spans included. An unpinned shift with nobody is never kept, so
+// an unassignable slot at P re-emits its error row and a run stays idempotent. Without a snapshot (first run)
+// unpinned shifts before now (before S when now is unknown) are hand-typed history and are kept; autopin then
+// pins them and P protects them from the next run on.
+function prepareRotation(input, index, holidays, frozen, globalSetRows, now) {
   var validated = validateLedger(input.rows, input.name);
   var rot = { name: input.name, index: index, frozen: frozen, rows: validated.rows, errors: validated.errors.slice(), problems: [], warnings: [] };
   if (rot.errors.length) return rot;
@@ -167,25 +173,34 @@ function prepareRotation(input, index, holidays, frozen, globalSetRows) {
   rot.S = S;
   rot.sizeAt = rosterSizeAt(rows, rot.previousAt, rot.previousWhat);
   resolveDurations(rows, timeline, rot.sizeAt);
-  rot.kept = rows.filter(function (r) { return r.type !== 'snapshot' && !(!frozen && r.type === 'shift' && !r.pinned && r.start > S); });
+  var P = rot.previousAt;
+  var historyEnd = now === null || now === undefined ? S : now;
+  rot.kept = rows.filter(function (r) {
+    if (r.type === 'snapshot') return false;
+    if (frozen || r.type !== 'shift' || r.pinned) return true;
+    var assigned = shiftAssignee(r) !== null;
+    if (P === null) return assigned && r.start < historyEnd;
+    return r.start < P || (r.start === P && assigned);
+  });
 
   var shifts = rowsOfType(rot.kept, 'shift');
   var changes = timeline.gridChanges();
-  var regenStart = S;
   var claims = shifts.map(function (s, i) {
-    var end = claimEnd(s, shifts[i + 1] ? shifts[i + 1].start : null, timeline.gridAt(s.start), changes);
-    if (s.start === S) regenStart = Math.max(regenStart, end);
-    return [s.start, end];
+    return [s.start, claimEnd(s, shifts[i + 1] ? shifts[i + 1].start : null, timeline.gridAt(s.start), changes)];
   });
   var gridS = timeline.gridAt(S);
   var horizonAt = gridS.offset(S, resolveInterval(timeline.at(S).get('horizon'), gridS, rot.sizeAt(S)));
   rot.horizonEnd = timeline.gridAt(horizonAt).ceil(horizonAt);
+  var roster = firstOfType(rows, ['team', 'join']);
+  var fillStart = P !== null ? Math.max(P, gridAt)
+    : roster && isFinite(roster.start) ? timeline.gridAt(roster.start).ceil(roster.start) : gridAt;
+  rot.fillStart = fillStart;
 
   var entries = shifts.map(function (s) {
     return { start: s.start, slotEnd: null, end: null, who: shiftAssignee(s), slot: false, row: s };
   });
   if (!frozen) {
-    uncoveredSpans(regenStart, rot.horizonEnd, claims).forEach(function (span) {
+    uncoveredSpans(fillStart, rot.horizonEnd, claims).forEach(function (span) {
       splitSlots(span[0], span[1], timeline, changes, entries);
     });
   }
@@ -469,7 +484,8 @@ function relationContext(global, rots) {
 }
 
 // DESIGN 5.8 autopin: every shift row starting at or before now + autopin (resolved on the grid at now) whose
-// pin is empty gets the marker, on a copy so the swept rows and the status are untouched. Needs now.
+// pin is empty gets the marker, on a copy so the swept rows and the status are untouched. Needs now. Shifts
+// with nobody are not pinned: an unassignable slot must stay the script's so its error row comes back.
 function autopinRows(rot, rows, now) {
   if (now === null || now === undefined) return rows;
   var autopin = rot.timeline.at(now).get('autopin');
@@ -477,7 +493,7 @@ function autopinRows(rot, rows, now) {
   if (autopin === false || !grid) return rows;
   var limit = grid.offset(now, autopin.sign * resolveInterval(autopin.interval, grid, rot.sizeAt(now)));
   return rows.map(function (r) {
-    if (r.type !== 'shift' || r.pin !== '' || r.start > limit) return r;
+    if (r.type !== 'shift' || r.pin !== '' || r.start > limit || shiftAssignee(r) === null) return r;
     return Object.assign({}, r, { pin: autopin.marker, pinned: true });
   });
 }
@@ -503,7 +519,7 @@ function regenerate(input) {
   var only = input.only || null;
   var global = prepareGlobal(input.global, input.rotations.map(function (r) { return r.name; }));
   var rots = input.rotations.map(function (r, i) {
-    return prepareRotation(r, i, holidays, only !== null && only.indexOf(r.name) < 0, global.setRows);
+    return prepareRotation(r, i, holidays, only !== null && only.indexOf(r.name) < 0, global.setRows, input.now);
   });
   var ctx = relationContext(global, rots);
   var hasErrors = function () { return global.blocking || rots.some(function (rot) { return rot.errors.length > 0; }); };

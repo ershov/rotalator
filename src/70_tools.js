@@ -107,7 +107,7 @@ var HELP_TEXT = [
   'Fill Shifts Grid: puts the selected rows of a rotation tab on the grid, filling start',
   'Install nightly trigger / Remove trigger: schedule Run daily between 02:00 and 03:00, or stop it',
   '',
-  'NEVER TOUCHED BY THE SCRIPT: pinned rows; rows at or before the snapshot; the current shift; comments; header rows; tabs without the ledger header.',
+  'NEVER TOUCHED BY THE SCRIPT: pinned rows; rows before the stored snapshot; comments; header rows; tabs without the ledger header. Unpinned shifts after the snapshot are regenerated every run.',
   '',
   'ONE GRID STEP: a shift without end or duration ends at the earlier of the next shift start and the next grid boundary, so it counts as at most one period. Give hand-entered history that spans several periods a duration or an end.',
   '',

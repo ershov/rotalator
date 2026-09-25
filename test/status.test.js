@@ -269,7 +269,7 @@ test('All shifts grid: shared start rows, nobody as -, now row after an equal st
   const out = U.shiftsRows(status);
   assert.deepEqual(structuredClone(out.rows), [
     ['start', 'weekly', 'daily'],
-    ['2026-10-05T09:00', '-', ''],
+    ['2026-10-05T09:00', '-', 'carol'],
     ['2026-10-06T09:00', '', 'carol'],
     ['2026-10-06T09:00', '--now--', '--now--'],
     ['2026-10-07T09:00', '', 'carol'],

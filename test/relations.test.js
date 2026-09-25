@@ -271,7 +271,8 @@ test('relation row errors are non-blocking: unknown rotation, self reference, cy
 
 test('rows no longer in force do not order the sweep: ended, superseded and re-listed relations', () => {
   // primary's ledger starts in 2025 so that it can carry relation rows dated then.
-  const primary = (extra = []) => ({ name: 'primary', rows: rows([R('', '2025-01-06T09:00', 'set', 'period=1w, horizon=3w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), R('', '2025-01-06T09:00', 'team', ABC), ...extra]), snapshotAt: MON });
+  // A stored snapshot at MON keeps the 2025 span out of the script's domain; the relation rows still count.
+  const primary = (extra = []) => ({ name: 'primary', rows: rows([R('', '2025-01-06T09:00', 'set', 'period=1w, horizon=3w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), R('', '2025-01-06T09:00', 'team', ABC), R('', '2026-10-05T09:00', 'snapshot', 'alice=0, bob=0, carol=0'), ...extra]), snapshotAt: MON });
   const secondary = (extra) => rotation('secondary', ABC, extra);
   // (a) primary read secondary in 2025 and stopped; secondary reads primary now: no cycle, secondary yields.
   const ended = regen([primary([REL('repel', '2025-01-06T09:00', 'secondary', '2025-06-01T09:00')]), secondary([REL('repel', '2026-10-05T09:00', 'primary')])]);

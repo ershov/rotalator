@@ -178,13 +178,17 @@ test('the grid must be in force before the first dated row: no period, no anchor
   assert.deepEqual(shifts(globalAnchor).map((s) => [s[0], s[1]]), [['2026-10-05T09:00', 'alice'], ['2026-10-12T09:00', 'bob'], ['2026-10-19T09:00', 'alice']]);
 });
 
-test('a stale run leaves the gap uncredited and resumes at the grid boundary', () => {
+test('a stale run backfills the gap with assigned shifts and resumes at the grid boundary', () => {
   const first = run([SET, TEAM], '2026-10-05T10:00');
+  // Only the pinned first week survives: without a snapshot every unpinned shift belongs to the script.
   const stale = cellsOf(first).filter((c) => c[2] !== 'shift' || c[1] < '2026-10-19');
   const out = run(stale, '2026-11-04T10:00');
   assert.equal(U.formatDateTime(ofType(out, 'snapshot')[0].start), '2026-11-02T09:00');
-  assert.equal(ofType(out, 'snapshot')[0].what, 'alice=7, bob=7, carol=0');
-  assert.deepEqual(shifts(out).map((s) => s[0]).slice(0, 3), ['2026-10-05T09:00', '2026-10-12T09:00', '2026-11-02T09:00']);
+  assert.equal(ofType(out, 'snapshot')[0].what, 'alice=14, bob=7, carol=7');
+  assert.deepEqual(shifts(out).map((s) => [s[0], s[1]]).slice(0, 5), [
+    ['2026-10-05T09:00', 'alice'], ['2026-10-12T09:00', 'bob'], ['2026-10-19T09:00', 'carol'], ['2026-10-26T09:00', 'alice'], ['2026-11-02T09:00', 'bob'],
+  ]);
+  assert.deepEqual(cellsOf(run(cellsOf(out), '2026-11-04T10:00')), cellsOf(out));
 });
 
 test('snapshot advances, records scores at S, keeps history and the current shift, prunes the rest', () => {
@@ -192,14 +196,15 @@ test('snapshot advances, records scores at S, keeps history and the current shif
   const cells = cellsOf(first);
   // A fresh rotation has no snapshot row yet (empty roster at S), so the second week is at index 4.
   assert.equal(cells.findIndex((c) => c[2] === 'snapshot'), -1);
-  cells[cells.findIndex((c) => c[1] === '2026-10-12T09:00')] = R('', '2026-10-12T09:00', 'shift', 'carol', '', '', 'edited by hand');
+  // An edit to the current shift must be pinned: unpinned shifts after the stored snapshot are regenerated.
+  cells[cells.findIndex((c) => c[1] === '2026-10-12T09:00')] = R('x', '2026-10-12T09:00', 'shift', 'carol', '', '', 'edited by hand');
   const out = run(cells, '2026-10-13T10:00');
   assert.deepEqual(cellsOf(out), [
     R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=5w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'),
     R('', '2026-10-05T09:00', 'team', 'alice, bob, carol'),
     R('', '2026-10-05T09:00', 'shift', 'alice'),
     R('', '2026-10-12T09:00', 'snapshot', 'alice=7, bob=0, carol=0'),
-    R('', '2026-10-12T09:00', 'shift', 'carol', '', '', 'edited by hand'),
+    R('x', '2026-10-12T09:00', 'shift', 'carol', '', '', 'edited by hand'),
     R('', '2026-10-19T09:00', 'shift', 'bob'),
     R('', '2026-10-26T09:00', 'shift', 'carol'),
     R('', '2026-11-02T09:00', 'shift', 'alice'),

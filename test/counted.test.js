@@ -194,13 +194,15 @@ test('min_distance in sl is measured in counted days: the Thursday holder is too
 
 test('precredit window is an interval on the counted timeline across the weekend', () => {
   const pin = R('x', '2026-10-13T09:00', 'shift', 'alice', '', '', 'volunteered');
-  const out = run([SET, TEAM, pin], '2026-10-09T10:00');
+  // A stored snapshot at Friday keeps the week before it out of the script's domain.
+  const snapshot = R('', '2026-10-09T09:00', 'snapshot', 'alice=0, bob=0, carol=0');
+  const out = run([SET, TEAM, snapshot, pin], '2026-10-09T10:00');
   assert.equal(fmt(ofType(out, 'snapshot')[0].start), '2026-10-09T09:00');
   assert.deepEqual(shifts(out).map((s) => [s[0], s[1]]), [
     ['2026-10-09T09:00', 'bob'], ['2026-10-12T09:00', 'carol'], ['2026-10-13T09:00', 'alice'],
     ['2026-10-14T09:00', 'bob'], ['2026-10-15T09:00', 'carol'],
   ]);
   const narrow = R('', '2026-10-05T09:00', 'set', 'period=1d, horizon=5d, grid=counted, skip_weekends=true, precredit=1sl, tolerance=0, min_distance=0, skip_holidays=false, autopin=a:0');
-  const late = run([narrow, TEAM, pin], '2026-10-09T10:00');
+  const late = run([narrow, TEAM, snapshot, pin], '2026-10-09T10:00');
   assert.equal(shifts(late)[0][1], 'alice');
 });

@@ -42,7 +42,7 @@ owner explicitly approves one.
 | slot | A time span the script must fill with a generated shift. |
 | claim | The span a kept shift occupies for the purpose of regeneration. |
 | snapshot | Script-owned row with roster and scores at an instant. Replay starts there, and everything after it is recomputed. |
-| current shift | The shift row starting at the snapshot instant. Kept as is. |
+| current shift | The shift row starting at the snapshot instant. Kept when pinned, regenerated at the same boundary otherwise. |
 | pinned | Rows with a non-empty `pin` cell. The script never modifies them. |
 
 ## 3. Spreadsheet layout
@@ -176,12 +176,14 @@ row of the ledger a definite extent without a terminator row or an explicit
 before the next run; a hand-entered history shift spanning several periods
 therefore needs `duration` or `end`. Its claim (see 5.4) ends at the explicit
 `end`, else at the next grid boundary strictly after `start`. Unpinned shifts
-starting after the snapshot belong to the script and are regenerated every
-run. Any user edit to a future shift must be pinned or it is lost. After each
-run the script pins the shifts up to `now + autopin` itself (5.8), so with
-the default `autopin=a:2sl` every shift that has started and the next two
-regular shifts are pinned and only the
-future floats.
+starting after the stored snapshot (the previous run's snapshot row) belong to
+the script and are regenerated every run, past ones included; an unpinned
+shift with an empty assignee is never kept, and a pinned one is a wanted gap.
+Any user edit to a
+shift must be pinned or it is lost. After each run the script pins the shifts
+up to `now + autopin` itself (5.8), so with the default `autopin=a:2sl` every
+shift that has started and the next two regular shifts are pinned and only
+the future floats.
 
 **team.** Sets the full roster. `alice, bob, carol=median, dave=12, erin+=2`.
 The list is diffed against the current roster: absent members leave, new
@@ -225,10 +227,10 @@ there.
 **snapshot.** One per rotation, written by the script. Its instant is the
 start of the current shift, see 5.2. `what` is the roster in order with scores
 as of that instant: `alice=12.5, bob=11`. The snapshot is the single
-boundary in the ledger: rows before it are ignored on replay, except `set`
-rows and `shift` or `exclude` intervals that extend past it, which are clipped
-to start at the snapshot; the shift starting at the same instant is the
-current shift and is kept; unpinned shifts after it are regenerated. No
+boundary in the ledger: rows before it are never touched and are ignored on
+replay, except `set` rows and `shift` or `exclude` intervals that extend past
+it, which are clipped to start at the snapshot; unpinned shifts after it are
+regenerated and every uncovered span from it on is filled (5.3, 5.4). No
 snapshot row is written for a rotation that has none yet and an empty roster
 at `S` (a fresh rotation whose `team` row sorts after `S`); the next run
 writes it once a roster exists, and replay without a snapshot is the full
@@ -391,16 +393,31 @@ For each rotation compute the new snapshot instant `S`:
 5. `S` is never earlier than the existing snapshot.
 
 The snapshot row is placed at `S`. Its scores are filled in by the sweep in
-5.5, which records roster and scores when it passes `S`. If the script has not
-run for a while, the span between the last shift and `S` stays empty and is
-ignored; the current period is generated from its grid boundary, partly in the
-past.
+5.5, which records roster and scores when it passes `S`. `S` only places the
+snapshot; the span the script fills is defined by the stored snapshot `P` of
+the previous run (5.4), so if the script has not run for a while the gap
+between the last shift and `S` is filled like any other uncovered span and
+the schedule has no holes.
 
 ### 5.3 Prune and sort
 
-Delete unpinned `shift` rows with `start > S`. Everything else is kept: rows
-before `S`, the current shift at `S`, pinned shifts, comments, and all user
-rows dated after `S`. Stable sort by `start` and the 3.6 type order.
+Delete unpinned `shift` rows with `start > P`, where `P` is the stored
+snapshot of the previous run, and every unpinned `shift` with an empty
+assignee at or after `P` (it is the script's record of an unassignable slot,
+whose `error` row must come back). Without a snapshot (the first run of a
+rotation) the unpinned assigned shifts before `now` are hand-typed history
+and are kept, and only the unpinned shifts from `now` on are pruned; when
+`now` is unknown the cut is `S`. Autopin then pins that history on the same
+run and `P` protects it from the next run on; this is the one place where
+the schedule depends on `now`. Everything else is kept: rows at or before
+`P`, pinned shifts (including a pinned shift with an empty assignee, a wanted
+gap), comments, and all user rows. The shift at the new `S` is kept only when
+pinned or at `P`; otherwise it is regenerated at the same boundary, which
+reproduces it unless its inputs changed. The shift starting at `P` is kept
+even when unpinned and even if a roster row dated before it has since removed
+its holder, so an incremental run and a full replay may differ for that one
+shift; this is intended: the shift in progress at the previous run never
+moves. Stable sort by `start` and the 3.6 type order.
 
 ### 5.4 Claims and slots
 
@@ -410,15 +427,17 @@ end, else the next grid boundary strictly after `start` in the grid effective at
 row that changes the grid. An open-ended pinned shift is one regular shift; a
 longer one needs `duration` or `end`.
 
-Regeneration range: from `regenStart` to `horizonEnd`. `regenStart` is the
-claim end of the current shift, or `S` itself when no shift starts at `S`.
-`horizonEnd` is the first grid boundary at or after `S` plus the `horizon`
-interval on the grid's timeline. An `sl` or `ts` `duration` is resolved into
-an `end` on the grid effective at the row's `start`, with the roster size at
-that instant, before claims are computed.
+Regeneration range: from `fillStart` to `horizonEnd`. `fillStart` is the
+stored snapshot `P` (or the grid start, if later); without a snapshot it is
+the first grid boundary at or after the first `team` or `join` row, so no slot
+precedes the roster. `horizonEnd` is the first grid boundary at or after `S`
+plus the `horizon` interval on the grid's timeline. An `sl` or `ts` `duration`
+is resolved into an `end` on the grid effective at the row's `start`, with the
+roster size at that instant, before claims are computed.
 
-Every uncovered span inside the range is split at grid boundaries into slots.
-The first slot of a span may be short when it starts after a substitution or a
+Every uncovered span inside the range is split at grid boundaries into slots,
+past spans included: a stale ledger is backfilled up to `S` and beyond. The
+first slot of a span may be short when it starts after a substitution or a
 pinned shift with an odd end. Boundaries never move because of irregular rows.
 
 ### 5.5 Pre-credit
@@ -480,8 +499,15 @@ with a stable order for ties.
 ### 5.8 Write
 
 Replace the old snapshot row with the new one at `S`. Write each ledger tab in
-full, sorted. Rows at or before `S` are written back unchanged apart from
-sorting and the `autopin` marker below. No terminator row and no explicit
+full, sorted. Rows at or before `P` are written back unchanged apart from
+sorting and the `autopin` marker below; between `P` and `now` only unpinned
+shifts may change, and never rows before `P` regardless of pins. Because
+generation is deterministic and a slot depends only on the rows at or before
+it plus the pinned shifts within `min_distance` and the pre-credit window
+after it, regenerating an unpinned span whose inputs did not change
+reproduces it exactly: a past shift changes only when something that feeds it
+changed (a roster row, an exclusion, a setting or a pin), never merely
+because it was regenerated. No terminator row and no explicit
 `end` on the last row: the last shift's extent is the next grid boundary after
 its start, by the rule in 3.4, and `horizonEnd` is always a grid boundary so
 the two agree.
@@ -490,9 +516,11 @@ Autopin is the last step of the output stage, after the schedule of the same
 run, so previews and the CLI show it: for each written rotation the `autopin`
 setting in force at `now` is resolved on the grid at `now` (`ts` with the
 roster size at `now`) into a limit `now + autopin`, and every `shift` row,
-kept or generated in this run, with `start <= limit` and an empty pin cell
-gets the marker; rows with any non-empty pin keep theirs and no other column
-changes. It needs `now`; `regenerate` without `now` pins nothing. Frozen
+kept or generated in this run, with `start <= limit`, an assignee and an
+empty pin cell gets the marker; a shift with nobody stays unpinned so an
+unassignable slot keeps reporting its `error` row until it is fixed or pinned
+by hand as a wanted gap; rows with any non-empty pin keep theirs and no other
+column changes. It needs `now`; `regenerate` without `now` pins nothing. Frozen
 rotations and the error path are not written and get no pins. It has no
 effect on the snapshot, the status or `#All shifts` of the run that writes
 it; a second run with the same `now` writes nothing new.
@@ -502,7 +530,10 @@ The stability window: because pinned rows are never pruned, the shifts inside
 settings change reshapes only the schedule beyond the window, and a shift the
 user unpins inside the window is pinned again on the next run. Lowering
 `autopin` (or `autopin=false`) is the way to let near-future shifts float
-again; a negative value leaves a margin of recent shifts unpinned.
+again; a negative value leaves a margin of recent shifts unpinned. With
+`autopin=false` the rows between the previous snapshot and `now` may be
+regenerated when unpinned; since the snapshot moves forward every run, what
+lies before it is fixed either way.
 
 Status data is built from the swept state: the run instant and mode, the
 recognised tabs (rotations found, rotations regenerated in this run, holidays
@@ -563,9 +594,9 @@ rewritten in full on every run, including dry runs.
   shift, yields the same spreadsheet.
 - Settings changes apply from their `set` row forward. Editing a `set` row in
   the past rescores history, which is intended.
-- Pinned rows, rows before the snapshot, and the current shift are never
-  touched. The current shift is editable; changing its assignee reshapes the
-  future.
+- Pinned rows, rows before the stored snapshot and comments are never
+  touched. The current shift is regenerated at the same boundary when
+  unpinned; pin an edit to it and the future reshapes around it.
 
 ## 6. Errors and warnings
 
@@ -925,8 +956,8 @@ validates (the grid is unchanged because every boundary is an anchor).
 ## 12. Known limitations
 
 - No concurrency protection. A human editing during the nightly run may have
-  edits to unpinned future shifts overwritten; rows at or before the snapshot
-  and pinned rows are safe.
+  edits to unpinned future shifts overwritten; rows before the snapshot, the
+  assigned shift at it, and pinned rows are safe.
 - Cell formatting is not preserved when sorting moves a row. Values are.
 - Edits to rows older than the snapshot have no effect; use `score` rows or
   delete the snapshot for a full replay.
