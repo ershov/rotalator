@@ -370,15 +370,19 @@ function gcalStatusData(plan) {
   return { lines: lines, errors: plan.errors.slice() };
 }
 
-// Hook: rows for #Status from status.ext.gcal (DESIGN 8, Extensions); nothing without it.
+// Hook: rows for #Status from status.ext.gcal (DESIGN 8, Extensions); nothing without it. The title row
+// carries the elapsed seconds of the run when known; a note row says why a loop stopped early.
 function gcal_status(status) {
   var data = status.ext && status.ext.gcal;
   if (!data) return null;
-  var rows = [['Calendar' + (data.mode ? ' (' + data.mode + ')' : '')], ['rotation', 'preset', 'calendar'].concat(GCAL_COUNTS)];
+  var title = ['Calendar' + (data.mode ? ' (' + data.mode + ')' : '')];
+  if (data.elapsed !== undefined) title.push('elapsed', data.elapsed + ' s');
+  var rows = [title, ['rotation', 'preset', 'calendar'].concat(GCAL_COUNTS)];
   var headerRows = [0, 1];
   (data.lines || []).forEach(function (line) {
     rows.push([line.rotation, line.preset, line.calendar].concat(GCAL_COUNTS.map(function (c) { return String(line[c]); })));
   });
+  if (data.note) rows.push(['note', data.note]);
   var errors = data.errors || [];
   if (errors.length) {
     headerRows.push(rows.length);
@@ -516,16 +520,40 @@ function gcalTaggedEvents(calendar, rotation, from, to, tz) {
     .filter(function (t) { return t.key && t.key.indexOf(prefix) === 0 && parseDateTime(t.key.slice(prefix.length)) >= fromMin; });
 }
 
-// Reconciles every calendar of the plan and fills the counts of data (gcalStatusData). options: tz, and dry to
-// compute the counts without writing. Creates and updates stay inside [from, to); the rotation's tagged
-// events are fetched up to `until` (the clean bound after now), so events left beyond a shortened horizon are
-// deleted too. A missing calendar or an API failure is recorded in data.errors and the other calendars
-// proceed. Duplicate events with one key are deleted down to one.
+// Asks the run guard between steps and remembers the first reason, so every later call says stop too.
+function gcalStopper(guard) {
+  var reason = null;
+  return {
+    stop: function () { if (reason === null) reason = guard.stopReason(); return reason !== null; },
+    reason: function () { return reason; },
+  };
+}
+
+// Records an early stop (stopped, note after `done` steps of `what`) and the elapsed seconds on a result.
+function gcalFinish(out, stopper, done, what, guard) {
+  if (stopper.reason() !== null) { out.stopped = stopper.reason(); out.note = stopNote(out.stopped, done, what); }
+  out.elapsed = guard.elapsedSeconds();
+  return out;
+}
+
+// Reconciles every calendar of the plan and fills the counts of data (gcalStatusData). options: tz; dry to
+// compute the counts without writing; guard (default the run's, DESIGN 10.4), asked between events whether
+// to stop, in which case the remaining events and calendars are left for the next run and data.note says
+// why; progress(line), called when a calendar is done. Creates and updates stay inside [from, to); the
+// rotation's tagged events are fetched up to `until` (the clean bound after now), so events left beyond a
+// shortened horizon are deleted too. A missing calendar or an API failure is recorded in data.errors and the
+// other calendars proceed. Duplicate events with one key are deleted down to one.
 function gcalReconcile(plan, data, options) {
   var tz = options.tz;
   var dry = Boolean(options.dry);
+  var guard = options.guard || currentRunGuard();
+  var progress = options.progress || function () {};
+  var done = 0;
+  var stopper = gcalStopper(guard);
+  var stop = stopper.stop;
   plan.rotations.forEach(function (rot) {
     rot.presets.forEach(function (preset, i) {
+      if (stop()) return;
       var id = rot.calendars[i];
       var line = data.lines.find(function (l) { return l.rotation === rot.rotation && l.preset === preset; });
       var wanted = plan.events.filter(function (e) { return e.rotation === rot.rotation && e.preset === preset; });
@@ -537,51 +565,76 @@ function gcalReconcile(plan, data, options) {
         gcalTaggedEvents(calendar, rot.rotation, rot.from, rot.until || rot.to, tz).forEach(function (t) {
           if (existing[t.key]) duplicates.push(t.event); else existing[t.key] = t.event;
         });
-        wanted.forEach(function (want) {
+        for (var w = 0; w < wanted.length && !stop(); w++) {
+          var want = wanted[w];
           var ev = existing[want.key];
           delete existing[want.key];
-          if (!ev) { if (!dry) gcalCreate(calendar, want, tz); line.create++; return; }
+          done++;
+          if (!ev) { if (!dry) gcalCreate(calendar, want, tz); line.create++; continue; }
           var state = gcalEventState(ev, tz);
           var diff = gcalDiff(state, want);
-          if (!diff.length) { line.unchanged++; return; }
+          if (!diff.length) { line.unchanged++; continue; }
           if (!dry) gcalUpdate(ev, state, want, diff, tz);
           line.update++;
-        });
-        Object.keys(existing).map(function (key) { return existing[key]; }).concat(duplicates).forEach(function (ev) {
-          if (!dry) ev.deleteEvent();
+        }
+        var stale = Object.keys(existing).map(function (key) { return existing[key]; }).concat(duplicates);
+        for (var s = 0; s < stale.length && !stop(); s++) {
+          done++;
+          if (!dry) stale[s].deleteEvent();
           line.delete++;
-        });
+        }
+        if (stopper.reason() === null) progress(line);
       } catch (e) {
         data.errors.push({ where: rot.rotation + ' / ' + preset, message: e && e.message ? e.message : String(e) });
       }
     });
   });
-  return data;
+  return gcalFinish(data, stopper, done, 'event(s)', guard);
 }
 
 // Deletes tagged events per a clean plan (gcalCleanPlan): a rotation's events (tag prefix rotation|) in its
 // window in each of its calendars, or every tagged event of one calendar between options.from and options.to.
-// Returns { deleted, errors }.
+// options.guard (default the run's) is asked between deletions. Returns { deleted, errors, note, elapsed }.
 function gcalClean(clean, options) {
   var out = { deleted: 0, errors: [] };
+  var guard = options.guard || currentRunGuard();
+  var stopper = gcalStopper(guard);
+  var stop = stopper.stop;
   var targets = clean.all
     ? [{ calendar: clean.calendar, prefix: '', from: options.from, to: options.to }]
     : clean.calendars.map(function (id) { return { calendar: id, prefix: clean.rotation + '|', from: clean.from, to: clean.to }; });
   targets.forEach(function (t) {
+    if (stop()) return;
     try {
       var calendar = CalendarApp.getCalendarById(t.calendar);
       if (!calendar) throw new Error('calendar "' + t.calendar + '" not found or not shared with this account');
-      calendar.getEvents(gcalToDate(t.from, options.tz), gcalToDate(t.to, options.tz)).forEach(function (ev) {
-        var key = ev.getTag(GCAL_TAG);
-        if (!key || key.indexOf(t.prefix) !== 0) return;
-        if (!options.dry) ev.deleteEvent();
+      var events = calendar.getEvents(gcalToDate(t.from, options.tz), gcalToDate(t.to, options.tz));
+      for (var i = 0; i < events.length && !stop(); i++) {
+        var key = events[i].getTag(GCAL_TAG);
+        if (!key || key.indexOf(t.prefix) !== 0) continue;
+        if (!options.dry) events[i].deleteEvent();
         out.deleted++;
-      });
+      }
     } catch (e) {
       out.errors.push({ where: t.calendar, message: e && e.message ? e.message : String(e) });
     }
   });
-  return out;
+  return gcalFinish(out, stopper, out.deleted, 'deletion(s)', guard);
+}
+
+// Progress toasts (DESIGN 10.4), only where a spreadsheet UI exists: at the start of an export, with the
+// pending writes flushed so the ledgers are visible before the calendar loop, and per finished calendar.
+function gcalAnnounce(plan) {
+  if (typeof SpreadsheetApp === 'undefined') return;
+  var calendars = {};
+  plan.rotations.forEach(function (r) { r.calendars.forEach(function (id) { calendars[id] = true; }); });
+  toast('exporting ' + plan.events.length + ' event(s) to ' + Object.keys(calendars).length + ' calendar(s)', GCAL_TOAST_TITLE);
+  SpreadsheetApp.flush();
+}
+
+function gcalProgress(line) {
+  if (typeof SpreadsheetApp === 'undefined') return;
+  toast(line.rotation + ' / ' + line.preset + ': ' + GCAL_COUNTS.map(function (c) { return c + ' ' + line[c]; }).join(', '), GCAL_TOAST_TITLE);
 }
 
 // Hook (DESIGN 8, Extensions): after a run without errors, export the regenerated rotations. A dry run, or a
@@ -593,10 +646,11 @@ function gcal_afterRun(result, storage, options) {
   var plan = gcalPlan(result, result.ext.gcal, {});
   var data = gcalStatusData(plan);
   var dry = !options.write || options.mode === 'dry run';
-  if (typeof CalendarApp === 'undefined') data.mode = 'no calendar';
+  if (typeof CalendarApp === 'undefined') { data.mode = 'no calendar'; data.elapsed = currentRunGuard().elapsedSeconds(); }
   else {
     if (dry) data.mode = 'dry run';
-    gcalReconcile(plan, data, { tz: storage.tz, dry: dry });
+    if (plan.events.length) gcalAnnounce(plan);
+    gcalReconcile(plan, data, { tz: storage.tz, dry: dry, progress: gcalProgress });
   }
   if (!plan.rotations.length && !data.errors.length) return;
   result.status.ext = result.status.ext || {};
@@ -717,6 +771,8 @@ function gcalSummary(data) {
   var totals = {};
   GCAL_COUNTS.forEach(function (c) { totals[c] = data.lines.reduce(function (n, l) { return n + l[c]; }, 0); });
   var text = GCAL_COUNTS.map(function (c) { return c + ' ' + totals[c]; }).join(', ');
+  if (data.elapsed !== undefined) text += ' in ' + data.elapsed + ' s';
+  if (data.note) text += '; ' + data.note;
   return text + (data.errors.length ? '; ' + data.errors.length + ' error(s): ' + data.errors[0].message : '');
 }
 
@@ -735,32 +791,40 @@ function gcalExportWith(rotations) {
   var result = gcalRunForExport(storage, rotations);
   if (!result) return null;
   var plan = gcalPlan(result, result.ext.gcal, { repair: true, rotations: rotations || undefined });
-  var data = gcalReconcile(plan, gcalStatusData(plan), { tz: storage.tz, dry: false });
+  if (plan.events.length) gcalAnnounce(plan);
+  var data = gcalReconcile(plan, gcalStatusData(plan), { tz: storage.tz, dry: false, progress: gcalProgress });
   data.errors.forEach(function (e) { console.log(e.where + ': ' + e.message); });
   toast(gcalSummary(data), GCAL_TOAST_TITLE);
   return data;
 }
 
+// The menu actions run under the core's script lock (DESIGN 10.4), like Run.
 function gcalReexport() {
-  return gcalExportWith(null);
+  return withLock(function () { return gcalExportWith(null); });
 }
 
 function gcalReexportCurrent() {
   var name = currentRotation();
-  return name === null ? null : gcalExportWith([name]);
+  return name === null ? null : withLock(function () { return gcalExportWith([name]); });
+}
+
+function gcalCleanNote(out) {
+  return (out.note ? '; ' + out.note : '') + (out.errors.length ? '; ' + out.errors[0].message : '');
 }
 
 function gcalCleanCurrent() {
   var name = currentRotation();
   if (name === null) return null;
-  var storage = new SheetsStorage(SpreadsheetApp.getActiveSpreadsheet());
-  var result = gcalRunForExport(storage, null);
-  if (!result) return null;
-  var clean = gcalCleanPlan(result, result.ext.gcal, { rotation: name });
-  var out = gcalClean(clean, { tz: storage.tz });
-  clean.errors.concat(out.errors).forEach(function (e) { console.log(e.where + ': ' + e.message); });
-  toast(out.deleted + ' event(s) of ' + name + ' deleted in ' + clean.calendars.length + ' calendar(s)' + (out.errors.length ? '; ' + out.errors[0].message : ''), GCAL_TOAST_TITLE);
-  return out;
+  return withLock(function () {
+    var storage = new SheetsStorage(SpreadsheetApp.getActiveSpreadsheet());
+    var result = gcalRunForExport(storage, null);
+    if (!result) return null;
+    var clean = gcalCleanPlan(result, result.ext.gcal, { rotation: name });
+    var out = gcalClean(clean, { tz: storage.tz });
+    clean.errors.concat(out.errors).forEach(function (e) { console.log(e.where + ': ' + e.message); });
+    toast(out.deleted + ' event(s) of ' + name + ' deleted in ' + clean.calendars.length + ' calendar(s) in ' + out.elapsed + ' s' + gcalCleanNote(out), GCAL_TOAST_TITLE);
+    return out;
+  });
 }
 
 // The active cell's row in #GCal names the preset; a setting row counts for the preset above it.
@@ -777,13 +841,15 @@ function gcalCleanPreset() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var name = gcalSelectedPreset(ss.getActiveSheet());
   if (name === null) { toast('select a preset row in ' + GCAL_TAB, GCAL_TOAST_TITLE); return null; }
-  var storage = new SheetsStorage(ss);
-  var clean = gcalCleanPlan(null, gcal_readInputs(storage), { preset: name });
-  if (clean.error) { toast(clean.error, GCAL_TOAST_TITLE); return null; }
-  var window = gcalCleanWindow(parseDateTime(storage.nowText));
-  var out = gcalClean(clean, { tz: storage.tz, from: window.from, to: window.to });
-  out.errors.forEach(function (e) { console.log(e.where + ': ' + e.message); });
-  toast(out.deleted + ' Rotalator event(s) deleted in ' + clean.calendar + ' between ' + window.from + ' and ' + window.to + (out.errors.length ? '; ' + out.errors[0].message : ''), GCAL_TOAST_TITLE);
-  return out;
+  return withLock(function () {
+    var storage = new SheetsStorage(ss);
+    var clean = gcalCleanPlan(null, gcal_readInputs(storage), { preset: name });
+    if (clean.error) { toast(clean.error, GCAL_TOAST_TITLE); return null; }
+    var window = gcalCleanWindow(parseDateTime(storage.nowText));
+    var out = gcalClean(clean, { tz: storage.tz, from: window.from, to: window.to });
+    out.errors.forEach(function (e) { console.log(e.where + ': ' + e.message); });
+    toast(out.deleted + ' Rotalator event(s) deleted in ' + clean.calendar + ' between ' + window.from + ' and ' + window.to + ' in ' + out.elapsed + ' s' + gcalCleanNote(out), GCAL_TOAST_TITLE);
+    return out;
+  });
 }
 

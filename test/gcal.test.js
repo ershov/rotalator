@@ -244,9 +244,9 @@ test('status block: data from the plan, rows through the core hook', () => {
     { rotation: 'primary', preset: 'team', calendar: 'team@group.calendar.google.com', create: 0, update: 0, delete: 0, unchanged: 0, skipped: 1 },
     { rotation: 'primary', preset: 'personal', calendar: 'oncall@example.com', create: 0, update: 0, delete: 0, unchanged: 0, skipped: 1 },
   ], errors: [] });
-  // In Node the afterRun hook records the plan without a calendar.
-  assert.deepEqual(plain(result.status.ext.gcal), { ...data, mode: 'no calendar' });
-  assert.deepEqual(plain(U.gcal_status(result.status)).rows[0], ['Calendar (no calendar)']);
+  // In Node the afterRun hook records the plan without a calendar; no guarded run, so elapsed is 0.
+  assert.deepEqual(plain(result.status.ext.gcal), { ...data, mode: 'no calendar', elapsed: 0 });
+  assert.deepEqual(plain(U.gcal_status(result.status)).rows[0], ['Calendar (no calendar)', 'elapsed', '0 s']);
   delete result.status.ext;
   assert.equal(U.gcal_status(result.status), null, 'nothing without status.ext.gcal');
   const without = U.statusRows(result.status).rows.length;
@@ -264,6 +264,15 @@ test('status block: data from the plan, rows through the core hook', () => {
     ['calendar errors', 'where', 'message'],
     ['', 'primary', 'calendar not found'],
   ], headerRows: [0, 1, 4] });
+  // Elapsed seconds go on the title row, a stop note on its own row before the errors.
+  data.elapsed = 42;
+  data.note = 'aborted after 3 event(s)';
+  const noted = plain(U.gcal_status(result.status));
+  assert.deepEqual(noted.rows[0], ['Calendar (dry run)', 'elapsed', '42 s']);
+  assert.deepEqual(noted.rows[4], ['note', 'aborted after 3 event(s)']);
+  assert.deepEqual(noted.headerRows, [0, 1, 5]);
+  delete data.elapsed;
+  delete data.note;
   const rows = plain(U.statusRows(result.status));
   assert.equal(rows.rows.length, without + 7);
   assert.deepEqual(rows.rows[without + 1].slice(0, 1), ['Calendar (dry run)']);
@@ -481,13 +490,13 @@ test('clean: a rotation in its calendars by tag prefix, or every tagged event of
     assert.equal(dryOut.deleted, 10);
     assert.equal(team.live().length, 7);
     const out = plain(U.gcalClean(clean, { tz: 'UTC' }));
-    assert.deepEqual(out, { deleted: 10, errors: [] });
+    assert.deepEqual(out, { deleted: 10, errors: [], elapsed: 0 });
     assert.deepEqual(team.live().map((ev) => ev.title), ['other', 'standup']);
     assert.equal(calendars[PERSONAL_CAL].live().length, 0);
     const all = U.gcalCleanPlan(null, result.ext.gcal, { preset: 'team' });
     const window = plain(U.gcalCleanWindow(U.parseDateTime(NOW)));
     assert.deepEqual(window, { from: '2025-10-05T10:00', to: '2029-10-04T10:00' });
-    assert.deepEqual(plain(U.gcalClean(all, { tz: 'UTC', from: window.from, to: window.to })), { deleted: 1, errors: [] });
+    assert.deepEqual(plain(U.gcalClean(all, { tz: 'UTC', from: window.from, to: window.to })), { deleted: 1, errors: [], elapsed: 0 });
     assert.deepEqual(team.live().map((ev) => ev.title), ['standup']);
     assert.deepEqual(plain(U.gcalClean({ all: true, calendar: 'nope' }, { tz: 'UTC', from: window.from, to: window.to })).errors.length, 1);
   } finally { removeMocks(); }
@@ -512,7 +521,8 @@ test('gcal_afterRun: exports through the runner, dry when not writing or on a dr
     assert.deepEqual(real.status.ext.gcal.lines.map((l) => [l.create, l.skipped]), [[3, 1], [3, 1]]);
     assert.equal(calendars[TEAM_CAL].live().length, 3);
     assert.deepEqual(plain(mem.status.ext.gcal.lines).map((l) => l.create), [3, 3], 'the written status has the block');
-    assert.match(statusText(real.status), /\nCalendar\nrotation +preset +calendar +create/);
+    assert.equal(real.status.ext.gcal.elapsed, 0);
+    assert.match(statusText(real.status), /\nCalendar +elapsed +0 s\nrotation +preset +calendar +create/);
     // A spreadsheet without cal and without preset errors gets no block.
     const plainRun = runStorage(new MemoryStorage({ ledgers: ledger(BASE) }), NOW, { write: true });
     assert.equal(plainRun.status.ext, undefined);
@@ -562,4 +572,53 @@ test('menu, help and summary', () => {
   assert.equal(U.gcalSelectedPreset(sheet('#GCal', 5, names)), 'personal');
   assert.equal(U.gcalSelectedPreset(sheet('#GCal', 1, names)), null);
   assert.equal(U.gcalSelectedPreset(sheet('primary', 3, names)), null);
+});
+
+// A guard with an injected clock and abort flag, like the one withLock arms in Apps Script. The reconcile asks
+// it once per calendar and once before each event, so abortAfter counts those checks.
+function fakeGuard({ abortAfter = Infinity, stepSeconds = 0, budget = 300 } = {}) {
+  let checks = 0, now = 0;
+  return U.runGuard({ start: 0, budgetSeconds: budget, clock: () => now, aborted: () => { checks++; now += stepSeconds * 1000; return checks > abortAfter; } });
+}
+
+test('reconcile and clean stop between events on abort or budget, recording the note; progress per calendar', () => {
+  const calendars = installMocks([TEAM_CAL, PERSONAL_CAL]);
+  try {
+    const result = runDir(FIXTURE, null, { export: false });
+    const plan = U.gcalPlan(result, result.ext.gcal, {});
+    // Abort at the fourth check (calendar, event, event, event): two events created, the rest left for the next run.
+    const progressed = [];
+    const aborted = U.gcalReconcile(plan, U.gcalStatusData(plan), { tz: 'UTC', guard: fakeGuard({ abortAfter: 3 }), progress: (l) => progressed.push(l.preset) });
+    assert.deepEqual(plain(aborted.lines).map((l) => [l.preset, l.create]), [['team', 2], ['personal', 0]]);
+    assert.equal(aborted.stopped, 'aborted');
+    assert.equal(aborted.note, 'aborted after 2 event(s)');
+    assert.equal(aborted.elapsed, 0);
+    assert.deepEqual(progressed, [], 'no calendar finished');
+    assert.equal(calendars[TEAM_CAL].live().length, 2);
+    assert.equal(calendars[PERSONAL_CAL].live().length, 0);
+    // The next run, unguarded, completes the rest and reports progress per finished calendar.
+    const rest = U.gcalReconcile(plan, U.gcalStatusData(plan), { tz: 'UTC', progress: (l) => progressed.push(l.preset) });
+    assert.deepEqual(plain(rest.lines).map((l) => [l.create, l.unchanged]), [[1, 2], [3, 0]]);
+    assert.equal(rest.note, undefined);
+    assert.deepEqual(progressed, ['team', 'personal']);
+    // Budget: the clock advances 100 s per check with a 300 s budget, so the third check stops the loop.
+    const changed = structuredClone(plan);
+    changed.events.forEach((e) => { e.title = 'x ' + e.title; });
+    const budget = U.gcalReconcile(changed, U.gcalStatusData(changed), { tz: 'UTC', guard: fakeGuard({ stepSeconds: 100 }) });
+    assert.deepEqual(plain(budget.lines).map((l) => [l.update, l.unchanged]), [[1, 0], [0, 0]]);
+    assert.equal(budget.stopped, 'budget');
+    assert.equal(budget.note, 'time budget reached after 1 event(s); the next run continues');
+    assert.equal(budget.elapsed, 300);
+    assert.equal(calendars[TEAM_CAL].live().filter((ev) => ev.title.startsWith('x ')).length, 1);
+    // Dry runs check the guard too; nothing was written anyway.
+    const dry = U.gcalReconcile(changed, U.gcalStatusData(changed), { tz: 'UTC', dry: true, guard: fakeGuard({ abortAfter: 0 }) });
+    assert.equal(dry.note, 'aborted after 0 event(s)');
+    // Clean stops the same way, counting deletions done.
+    const clean = U.gcalCleanPlan(result, result.ext.gcal, { rotation: 'primary' });
+    const partial = plain(U.gcalClean(clean, { tz: 'UTC', guard: fakeGuard({ abortAfter: 4 }) }));
+    assert.deepEqual(partial, { deleted: 3, errors: [], stopped: 'aborted', note: 'aborted after 3 deletion(s)', elapsed: 0 });
+    assert.equal(calendars[TEAM_CAL].live().length, 0);
+    assert.equal(calendars[PERSONAL_CAL].live().length, 3);
+    assert.equal(U.gcalSummary({ lines: [], errors: [], elapsed: 7, note: 'aborted after 3 event(s)' }), 'create 0, update 0, delete 0, unchanged 0, skipped 0 in 7 s; aborted after 3 event(s)');
+  } finally { removeMocks(); }
 });

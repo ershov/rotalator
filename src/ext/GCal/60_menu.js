@@ -111,6 +111,8 @@ function gcalSummary(data) {
   var totals = {};
   GCAL_COUNTS.forEach(function (c) { totals[c] = data.lines.reduce(function (n, l) { return n + l[c]; }, 0); });
   var text = GCAL_COUNTS.map(function (c) { return c + ' ' + totals[c]; }).join(', ');
+  if (data.elapsed !== undefined) text += ' in ' + data.elapsed + ' s';
+  if (data.note) text += '; ' + data.note;
   return text + (data.errors.length ? '; ' + data.errors.length + ' error(s): ' + data.errors[0].message : '');
 }
 
@@ -129,32 +131,40 @@ function gcalExportWith(rotations) {
   var result = gcalRunForExport(storage, rotations);
   if (!result) return null;
   var plan = gcalPlan(result, result.ext.gcal, { repair: true, rotations: rotations || undefined });
-  var data = gcalReconcile(plan, gcalStatusData(plan), { tz: storage.tz, dry: false });
+  if (plan.events.length) gcalAnnounce(plan);
+  var data = gcalReconcile(plan, gcalStatusData(plan), { tz: storage.tz, dry: false, progress: gcalProgress });
   data.errors.forEach(function (e) { console.log(e.where + ': ' + e.message); });
   toast(gcalSummary(data), GCAL_TOAST_TITLE);
   return data;
 }
 
+// The menu actions run under the core's script lock (DESIGN 10.4), like Run.
 function gcalReexport() {
-  return gcalExportWith(null);
+  return withLock(function () { return gcalExportWith(null); });
 }
 
 function gcalReexportCurrent() {
   var name = currentRotation();
-  return name === null ? null : gcalExportWith([name]);
+  return name === null ? null : withLock(function () { return gcalExportWith([name]); });
+}
+
+function gcalCleanNote(out) {
+  return (out.note ? '; ' + out.note : '') + (out.errors.length ? '; ' + out.errors[0].message : '');
 }
 
 function gcalCleanCurrent() {
   var name = currentRotation();
   if (name === null) return null;
-  var storage = new SheetsStorage(SpreadsheetApp.getActiveSpreadsheet());
-  var result = gcalRunForExport(storage, null);
-  if (!result) return null;
-  var clean = gcalCleanPlan(result, result.ext.gcal, { rotation: name });
-  var out = gcalClean(clean, { tz: storage.tz });
-  clean.errors.concat(out.errors).forEach(function (e) { console.log(e.where + ': ' + e.message); });
-  toast(out.deleted + ' event(s) of ' + name + ' deleted in ' + clean.calendars.length + ' calendar(s)' + (out.errors.length ? '; ' + out.errors[0].message : ''), GCAL_TOAST_TITLE);
-  return out;
+  return withLock(function () {
+    var storage = new SheetsStorage(SpreadsheetApp.getActiveSpreadsheet());
+    var result = gcalRunForExport(storage, null);
+    if (!result) return null;
+    var clean = gcalCleanPlan(result, result.ext.gcal, { rotation: name });
+    var out = gcalClean(clean, { tz: storage.tz });
+    clean.errors.concat(out.errors).forEach(function (e) { console.log(e.where + ': ' + e.message); });
+    toast(out.deleted + ' event(s) of ' + name + ' deleted in ' + clean.calendars.length + ' calendar(s) in ' + out.elapsed + ' s' + gcalCleanNote(out), GCAL_TOAST_TITLE);
+    return out;
+  });
 }
 
 // The active cell's row in #GCal names the preset; a setting row counts for the preset above it.
@@ -171,12 +181,14 @@ function gcalCleanPreset() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var name = gcalSelectedPreset(ss.getActiveSheet());
   if (name === null) { toast('select a preset row in ' + GCAL_TAB, GCAL_TOAST_TITLE); return null; }
-  var storage = new SheetsStorage(ss);
-  var clean = gcalCleanPlan(null, gcal_readInputs(storage), { preset: name });
-  if (clean.error) { toast(clean.error, GCAL_TOAST_TITLE); return null; }
-  var window = gcalCleanWindow(parseDateTime(storage.nowText));
-  var out = gcalClean(clean, { tz: storage.tz, from: window.from, to: window.to });
-  out.errors.forEach(function (e) { console.log(e.where + ': ' + e.message); });
-  toast(out.deleted + ' Rotalator event(s) deleted in ' + clean.calendar + ' between ' + window.from + ' and ' + window.to + (out.errors.length ? '; ' + out.errors[0].message : ''), GCAL_TOAST_TITLE);
-  return out;
+  return withLock(function () {
+    var storage = new SheetsStorage(ss);
+    var clean = gcalCleanPlan(null, gcal_readInputs(storage), { preset: name });
+    if (clean.error) { toast(clean.error, GCAL_TOAST_TITLE); return null; }
+    var window = gcalCleanWindow(parseDateTime(storage.nowText));
+    var out = gcalClean(clean, { tz: storage.tz, from: window.from, to: window.to });
+    out.errors.forEach(function (e) { console.log(e.where + ': ' + e.message); });
+    toast(out.deleted + ' Rotalator event(s) deleted in ' + clean.calendar + ' between ' + window.from + ' and ' + window.to + ' in ' + out.elapsed + ' s' + gcalCleanNote(out), GCAL_TOAST_TITLE);
+    return out;
+  });
 }

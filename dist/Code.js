@@ -2353,6 +2353,7 @@ var HELP_TEXT = [
   'Run: regenerates every rotation and rewrites #Status and #All shifts; the nightly trigger runs this',
   'Run - dry run: writes #Preview <rotation> tabs instead of the ledgers, plus #Status and #All shifts',
   'Run for current rotation / Run for current rotation - dry run: the same for the active tab only',
+  'Abort run: asks the run in progress to stop its calendar export or clean at the next event; one run at a time holds the script lock, others wait 5 s and give up',
   'Set Up Spreadsheet: creates missing tabs, formats every tab and rewrites #Help; never changes your data',
   'Set Up Tab: fills an empty tab from its template (rotation, #Holidays or #Global)',
   'Fill Shifts Grid: puts the selected rows of a rotation tab on the grid, filling start',
@@ -2673,12 +2674,62 @@ function runStorage(storage, nowText, options) {
   return run;
 }
 
+// Long-run guard (DESIGN 10.4). A loop that could outlive the Apps Script execution limit asks stopReason()
+// between steps: 'aborted' when the user asked to abort, 'budget' when the run has used its time budget,
+// else null. start and clock() are milliseconds, aborted() reads the abort flag; both are injected so the
+// decision is testable. The Apps Script adapter arms a real one in withLock.
+function runGuard(options) {
+  var start = options.start;
+  var budget = options.budgetSeconds === undefined ? null : options.budgetSeconds;
+  var clock = options.clock;
+  var aborted = options.aborted || function () { return false; };
+  return {
+    elapsedSeconds: function () { return Math.round((clock() - start) / 1000); },
+    stopReason: function () {
+      if (aborted()) return 'aborted';
+      if (budget !== null && clock() - start >= budget * 1000) return 'budget';
+      return null;
+    },
+  };
+}
+
+// Text for the status and the toast when a loop stopped early after `done` steps of `what`.
+function stopNote(reason, done, what) {
+  var after = 'after ' + done + ' ' + what;
+  return reason === 'aborted' ? 'aborted ' + after : 'time budget reached ' + after + '; the next run continues';
+}
+
+// A flag read through read() at most once per intervalMs (clock in milliseconds), the value cached in
+// between, so a loop asking before every step costs few service calls.
+function throttledFlag(read, intervalMs, clock) {
+  var last = -Infinity;
+  var value = false;
+  return function () {
+    var now = clock();
+    if (now - last >= intervalMs) { value = read(); last = now; }
+    return value;
+  };
+}
+
+// The guard of the run in progress, set by the adapter; outside a guarded run (Node, a call without the lock)
+// a guard that never stops and reports no elapsed time.
+var activeRunGuard = null;
+
+function currentRunGuard() {
+  return activeRunGuard || runGuard({ start: 0, clock: function () { return 0; } });
+}
+
 // ---- 90_gas.js ----
 // Apps Script entry points and Sheets adapter. Not loaded by Node tests. Tab names are in 10_model.js.
 
 var CELL_DATETIME_FORMAT = "yyyy-MM-dd'T'HH:mm";
 var CELL_DATE_FORMAT = 'yyyy-MM-dd';
 var TRIGGER_HANDLER = 'run';
+var LOCK_WAIT_MS = 5000;
+var RUN_BUDGET_SECONDS = 300;
+var ABORT_PROPERTY = 'rotalator.abort';
+var ABORT_CHECK_MS = 3000;
+var LOCK_BUSY_MESSAGE = 'another Rotalator run is in progress';
 var FONT_FAMILY = 'Roboto Mono';
 var TAB_COLOR_GENERATED = '#4285f4';
 var TAB_COLOR_EDITABLE = '#9e9e9e';
@@ -2894,6 +2945,7 @@ function onOpen() {
     .addItem('Run - dry run', 'dryRun')
     .addItem('Run for current rotation', 'runCurrent')
     .addItem('Run for current rotation - dry run', 'dryRunCurrent')
+    .addItem('Abort run', 'abortRun')
     .addSeparator()
     .addItem('Set Up Spreadsheet', 'setupSpreadsheet')
     .addItem('Set Up Tab', 'setupTab')
@@ -2923,12 +2975,49 @@ function runWith(preview, rotations) {
   return result;
 }
 
+// One Rotalator run at a time (DESIGN 10.4): the script lock is shared by every user and the trigger. When
+// it is not free within LOCK_WAIT_MS the action is skipped with a toast and a log line (the trigger has no
+// UI) and nothing changes. Clears the abort flag, arms the run guard with the time budget and an abort check
+// that reads the flag at most every ABORT_CHECK_MS, runs fn and always releases the lock. Extensions wrap
+// their own menu actions with it.
+function withLock(fn) {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(LOCK_WAIT_MS)) { toast(LOCK_BUSY_MESSAGE); console.log(LOCK_BUSY_MESSAGE); return null; }
+  try {
+    PropertiesService.getScriptProperties().deleteProperty(ABORT_PROPERTY);
+    activeRunGuard = runGuard({
+      start: Date.now(), budgetSeconds: RUN_BUDGET_SECONDS, clock: Date.now,
+      aborted: throttledFlag(abortRequested, ABORT_CHECK_MS, Date.now),
+    });
+    return fn();
+  } finally {
+    activeRunGuard = null;
+    lock.releaseLock();
+  }
+}
+
+// The abort flag is a script property, so a menu click reaches the run in progress.
+function abortRequested() {
+  return PropertiesService.getScriptProperties().getProperty(ABORT_PROPERTY) === '1';
+}
+
+// Menu: Abort run. When the lock is free no run is in progress and nothing is set (a stale flag would be
+// discarded by the next run anyway); otherwise the flag is set and the run holding the lock stops at its next
+// check.
+function abortRun() {
+  var lock = LockService.getScriptLock();
+  if (lock.tryLock(0)) { lock.releaseLock(); toast('no run in progress'); return false; }
+  PropertiesService.getScriptProperties().setProperty(ABORT_PROPERTY, '1');
+  toast('abort requested; the export or clean in progress stops at its next event');
+  return true;
+}
+
 function run() {
-  return runWith(false, null);
+  return withLock(function () { return runWith(false, null); });
 }
 
 function dryRun() {
-  return runWith(true, null);
+  return withLock(function () { return runWith(true, null); });
 }
 
 // The active tab must be a rotation tab.
@@ -2944,12 +3033,12 @@ function currentRotation() {
 
 function runCurrent() {
   var name = currentRotation();
-  return name === null ? null : runWith(false, [name]);
+  return name === null ? null : withLock(function () { return runWith(false, [name]); });
 }
 
 function dryRunCurrent() {
   var name = currentRotation();
-  return name === null ? null : runWith(true, [name]);
+  return name === null ? null : withLock(function () { return runWith(true, [name]); });
 }
 
 function deleteTriggers() {
@@ -3136,8 +3225,12 @@ function ensureTemplateTab(ss, name, storage) {
 
 // Menu: Set Up Spreadsheet. Creates missing system tabs, a first rotation when there is none, lets each
 // installed extension add its tabs (<prefix>_setup(ss); a failure is logged and named in the toast), and
-// formats every tab.
+// formats every tab. Under the lock, so it never reshapes tabs a run is writing.
 function setupSpreadsheet() {
+  return withLock(setupSpreadsheetUnlocked);
+}
+
+function setupSpreadsheetUnlocked() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var storage = new SheetsStorage(ss);
   if (!Object.keys(storage.readLedgers()).length) {
@@ -3173,8 +3266,13 @@ function setupTab() {
   toast('"' + name + '" set up from the template');
 }
 
-// Menu: Fill Shifts Grid over the selected rows of a rotation tab (DESIGN 10).
+// Menu: Fill Shifts Grid over the selected rows of a rotation tab (DESIGN 10). Under the lock: it rewrites
+// start cells a concurrent run may be re-sorting.
 function fillShiftsGrid() {
+  return withLock(fillShiftsGridUnlocked);
+}
+
+function fillShiftsGridUnlocked() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getActiveSheet();
   var name = sheet.getName();

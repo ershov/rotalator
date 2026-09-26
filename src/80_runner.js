@@ -88,3 +88,48 @@ function runStorage(storage, nowText, options) {
   if (options.write) storage.writeStatus(result.status);
   return run;
 }
+
+// Long-run guard (DESIGN 10.4). A loop that could outlive the Apps Script execution limit asks stopReason()
+// between steps: 'aborted' when the user asked to abort, 'budget' when the run has used its time budget,
+// else null. start and clock() are milliseconds, aborted() reads the abort flag; both are injected so the
+// decision is testable. The Apps Script adapter arms a real one in withLock.
+function runGuard(options) {
+  var start = options.start;
+  var budget = options.budgetSeconds === undefined ? null : options.budgetSeconds;
+  var clock = options.clock;
+  var aborted = options.aborted || function () { return false; };
+  return {
+    elapsedSeconds: function () { return Math.round((clock() - start) / 1000); },
+    stopReason: function () {
+      if (aborted()) return 'aborted';
+      if (budget !== null && clock() - start >= budget * 1000) return 'budget';
+      return null;
+    },
+  };
+}
+
+// Text for the status and the toast when a loop stopped early after `done` steps of `what`.
+function stopNote(reason, done, what) {
+  var after = 'after ' + done + ' ' + what;
+  return reason === 'aborted' ? 'aborted ' + after : 'time budget reached ' + after + '; the next run continues';
+}
+
+// A flag read through read() at most once per intervalMs (clock in milliseconds), the value cached in
+// between, so a loop asking before every step costs few service calls.
+function throttledFlag(read, intervalMs, clock) {
+  var last = -Infinity;
+  var value = false;
+  return function () {
+    var now = clock();
+    if (now - last >= intervalMs) { value = read(); last = now; }
+    return value;
+  };
+}
+
+// The guard of the run in progress, set by the adapter; outside a guarded run (Node, a call without the lock)
+// a guard that never stops and reports no elapsed time.
+var activeRunGuard = null;
+
+function currentRunGuard() {
+  return activeRunGuard || runGuard({ start: 0, clock: function () { return 0; } });
+}

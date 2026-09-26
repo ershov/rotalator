@@ -16,15 +16,19 @@ function gcalStatusData(plan) {
   return { lines: lines, errors: plan.errors.slice() };
 }
 
-// Hook: rows for #Status from status.ext.gcal (DESIGN 8, Extensions); nothing without it.
+// Hook: rows for #Status from status.ext.gcal (DESIGN 8, Extensions); nothing without it. The title row
+// carries the elapsed seconds of the run when known; a note row says why a loop stopped early.
 function gcal_status(status) {
   var data = status.ext && status.ext.gcal;
   if (!data) return null;
-  var rows = [['Calendar' + (data.mode ? ' (' + data.mode + ')' : '')], ['rotation', 'preset', 'calendar'].concat(GCAL_COUNTS)];
+  var title = ['Calendar' + (data.mode ? ' (' + data.mode + ')' : '')];
+  if (data.elapsed !== undefined) title.push('elapsed', data.elapsed + ' s');
+  var rows = [title, ['rotation', 'preset', 'calendar'].concat(GCAL_COUNTS)];
   var headerRows = [0, 1];
   (data.lines || []).forEach(function (line) {
     rows.push([line.rotation, line.preset, line.calendar].concat(GCAL_COUNTS.map(function (c) { return String(line[c]); })));
   });
+  if (data.note) rows.push(['note', data.note]);
   var errors = data.errors || [];
   if (errors.length) {
     headerRows.push(rows.length);

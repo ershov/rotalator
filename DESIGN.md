@@ -829,6 +829,12 @@ toast for `setup`. A `readInputs` failure also skips that run's `afterRun`.
 | `<prefix>_afterRun(result, storage, options)` | `runStorage`, when the run had no errors | After the ledgers and `#Global` are written (when writing) and before the status tabs; `result` is the runner's result including `ext`, and whatever the hook records in `result.status` (by convention under `status.ext[prefix]`) reaches `<prefix>_status`. `options` tells write and mode, so a dry run stays dry. |
 | `<prefix>_status(status)` | `statusRows`, `statusRowsVertical` | Returns `{ rows, headerRows }` (cell arrays; `headerRows` are indexes into `rows`, default the first row) appended to `#Status` after the errors table, preceded by a blank row; rows are padded or cut to the tab's 17 columns; null or no rows add nothing. |
 
+Core helpers for extension actions (10.4): `withLock(fn)` runs a menu action
+under the script lock with the abort flag cleared and the run guard armed;
+`currentRunGuard()` gives `stopReason()` and `elapsedSeconds()` for loops that
+may run long; `stopNote(reason, done, what)` is the standard text. In Node
+the guard never stops.
+
 The core carries the pieces of the grammar an extension needs regardless of
 whether it is installed, so a ledger validates the same way with and without
 it: the `cal` setting (3.5), the `#GCal` tab as a known system tab (not a
@@ -879,7 +885,8 @@ dry run` (the active tab only, through the runner's `rotations` option; a
 dry run then writes that rotation's preview, `#Preview Global` when a `#Global`
 tab exists, and the status tabs), `Set Up Spreadsheet`, `Set Up Tab`, `Fill
 Shifts Grid` (section 10), `Install nightly trigger`, `Remove trigger`, then
-the items of each installed extension (`<prefix>_menu`, Extensions above). The
+the items of each installed extension (`<prefix>_menu`, Extensions above);
+`Abort run` follows the run items (10.4). The
 nightly trigger always runs all rotations. `90_gas.js` reads cells, calls the
 core and writes cells; the row logic of the tools lives in `70_tools.js`.
 
@@ -1065,6 +1072,50 @@ empty history rows from `--history-from` up to `--start`; the `set` and
 `team` rows are then dated at the first of those boundaries so the ledger
 validates (the grid is unchanged because every boundary is an anchor).
 
+### 10.4 Long runs
+
+Apps Script stops an execution after six minutes, and two people (or a person
+and the nightly trigger) can start a run at the same time. Three measures keep
+that harmless; they live in `90_gas.js` and `80_runner.js` and are reused by
+extensions.
+
+- Lock: every user-triggered run (`Run`, the dry runs, the current-rotation
+  runs, the trigger handler and the calendar re-export and clean actions)
+  and the two actions that rewrite cells a run may be sorting (`Fill Shifts
+  Grid`, `Set Up Spreadsheet`) go through `withLock(fn)`, which takes the
+  script lock (`LockService.getScriptLock().tryLock(5000)`), shared by all
+  users and the trigger. When the lock is not free within five seconds the
+  action is skipped with the toast `another Rotalator run is in progress`,
+  also written to the execution log so a skipped night is visible, and
+  nothing changes. The lock is always released in `finally`. `Set Up Tab`,
+  `Abort run` and the trigger installers take no lock.
+- Cooperative abort: the menu item `Abort run` sets the script property
+  `rotalator.abort` when a run holds the lock (`tryLock(0)` fails); when the
+  lock is free it only toasts `no run in progress`. `withLock` clears the
+  property when a run starts and arms the run guard with an abort check that
+  reads the property at most every three seconds (`throttledFlag`), so a loop
+  over hundreds of events costs few service calls and an abort takes effect
+  within a few seconds; long loops ask `currentRunGuard().stopReason()`
+  between steps and stop cleanly when it says `aborted`, recording `aborted
+  after N event(s)` in their status block and toast. The ledger write is
+  never interrupted: the scheduler writes before any extension loop runs.
+- Time budget: the same guard answers `budget` once the run has used
+  `RUN_BUDGET_SECONDS` (300) measured from the run start, so a long export
+  stops between events well before the execution limit, with `time budget
+  reached after N event(s); the next run continues`. The calendar reconcile
+  is idempotent, so the next run picks up where this one stopped.
+
+The decision is pure and tested: `runGuard({ start, budgetSeconds, clock,
+aborted })` in `80_runner.js` gives `elapsedSeconds()` and `stopReason()`
+from an injected clock and abort flag; `throttledFlag(read, intervalMs,
+clock)` caches a flag between reads; `stopNote(reason, done, what)` is the
+text; `currentRunGuard()` returns the guard armed by `withLock`, or, outside
+a guarded run (Node, a call without the lock), one that never stops and
+reports zero seconds. The Calendar block shows the elapsed seconds of each
+run (13.4). Progress is visible as toasts: `withLock` itself is silent, the
+calendar export announces its size, flushes pending spreadsheet writes
+(`SpreadsheetApp.flush()`) before its loop and toasts per finished calendar.
+
 ## 11. Stages
 
 1. Core, memory and CSV adapters, CLI, tests, DESIGN.md.
@@ -1221,6 +1272,16 @@ Tagged events of the rotation in
 the window that no desired event claims are deleted, and duplicates of one
 key are deleted down to one; untagged events and other rotations' events are
 never touched. With `dry` the counts are computed and nothing is written.
+Between calendars and between events the reconcile asks the run guard (10.4)
+whether to stop; on `aborted` or `budget` the remaining events and calendars
+are left for the next run, `data.note` carries `aborted after N event(s)` or
+`time budget reached after N event(s); the next run continues`, and the
+status block shows it on a `note` row. `data.elapsed` is the run's elapsed
+seconds, shown on the block's title row (0 in Node). `options.progress(line)`
+is called when a calendar is done; the hook and the menu actions use it to
+toast the counts per calendar after the opening toast `exporting N event(s)
+to M calendar(s)` and a `SpreadsheetApp.flush()`. `gcalClean` checks the
+guard between deletions the same way.
 Datetimes travel as the sheet's text: `Utilities.parseDate(text, tz,
 "yyyy-MM-dd'T'HH:mm")` into the calendar and `Utilities.formatDate` back,
 canonicalised, timed instants in the spreadsheet time zone and all-day dates

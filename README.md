@@ -294,10 +294,26 @@ INSTALL.md).
   active tab only; the other rotations are read but not written. The dry run
   writes that rotation's preview, `#Preview Global` when a `#Global` tab
   exists, and the status tabs. The active tab must be a rotation tab.
+- **Abort run** asks the run in progress to stop: its calendar export or
+  clean stops within a few seconds, at the next event, and says so in
+  `#Status` and in a toast; with no run in progress it only says so. The
+  ledgers are written before any export starts, so they are never left half
+  done.
 - **Install nightly trigger** schedules Run daily; **Remove trigger**
   deletes it.
 - Installed extensions append their own items below these; the Google
   Calendar extension adds its re-export and clean items (see below).
+
+One run at a time: every run, dry run, re-export and clean, the nightly
+trigger, **Fill Shifts Grid** and **Set Up Spreadsheet** take a script lock.
+If another run holds it, the action waits five seconds, then gives up with
+the toast `another Rotalator run is in progress` and changes nothing. A run
+also has a time budget of five minutes: a long calendar export stops between
+events when it is reached and the next run continues where it left off, so
+the Apps Script six-minute limit never interrupts a write. Progress shows as
+toasts: how many events go to how many calendars, then the counts per
+calendar; the `Calendar` block of `#Status` shows the elapsed seconds and,
+when a run stopped early, why.
 
 INSTALL.md has the step by step.
 
