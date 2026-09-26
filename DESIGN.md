@@ -771,6 +771,8 @@ src/
     20_format.js      strftime subset, title and body templates
     30_plan.js        export, repair and clean plans
     40_status.js      status block data, gcal_status
+    50_calendar.js    CalendarApp reconcile and clean, gcal_afterRun
+    60_menu.js        menu actions, gcal_menu, gcal_setup, gcal_help
 node/
   load.js             evaluates src/*.js except 90_gas.js into one vm context,
                       plus the extensions asked for
@@ -845,7 +847,7 @@ readLedgers()   -> { [rotation]: rows[] }
 readHolidays()  -> dates[]
 readGlobal()    -> rows[]
 ignoredTabs()   -> names[]
-readGCal()      -> rows[]        (for the GCal extension, 13)
+readTabRows(name, header) -> rows[]   (extension tabs; [] without tab or header)
 writeLedger(rotation, rows)
 writeGlobal(rows)
 writeStatus(status)
@@ -1082,10 +1084,9 @@ validates (the grid is unchanged because every boundary is an anchor).
 
 The first extension (8, Extensions): `src/ext/GCal/`, bundle `dist/GCal.js`,
 prefix `gcal`. It exports the shifts of the rotations that ask for it to
-Google Calendars through `CalendarApp`. This section covers the pure part:
-presets, templates and the plans; the adapter that reconciles a calendar
-against a plan, the menu items, `gcal_setup` and `gcal_afterRun` follow it
-and are described where they land.
+Google Calendars through `CalendarApp`. 13.1 to 13.3 are the pure part:
+presets, templates and the plans, tested directly; 13.4 to 13.6 the adapter,
+the menu and the credentials, tested against a mock `CalendarApp`.
 
 ### 13.1 Presets: the `#GCal` tab
 
@@ -1114,8 +1115,8 @@ accepted forms), a bad or duplicate preset name, a preset without `id`, and
 unknown placeholders or directives in a template, reported once each. A
 preset with errors stays in the list but is unusable: a rotation naming it
 gets a plan error and the preset is skipped, like an unknown name.
-`gcal_readInputs(storage)` parses `storage.readGCal()` (an empty list when the
-storage has no such method).
+`gcal_readInputs(storage)` parses `storage.readTabRows('#GCal', header)` (an
+empty list when the storage has no such method).
 
 ### 13.2 Templates
 
@@ -1123,10 +1124,10 @@ storage has no such method).
 `{pin}`, `{start}` and `{end}`, names case-insensitive; the two instants take
 an optional strftime format after a colon, `{start:%a %e %b}`, and without
 one give the sheet's datetime form (`2026-10-05`, `2026-10-05T09:00`). The
-strftime subset is `%Y
-%m %d %e %H %M %a %A %b %B %j %u` and `%%`, English names, `%e` the day
-without padding (not space-padded as in C), `%u` Monday 1 to Sunday 7, `%j`
-zero-padded to three digits. An unknown placeholder or directive stays in the
+directives are `%Y %m %d %e %H %M %a %A %b %B %j %u` and `%%`, with English
+names; `%e` is the day without padding (not space-padded as in C), `%u` runs
+from Monday 1 to Sunday 7 and `%j` is zero-padded to three digits. An unknown
+placeholder or directive stays in the
 text verbatim and is reported by `gcalTemplateErrors` when the preset is
 parsed. Title and body are trimmed, so an empty `{note}` at the end leaves no
 trailing space.
@@ -1169,10 +1170,109 @@ plan, plus the plan's errors; `gcal_status(status)` renders `status.ext.gcal`
 as a `Calendar` block (a `(dry run)` suffix when `mode` is set), one row per
 line and a `calendar errors` table when there are errors.
 
-Golden scenario `gcal`: two rotations, one with `cal=team personal` and a
-stored snapshot, one without; the core alone writes the ledgers and warns
-that no calendar extension is installed, and `test/gcal.test.js` loads the
-extension and compares the plan with `expected/gcal.json`.
+A rotation naming two presets on the same calendar keeps the first: their
+events would share keys. Golden scenario `gcal`: two rotations, one with
+`cal=team personal` and a stored snapshot, one without; the core alone writes
+the ledgers and warns that no calendar extension is installed, and
+`test/gcal.test.js` loads the extension and compares the plan with
+`expected/gcal.json`. The CLI `rotalator export DIR [--rotation NAME]
+[--repair]` runs the scheduler without writing and prints the plan as text;
+no calendar exists in Node.
+
+### 13.4 Reconcile
+
+`gcalReconcile(plan, data, { tz, dry })` brings each calendar of the plan in
+line with the desired events and fills the counts of `data`
+(`gcalStatusData`). Per rotation and preset it fetches the events of the
+window with `getEvents(from, to)`, keeps those tagged `rotalator=<key>` whose
+key names the rotation and a start at or after `from` (so a shift before the
+window that reaches into it is left alone), and indexes them by key. A
+desired event without a match is created: `createAllDayEvent(title, start,
+endExclusive, options)` or `createEvent(title, start, end, options)` with
+`description`, and `guests` plus `sendInvites: true` when there are guests,
+then `setTag`, `setColor(CalendarApp.EventColor.<name>)` when the preset sets
+a colour, `setTransparency(TRANSPARENT|OPAQUE)` for `free`, and
+`removeAllReminders` followed by `addPopupReminder(minutes)` for each
+reminder, so an event carries exactly the preset's reminders and the
+calendar defaults never drift in. An existing event is compared field by
+field (title, description, all-day flag and dates or times, colour when the
+preset sets one, transparency, sorted guests, sorted reminders) and only the
+differing fields are written: `setTitle`, `setDescription`,
+`setAllDayDates` or `setTime` (which also switches between all-day and
+timed), `setColor`, `setTransparency`, `addGuest` and `removeGuest` (no
+invitations on update), reminders as above. Tagged events of the rotation in
+the window that no desired event claims are deleted, and duplicates of one
+key are deleted down to one; untagged events and other rotations' events are
+never touched. With `dry` the counts are computed and nothing is written.
+Datetimes travel as the sheet's text: `Utilities.parseDate(text, tz,
+"yyyy-MM-dd'T'HH:mm")` into the calendar and `Utilities.formatDate` back,
+canonicalised, timed instants in the spreadsheet time zone and all-day dates
+in the script time zone (13.6). Creates and updates stay inside the window;
+the rotation's tagged events are fetched up to `until`, the later of the
+horizon end and the clean bound (three years after `now`, see `gcalClean`
+below), so events left beyond a shortened `horizon` are deleted too, while
+anything further out is left alone. A missing calendar
+(`getCalendarById` null: not found or not shared with the running account)
+or an API exception is recorded as `{ where: '<rotation> / <preset>',
+message }` in `data.errors`; the other calendars proceed and nothing is
+thrown.
+
+`gcalClean(clean, { tz, dry, from, to })` deletes per a clean plan: for a
+rotation, the events tagged with its prefix in its window in each of its
+calendars; for a preset, every tagged event of that calendar between `from`
+and `to`, which `gcalCleanWindow(now)` sets to one year back and three years
+ahead of `now`, since `getEvents` needs a range and a whole-calendar scan
+is unbounded.
+
+`gcal_afterRun(result, storage, options)` plans the regenerated rotations,
+reconciles when `CalendarApp` exists (dry when `options.write` is false or
+`options.mode` is `dry run`, which the block marks) and stores the counts and
+errors under `result.status.ext.gcal` when a rotation uses `cal` or the
+presets have errors; the core writes the status tabs afterwards, so the
+`Calendar` block is in the same run's `#Status`. Without `CalendarApp` (Node)
+the block is marked `no calendar`. `options.export === false` skips the
+hook: the menu actions run the scheduler without writing and export
+themselves.
+
+### 13.5 Menu and Set Up
+
+`gcal_menu` adds a separator and four items. `Re-export calendar` and
+`Re-export calendar: current rotation` run the scheduler without writing
+(the ledgers stay as they are; run first if they changed), plan with
+`repair` (every shift from the first one) and reconcile, so a calendar that
+was cleaned or edited by hand is rebuilt; the toast sums the counts and names
+the first error. `Clean calendar: current rotation` deletes the events of the
+active tab's rotation in its presets' calendars. `Clean calendar: selected
+preset` takes the preset from the active cell's row in `#GCal`, walking up
+from a setting row to its preset row, and deletes every Rotalator event of
+that calendar in the window above. `gcal_setup(ss)` creates `#GCal` with its
+header and four comment rows (how presets work, the settings, an example, how
+to use it) when the tab is missing or empty, and formats it like an editable
+system tab: script font, plain text, bold grey frozen header, widths 120,
+120, 640, spare columns removed, grey tab colour. `gcal_help` returns the
+`CALENDAR` lines appended to `#Help` (8, Extensions). The `#GCal` tab is a
+known system tab of the core, so `Set Up Tab` refuses it with a toast that
+names the extension and the storage reads it through `readTabRows`.
+
+### 13.6 Credentials and time zone
+
+`appsscript.json` lists the OAuth scopes explicitly: spreadsheets, the
+container UI (menu and toasts), `script.scriptapp` (the trigger) and
+`calendar`. With automatic scope detection the calendar scope would only be
+requested once `GCal.js` is present, and a trigger installed before that
+would then fail nightly until someone re-authorised; listing it up front
+means one authorisation covers the extension whenever it is added. Changing
+the manifest scopes requires re-authorising the script once (INSTALL). Menu
+actions run as the user who clicks, the nightly trigger as the account that
+installed it: every calendar named by a preset must be shared with write
+access to those accounts, otherwise `getCalendarById` returns null and the
+preset is reported as not found. Timed instants are converted in the
+spreadsheet time zone; all-day dates in the script time zone
+(`Session.getScriptTimeZone()`, the manifest `timeZone`), which is the zone
+`createAllDayEvent`, `setAllDayDates`, `getAllDayStartDate` and
+`getAllDayEndDate` work in, so a spreadsheet at +10 with a manifest at UTC
+still gets its all-day events on the right day and a second run changes
+nothing.
 
 ## 14. Future extensions
 

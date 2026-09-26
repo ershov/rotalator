@@ -112,5 +112,5 @@ function gcalPreset(inputs, name) {
 
 // Hook: the extension's inputs, read through the storage before the run (DESIGN 8, Extensions).
 function gcal_readInputs(storage) {
-  return parseGCalPresets(typeof storage.readGCal === 'function' ? storage.readGCal() : []);
+  return parseGCalPresets(typeof storage.readTabRows === 'function' ? storage.readTabRows(GCAL_TAB, GCAL_HEADER) : []);
 }

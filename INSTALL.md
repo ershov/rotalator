@@ -19,14 +19,30 @@ and an extension is installed by adding its file next to `Code.js` (sections
   "timeZone": "Etc/UTC",
   "dependencies": {},
   "exceptionLogging": "STACKDRIVER",
-  "runtimeVersion": "V8"
+  "runtimeVersion": "V8",
+  "oauthScopes": [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/script.container.ui",
+    "https://www.googleapis.com/auth/script.scriptapp",
+    "https://www.googleapis.com/auth/calendar"
+  ]
 }
 ```
 
+The scopes are listed explicitly so that one authorisation covers the
+spreadsheet, the menu, the nightly trigger and the calendars of the GCal
+extension, whether or not `GCal.js` is installed yet. When the scopes of an
+already deployed project change, the script asks for authorisation again on
+the next menu action, and a trigger fails until someone has granted it: run
+`Setup` once after such an update.
+
 All datetimes, the run instant and the trigger hour use the spreadsheet's
-time zone (**File > Settings**). The manifest `timeZone` only affects log
-timestamps and the editor; setting it to the same zone (for example
-`America/New_York`) keeps them consistent. Editing `dist/appsscript.json`
+time zone (**File > Settings**). The manifest `timeZone` is the script's own
+zone: Apps Script uses it for log timestamps and the editor, and the Google
+Calendar extension converts all-day event dates in it (the calendar API works
+with the script zone for those), so the export is correct whether or not the
+two zones match. Setting it to the spreadsheet's zone (for example
+`America/New_York`) keeps the logs readable. Editing `dist/appsscript.json`
 works for one push; `build.sh` overwrites it from `src/appsscript.json` each
 time, so change `src/appsscript.json` for a lasting setting.
 
@@ -66,10 +82,13 @@ Push the bundle. `-f` accepts the manifest change without a prompt.
 clasp push -f
 ```
 
-`clasp push` uploads every file in `dist/`, extension bundles included. To
-leave an extension out, list its file in a `.claspignore` in `dist/` (one
+`clasp push` uploads every file in `dist/`, extension bundles included, so
+the Google Calendar extension (`GCal.js`) is installed by default. To leave
+an extension out, list its file in a `.claspignore` in `dist/` (one
 `<Name>.js` per line) before pushing; to add one later, remove the line and
-push again.
+push again. After the first push with `GCal.js`, run **Set Up Spreadsheet**
+so the `#GCal` tab and the `CALENDAR` help section appear, and share every
+calendar you will export to (section 4a).
 
 `dist/.clasp.json` is ignored by git and stays in place between builds
 because `build.sh` only rewrites the bundles and the manifest.
@@ -86,10 +105,11 @@ script, then reload.
 2. In **Project Settings** (gear icon) tick **Show "appsscript.json" manifest
    file in editor** and set the time zone to match the spreadsheet.
 3. Back in the editor, replace the content of `Code.gs` with `dist/Code.js`
-   and the content of `appsscript.json` with `dist/appsscript.json`, time zone
-   adjusted. Save.
+   and the content of `appsscript.json` with `dist/appsscript.json`, with
+   `timeZone` set to the spreadsheet's zone. Save.
    Optional: for each extension you want, add a script file (**+ > Script**)
    named after the bundle, `<Name>.gs`, and paste `dist/<Name>.js` into it.
+   For the Google Calendar export that is `GCal.gs` with `dist/GCal.js`.
    The core finds the extension by its functions; leaving the file out
    leaves the extension out.
 4. In the function dropdown of the toolbar select `Setup` (the first function
@@ -156,6 +176,28 @@ script, then reload.
 5. `#Holidays`: one date per row in column A as `YYYY-MM-DD` (text or a date
    cell), a note in column B. Holidays only matter when a rotation sets
    `skip_holidays=true`.
+
+## 4a. Google Calendar extension
+
+With `GCal.js` installed, **Set Up Spreadsheet** creates the `#GCal` tab
+(`preset | setting | value`) with help rows, and the **Rotalator** menu
+gains the re-export and clean items. Then:
+
+1. Create a calendar per preset, or pick existing ones, and note their ids
+   (**Settings and sharing > Integrate calendar > Calendar ID**; a personal
+   calendar's id is its address).
+2. Share each calendar with **Make changes to events** with every account
+   that runs Rotalator: the users who click **Run** and the account that
+   installed the nightly trigger (menu actions run as the clicking user, the
+   trigger as its installer). A calendar the running account cannot write
+   is reported in `#Status` as not found and skipped.
+3. Fill `#GCal` (README, "Google Calendar export") and add `cal=<preset
+   names>` to a `set` row of each rotation to export, or to `#Global`.
+4. **Run - dry run** shows the counts in the `Calendar` block of `#Status`
+   without touching the calendars; **Run** exports.
+
+The first calendar action asks for the calendar permission if the manifest
+scopes were not granted yet (section 1).
 
 ## 5. Fill Shifts Grid
 

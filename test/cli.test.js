@@ -49,3 +49,4 @@ test('init: history-from dates the set row at the first boundary and adds empty 
   assert.throws(() => initDir(fresh('bad'), { rotation: '#ops', now: '2026-10-07T12:00' }), /bad rotation name/);
   assert.throws(() => initDir(fresh('bad'), { rotation: '', now: '2026-10-07T12:00' }), /--rotation NAME/);
 });
+

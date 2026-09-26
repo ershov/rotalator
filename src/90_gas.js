@@ -122,6 +122,16 @@ class SheetsStorage {
     return rows.length && isLedgerHeader(rows[0]) ? rows.slice(1).map(function (row) { return row.slice(0, LEDGER_HEADER.length); }) : [];
   }
 
+  // Rows below the header of any tab, for extensions: [] when the tab is missing or its first row is not the
+  // header (case-insensitive); only the header's columns are returned.
+  readTabRows(name, header) {
+    var sheet = this.ss.getSheetByName(name);
+    if (!sheet) return [];
+    var rows = this.readValues(sheet, CELL_DATETIME_FORMAT);
+    var matches = rows.length && header.every(function (h, i) { return cellText(rows[0][i]).toLowerCase() === h; });
+    return matches ? rows.slice(1).map(function (row) { return row.slice(0, header.length); }) : [];
+  }
+
   sheetNamed(name) {
     return this.ss.getSheetByName(name) || this.ss.insertSheet(name);
   }

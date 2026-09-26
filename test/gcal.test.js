@@ -22,28 +22,28 @@ test('loader: the extension is in the shared context and its hooks are visible t
   assert.equal(load(), U);
   assert.equal(typeof U.gcal_readInputs, 'function');
   assert.equal(typeof U.gcal_status, 'function');
-  assert.deepEqual(plain(U.EXTENSION_HOOKS.filter((hook) => U.extensionHooks(hook).length)), ['readInputs', 'status']);
+  assert.deepEqual(plain(U.EXTENSION_HOOKS.filter((hook) => U.extensionHooks(hook).length)), ['menu', 'setup', 'help', 'readInputs', 'afterRun', 'status']);
   assert.equal(U.extensionInstalled('GCal'), true);
-  assert.equal(typeof U.gcal_afterRun, 'undefined', 'the adapter hooks come with the next ticket');
 });
 
-test('storage: gcal.csv and the gcal option, header required, never a rotation', () => {
+test('storage: readTabRows for gcal.csv and the tabs option, header required, never a rotation', () => {
   const storage = new CsvDirStorage(FIXTURE);
-  const rows = plain(storage.readGCal());
+  const rows = plain(storage.readTabRows(U.GCAL_TAB, U.GCAL_HEADER));
   assert.equal(rows.length, 12);
   assert.deepEqual(rows[0], ['team', '', 'Shared team calendar: all-day events nobody is invited to']);
+  assert.deepEqual(plain(storage.readTabRows(U.GCAL_TAB, ['other', 'header'])), [], 'header must match');
   assert.deepEqual(Object.keys(storage.readLedgers()), ['primary', 'secondary']);
   assert.deepEqual(storage.ignoredTabs(), []);
-  assert.deepEqual(plain(new CsvDirStorage(path.join(__dirname, 'fixtures', 'steady')).readGCal()), []);
-  const mem = new MemoryStorage({ gcal: TEAM });
-  assert.deepEqual(mem.readGCal(), TEAM);
-  assert.deepEqual(new MemoryStorage().readGCal(), []);
-  // A storage without readGCal (the Sheets adapter before its ticket) yields no presets.
+  assert.deepEqual(plain(new CsvDirStorage(path.join(__dirname, 'fixtures', 'steady')).readTabRows(U.GCAL_TAB, U.GCAL_HEADER)), []);
+  const mem = new MemoryStorage({ tabs: { '#GCal': TEAM } });
+  assert.deepEqual(mem.readTabRows('#GCal', U.GCAL_HEADER), TEAM);
+  assert.deepEqual(new MemoryStorage().readTabRows('#GCal', U.GCAL_HEADER), []);
+  // A storage without readTabRows yields no presets.
   assert.deepEqual(plain(U.gcal_readInputs({})), { presets: [], errors: [] });
 });
 
 test('presets: fixture parses into two presets with defaults filled', () => {
-  const { presets, errors } = plain(U.parseGCalPresets(new CsvDirStorage(FIXTURE).readGCal()));
+  const { presets, errors } = plain(U.parseGCalPresets(new CsvDirStorage(FIXTURE).readTabRows(U.GCAL_TAB, U.GCAL_HEADER)));
   assert.deepEqual(errors, []);
   assert.deepEqual(presets.map((p) => p.name), ['team', 'personal']);
   assert.deepEqual(presets[0], {
@@ -162,7 +162,7 @@ test('plan: golden fixture, repair window, rotation filter', () => {
   assert.equal(U.gcalEventKey('primary', dt('2026-10-05T09:30')), 'primary|2026-10-05T09:30');
 
   const repair = plain(U.gcalPlan(result, result.ext.gcal, { repair: true }));
-  assert.deepEqual(repair.rotations[0], { rotation: 'primary', presets: ['team', 'personal'], calendars: ['team@group.calendar.google.com', 'oncall@example.com'], from: '2026-09-14', to: '2026-10-26', shifts: 5, skipped: 1 });
+  assert.deepEqual(repair.rotations[0], { rotation: 'primary', presets: ['team', 'personal'], calendars: ['team@group.calendar.google.com', 'oncall@example.com'], from: '2026-09-14', to: '2026-10-26', until: '2029-10-04T10:00', shifts: 5, skipped: 1 });
   assert.equal(repair.events.length, 10);
   assert.deepEqual(repair.events.slice(0, 2).map((e) => e.title), ['primary: alice', 'On call: alice (Mon 14 Sep to Mon 21 Sep)']);
   assert.deepEqual(plain(U.gcalPlan(result, result.ext.gcal, { rotations: ['secondary'] })), { rotations: [], events: [], errors: [] });
@@ -175,7 +175,7 @@ test('plan: golden fixture, repair window, rotation filter', () => {
 test('plan: first run window, timed shifts, unknown and broken presets, no status', () => {
   const gcal = [G('', 'id', 'x')];
   const rows = [G('team', '', ''), G('', 'id', 'team@example.com'), G('', 'title', '{who} {start:%H:%M}'), G('broken', '', ''), G('', 'id', 'b'), G('', 'free', 'nah')];
-  const storage = new MemoryStorage({ ledgers: ledger(BASE + ', cal=team broken nope'), gcal: rows });
+  const storage = new MemoryStorage({ ledgers: ledger(BASE + ', cal=team broken nope'), tabs: { '#GCal': rows } });
   const result = runStorage(storage, NOW);
   assert.deepEqual(result.errors, []);
   const plan = plain(U.gcalPlan(result, result.ext.gcal));
@@ -185,19 +185,25 @@ test('plan: first run window, timed shifts, unknown and broken presets, no statu
     { where: 'primary', message: 'unknown preset "nope" in cal; add it to #GCal' },
   ]);
   // No stored snapshot: the window starts at the first shift; 09:00 shifts are timed under allday=auto.
-  assert.deepEqual(plan.rotations, [{ rotation: 'primary', presets: ['team'], calendars: ['team@example.com'], from: '2026-10-05T09:00', to: '2026-10-19T09:00', shifts: 2, skipped: 0 }]);
+  assert.deepEqual(plan.rotations, [{ rotation: 'primary', presets: ['team'], calendars: ['team@example.com'], from: '2026-10-05T09:00', to: '2026-10-19T09:00', until: '2029-10-04T10:00', shifts: 2, skipped: 0 }]);
   assert.deepEqual(plan.events.map((e) => [e.title, e.start, e.end, e.allDay, e.guests, e.body]), [
     ['alice 09:00', '2026-10-05T09:00', '2026-10-12T09:00', false, [], 'Rotalator shift primary 2026-10-05T09:00 to 2026-10-12T09:00.'],
     ['bob 09:00', '2026-10-12T09:00', '2026-10-19T09:00', false, [], 'Rotalator shift primary 2026-10-12T09:00 to 2026-10-19T09:00.'],
   ]);
   assert.equal(result.status.rotations[0].previousAt, null);
   // A rotation without cal plans nothing; input errors are still reported.
-  const none = runStorage(new MemoryStorage({ ledgers: ledger(BASE), gcal: rows }), NOW);
+  const none = runStorage(new MemoryStorage({ ledgers: ledger(BASE), tabs: { '#GCal': rows } }), NOW);
   assert.deepEqual(plain(U.gcalPlan(none, none.ext.gcal)), { rotations: [], events: [], errors: [{ where: '#GCal row 7', message: 'bad value for free: "nah"; use true or false' }] });
   // Without a status (bad now) or a validation error the plan is empty.
-  const bad = runStorage(new MemoryStorage({ ledgers: ledger(BASE), gcal }), 'someday');
+  const bad = runStorage(new MemoryStorage({ ledgers: ledger(BASE), tabs: { '#GCal': gcal } }), 'someday');
   assert.deepEqual(plain(U.gcalPlan(bad, bad.ext.gcal)), { rotations: [], events: [], errors: [{ where: '#GCal row 2', message: 'setting "id" before any preset' }] });
   assert.deepEqual(plain(U.gcalPlan(null, null)), { rotations: [], events: [], errors: [] });
+  // Two presets on one calendar: the second is skipped, its events would share the first one's keys.
+  const shared = [G('a', '', ''), G('', 'id', 'same@example.com'), G('b', '', ''), G('', 'id', 'same@example.com')];
+  const twice = runStorage(new MemoryStorage({ ledgers: ledger(BASE + ', cal=a b'), tabs: { '#GCal': shared } }), NOW);
+  const twicePlan = plain(U.gcalPlan(twice, twice.ext.gcal));
+  assert.deepEqual(twicePlan.rotations[0].presets, ['a']);
+  assert.deepEqual(twicePlan.errors, [{ where: 'primary', message: 'preset "b" skipped: calendar same@example.com is already used by preset "a"' }]);
 });
 
 test('clean plan: every key of a rotation, or a whole calendar', () => {
@@ -207,7 +213,7 @@ test('clean plan: every key of a rotation, or a whole calendar', () => {
     rotation: 'primary',
     calendars: ['team@group.calendar.google.com', 'oncall@example.com'],
     from: '2026-09-14',
-    to: '2026-10-26',
+    to: '2029-10-04T10:00',
     keys: ['primary|2026-09-14', 'primary|2026-09-21', 'primary|2026-09-28', 'primary|2026-10-05', 'primary|2026-10-12', 'primary|2026-10-19'],
     errors: [],
   });
@@ -215,6 +221,8 @@ test('clean plan: every key of a rotation, or a whole calendar', () => {
   assert.deepEqual(plain(U.gcalCleanPlan(result, result.ext.gcal, { rotation: 'nope' })), { error: 'unknown rotation "nope"' });
   assert.deepEqual(plain(U.gcalCleanPlan(result, result.ext.gcal, { preset: 'team' })), { preset: 'team', calendar: 'team@group.calendar.google.com', all: true });
   assert.deepEqual(plain(U.gcalCleanPlan(result, result.ext.gcal, { preset: 'x' })), { error: 'unknown preset "x"' });
+  const broken = U.parseGCalPresets([G('noid', '', '')]);
+  assert.deepEqual(plain(U.gcalCleanPlan(null, broken, { preset: 'noid' })), { error: 'preset "noid" has errors: no id' });
 });
 
 test('status block: data from the plan, rows through the core hook', () => {
@@ -225,6 +233,10 @@ test('status block: data from the plan, rows through the core hook', () => {
     { rotation: 'primary', preset: 'team', calendar: 'team@group.calendar.google.com', create: 0, update: 0, delete: 0, unchanged: 0, skipped: 1 },
     { rotation: 'primary', preset: 'personal', calendar: 'oncall@example.com', create: 0, update: 0, delete: 0, unchanged: 0, skipped: 1 },
   ], errors: [] });
+  // In Node the afterRun hook records the plan without a calendar.
+  assert.deepEqual(plain(result.status.ext.gcal), { ...data, mode: 'no calendar' });
+  assert.deepEqual(plain(U.gcal_status(result.status)).rows[0], ['Calendar (no calendar)']);
+  delete result.status.ext;
   assert.equal(U.gcal_status(result.status), null, 'nothing without status.ext.gcal');
   const without = U.statusRows(result.status).rows.length;
   data.lines[0].create = 3;
@@ -246,4 +258,262 @@ test('status block: data from the plan, rows through the core hook', () => {
   assert.deepEqual(rows.rows[without + 1].slice(0, 1), ['Calendar (dry run)']);
   assert.deepEqual(rows.headerRows.slice(-3), [without + 1, without + 2, without + 5]);
   assert.match(statusText(result.status), /\nCalendar \(dry run\)\nrotation +preset +calendar +create +update +delete +unchanged +skipped\nprimary +team +team@group.calendar.google.com +3 +0 +0 +0 +1\n/);
+});
+
+// Mock of the CalendarApp and Utilities surface the adapter uses; tz is treated as UTC. Every mutation is
+// logged in calendar.writes so a reconcile of an unchanged schedule can be shown to write nothing.
+class MockEvent {
+  constructor(calendar, title, start, end, allDay, options = {}) {
+    this.calendar = calendar;
+    this.title = title; this.start = start; this.end = end; this.allDay = allDay;
+    this.description = options.description || '';
+    this.guests = options.guests ? options.guests.split(',') : [];
+    this.invitesSent = Boolean(options.sendInvites);
+    this.tags = {}; this.color = ''; this.transparency = 'OPAQUE'; this.reminders = [10]; this.deleted = false;
+  }
+  log(what) { this.calendar.writes.push(`${this.tags.rotalator || this.title}:${what}`); }
+  getTitle() { return this.title; }
+  setTitle(t) { this.title = t; this.log('title'); }
+  getDescription() { return this.description; }
+  setDescription(d) { this.description = d; this.log('description'); }
+  isAllDayEvent() { return this.allDay; }
+  getStartTime() { return this.start; }
+  getEndTime() { return this.end; }
+  getAllDayStartDate() { return this.start; }
+  getAllDayEndDate() { return this.end; }
+  setTime(s, e) { this.start = s; this.end = e; this.allDay = false; this.log('time'); }
+  setAllDayDates(s, e) { this.start = s; this.end = e; this.allDay = true; this.log('alldays'); }
+  getColor() { return this.color; }
+  setColor(c) { this.color = c; this.log('color'); }
+  getTransparency() { return this.transparency; }
+  setTransparency(t) { this.transparency = t; this.log('transparency'); }
+  getGuestList() { return this.guests.map((g) => ({ getEmail: () => g })); }
+  addGuest(g) { this.guests.push(g); this.log(`addGuest ${g}`); }
+  removeGuest(g) { this.guests = this.guests.filter((x) => x !== g); this.log(`removeGuest ${g}`); }
+  getPopupReminders() { return this.reminders.slice(); }
+  removeAllReminders() { this.reminders = []; this.log('removeReminders'); }
+  addPopupReminder(m) { this.reminders.push(m); this.log(`reminder ${m}`); }
+  getTag(k) { return this.tags[k] ?? null; }
+  setTag(k, v) { this.tags[k] = v; this.log(`tag ${v}`); }
+  deleteEvent() { this.deleted = true; this.log('delete'); }
+}
+class MockCalendar {
+  constructor(id) { this.id = id; this.events = []; this.writes = []; this.failing = false; }
+  getEvents(s, e) {
+    if (this.failing) throw new Error('API quota');
+    return this.events.filter((ev) => !ev.deleted && ev.start < e && ev.end > s);
+  }
+  add(title, start, end, allDay, key, options) {
+    const ev = new MockEvent(this, title, new Date(start), new Date(end), allDay, options);
+    if (key) ev.tags.rotalator = key;
+    this.events.push(ev);
+    return ev;
+  }
+  createEvent(t, s, e, o) { this.writes.push(`create ${t}`); return this.add(t, s, e, false, null, o); }
+  createAllDayEvent(t, s, e, o) { this.writes.push(`createAllDay ${t}`); return this.add(t, s, e, true, null, o); }
+  live() { return this.events.filter((ev) => !ev.deleted); }
+}
+const COLORS = { PALE_BLUE: '1', PALE_GREEN: '2', MAUVE: '3', PALE_RED: '4', YELLOW: '5', ORANGE: '6', CYAN: '7', GRAY: '8', BLUE: '9', GREEN: '10', RED: '11' };
+// Zones the mock Utilities knows, as offsets in minutes; the script zone comes from Session.
+const ZONES = { UTC: 0, Plus10: 600, Minus5: -300 };
+function installMocks(ids, scriptZone = 'UTC') {
+  const calendars = {};
+  ids.forEach((id) => { calendars[id] = new MockCalendar(id); });
+  U.CalendarApp = { getCalendarById: (id) => calendars[id] || null, EventColor: COLORS, EventTransparency: { OPAQUE: 'OPAQUE', TRANSPARENT: 'TRANSPARENT' } };
+  U.Utilities = {
+    parseDate: (text, tz) => new Date(new Date(text + ':00Z').getTime() - ZONES[tz] * 60000),
+    formatDate: (d, tz) => new Date(d.getTime() + ZONES[tz] * 60000).toISOString().slice(0, 16),
+  };
+  U.Session = { getScriptTimeZone: () => scriptZone };
+  return calendars;
+}
+function removeMocks() { delete U.CalendarApp; delete U.Utilities; delete U.Session; }
+const TEAM_CAL = 'team@group.calendar.google.com';
+const PERSONAL_CAL = 'oncall@example.com';
+const iso = (d) => d.toISOString().slice(0, 16);
+
+test('reconcile: create, unchanged without writes, update only what differs, delete stale, leave others', () => {
+  const calendars = installMocks([TEAM_CAL, PERSONAL_CAL]);
+  try {
+    const result = runDir(FIXTURE, null, { export: false });
+    const plan = U.gcalPlan(result, result.ext.gcal, {});
+    const team = calendars[TEAM_CAL], personal = calendars[PERSONAL_CAL];
+    // Pre-existing: an untagged event, another rotation's event, a stale event of primary inside the window,
+    // and an event of a shift before the window, all in the team calendar.
+    team.add('standup', '2026-10-01T09:00', '2026-10-01T09:30', false, null);
+    team.add('other', '2026-10-05', '2026-10-12', true, 'secondary|2026-10-05');
+    const stale = team.add('primary: zed', '2026-10-12', '2026-10-19', true, 'primary|2026-10-12');
+    const history = team.add('primary: bob', '2026-09-21', '2026-09-28', true, 'primary|2026-09-21');
+    const data = U.gcalReconcile(plan, U.gcalStatusData(plan), { tz: 'UTC' });
+    assert.deepEqual(plain(data.errors), []);
+    assert.deepEqual(plain(data.lines).map((l) => [l.preset, l.create, l.update, l.delete, l.unchanged, l.skipped]), [['team', 3, 0, 1, 0, 1], ['personal', 3, 0, 0, 0, 1]]);
+    assert.equal(stale.deleted, true);
+    assert.equal(history.deleted, false);
+    assert.equal(team.live().length, 6);
+    const created = team.live().filter((ev) => ev.tags.rotalator?.startsWith('primary|') && ev !== history);
+    assert.deepEqual(created.map((ev) => [ev.title, iso(ev.start), iso(ev.end), ev.allDay, ev.color, ev.transparency, ev.guests, ev.reminders, ev.invitesSent]), [
+      ['primary: carol', '2026-09-28T00:00', '2026-10-05T00:00', true, '1', 'TRANSPARENT', [], [1440, 60], false],
+      ['primary: dave@example.com', '2026-10-05T00:00', '2026-10-12T00:00', true, '1', 'TRANSPARENT', [], [1440, 60], false],
+      ['primary: alice', '2026-10-19T00:00', '2026-10-26T00:00', true, '1', 'TRANSPARENT', [], [1440, 60], false],
+    ]);
+    assert.equal(created[0].description, 'Rotalator shift primary 2026-09-28 to 2026-10-05. volunteered');
+    const timed = personal.live();
+    assert.deepEqual(timed.map((ev) => [ev.title, ev.allDay, ev.color, ev.transparency, ev.guests, ev.invitesSent, ev.reminders]), [
+      ['On call: carol (Mon 28 Sep to Mon 5 Oct)', false, '', 'OPAQUE', [], false, []],
+      ['On call: dave@example.com (Mon 5 Oct to Mon 12 Oct)', false, '', 'OPAQUE', ['dave@example.com'], true, []],
+      ['On call: alice (Mon 19 Oct to Mon 26 Oct)', false, '', 'OPAQUE', [], false, []],
+    ]);
+    // Same plan again: everything unchanged, not a single write.
+    team.writes = []; personal.writes = [];
+    const again = U.gcalReconcile(plan, U.gcalStatusData(plan), { tz: 'UTC' });
+    assert.deepEqual(plain(again.lines).map((l) => [l.create, l.update, l.delete, l.unchanged]), [[0, 0, 0, 3], [0, 0, 0, 3]]);
+    assert.deepEqual(team.writes.concat(personal.writes), []);
+    // A changed plan: new assignee on 10-05 (title, body, guests), reminders on personal, colour untouched when
+    // the preset has none, all-day to timed switch.
+    const changed = structuredClone(plan);
+    changed.events.forEach((e) => {
+      if (e.key === 'primary|2026-10-05') { e.title = e.title.replace('dave@example.com', 'erin@example.com'); e.guests = e.preset === 'personal' ? ['erin@example.com'] : []; }
+      if (e.preset === 'personal') e.reminders = [30];
+      if (e.key === 'primary|2026-10-19' && e.preset === 'team') { e.allDay = false; e.start = '2026-10-19T09:00'; }
+    });
+    const updated = U.gcalReconcile(changed, U.gcalStatusData(changed), { tz: 'UTC' });
+    assert.deepEqual(plain(updated.lines).map((l) => [l.create, l.update, l.delete, l.unchanged]), [[0, 2, 0, 1], [0, 3, 0, 0]]);
+    assert.deepEqual(team.writes, ['primary|2026-10-05:title', 'primary|2026-10-19:time']);
+    const dave = personal.live()[1];
+    assert.deepEqual(dave.guests, ['erin@example.com']);
+    assert.equal(dave.invitesSent, true, 'set on creation only; no new invitation on update');
+    assert.deepEqual(personal.writes.filter((w) => w.startsWith('primary|2026-10-05')), ['primary|2026-10-05:title', 'primary|2026-10-05:addGuest erin@example.com', 'primary|2026-10-05:removeGuest dave@example.com', 'primary|2026-10-05:removeReminders', 'primary|2026-10-05:reminder 30']);
+    const switched = team.live().find((ev) => ev.tags.rotalator === 'primary|2026-10-19');
+    assert.equal(switched.allDay, false);
+    assert.equal(iso(switched.start), '2026-10-19T09:00');
+    // Duplicates with one key are deleted down to one.
+    team.add('dup', '2026-10-05', '2026-10-12', true, 'primary|2026-10-05');
+    const dedup = U.gcalReconcile(changed, U.gcalStatusData(changed), { tz: 'UTC' });
+    assert.equal(plain(dedup.lines)[0].delete, 1);
+    assert.equal(team.live().filter((ev) => ev.tags.rotalator === 'primary|2026-10-05').length, 1);
+    // Guest emails compare lower-cased, so a mixed-case id is not re-added every run.
+    const cased = structuredClone(changed);
+    cased.events.find((e) => e.key === 'primary|2026-10-05' && e.preset === 'personal').guests = ['Erin@Example.com'];
+    personal.writes = [];
+    assert.equal(plain(U.gcalReconcile(cased, U.gcalStatusData(cased), { tz: 'UTC' }).lines)[1].unchanged, 3);
+    assert.deepEqual(personal.writes, []);
+    // A shortened horizon: events beyond the new horizon are deleted, up to the clean bound.
+    const shorter = structuredClone(changed);
+    shorter.rotations[0].to = '2026-10-19';
+    shorter.events = shorter.events.filter((e) => e.key !== 'primary|2026-10-19');
+    const shrunk = U.gcalReconcile(shorter, U.gcalStatusData(shorter), { tz: 'UTC' });
+    assert.deepEqual(plain(shrunk.lines).map((l) => [l.delete, l.unchanged]), [[1, 2], [1, 2]]);
+    assert.equal(team.live().some((ev) => ev.tags.rotalator === 'primary|2026-10-19'), false);
+    const far = team.add('far', '2030-01-07', '2030-01-14', true, 'primary|2030-01-07');
+    U.gcalReconcile(shorter, U.gcalStatusData(shorter), { tz: 'UTC' });
+    assert.equal(far.deleted, false, 'beyond the clean bound nothing is touched');
+  } finally { removeMocks(); }
+});
+
+test('reconcile: all-day dates in the script zone, timed instants in the spreadsheet zone, converging', () => {
+  const calendars = installMocks([TEAM_CAL, PERSONAL_CAL], 'Minus5');
+  try {
+    const result = runDir(FIXTURE, null, { export: false });
+    const plan = U.gcalPlan(result, result.ext.gcal, {});
+    const first = U.gcalReconcile(plan, U.gcalStatusData(plan), { tz: 'Plus10' });
+    assert.deepEqual(plain(first.errors), []);
+    const allDay = calendars[TEAM_CAL].live()[0];
+    // Midnight of 2026-09-28 in the script zone (-5) is 05:00Z; the spreadsheet zone plays no part.
+    assert.equal(allDay.start.toISOString(), '2026-09-28T05:00:00.000Z');
+    assert.equal(allDay.end.toISOString(), '2026-10-05T05:00:00.000Z');
+    // A timed event at 00:00 spreadsheet time (+10) is 14:00Z the day before.
+    assert.equal(calendars[PERSONAL_CAL].live()[0].start.toISOString(), '2026-09-27T14:00:00.000Z');
+    calendars[TEAM_CAL].writes = []; calendars[PERSONAL_CAL].writes = [];
+    const again = U.gcalReconcile(plan, U.gcalStatusData(plan), { tz: 'Plus10' });
+    assert.deepEqual(plain(again.lines).map((l) => [l.update, l.unchanged]), [[0, 3], [0, 3]]);
+    assert.deepEqual(calendars[TEAM_CAL].writes.concat(calendars[PERSONAL_CAL].writes), []);
+  } finally { removeMocks(); }
+});
+
+test('reconcile: dry run counts without writing; missing calendar and API failure are errors, not exceptions', () => {
+  const calendars = installMocks([TEAM_CAL]);
+  try {
+    const result = runDir(FIXTURE, null, { export: false });
+    const plan = U.gcalPlan(result, result.ext.gcal, {});
+    const dry = U.gcalReconcile(plan, U.gcalStatusData(plan), { tz: 'UTC', dry: true });
+    assert.deepEqual(plain(dry.lines).map((l) => [l.preset, l.create]), [['team', 3], ['personal', 0]]);
+    assert.deepEqual(calendars[TEAM_CAL].writes, []);
+    assert.deepEqual(plain(dry.errors), [{ where: 'primary / personal', message: 'calendar "oncall@example.com" not found or not shared with this account' }]);
+    calendars[TEAM_CAL].failing = true;
+    const failed = U.gcalReconcile(plan, U.gcalStatusData(plan), { tz: 'UTC' });
+    assert.deepEqual(plain(failed.errors).map((e) => e.message), ['API quota', 'calendar "oncall@example.com" not found or not shared with this account']);
+  } finally { removeMocks(); }
+});
+
+test('clean: a rotation in its calendars by tag prefix, or every tagged event of one calendar', () => {
+  const calendars = installMocks([TEAM_CAL, PERSONAL_CAL]);
+  try {
+    const result = runDir(FIXTURE, null, { export: false });
+    const plan = U.gcalPlan(result, result.ext.gcal, { repair: true });
+    U.gcalReconcile(plan, U.gcalStatusData(plan), { tz: 'UTC' });
+    const team = calendars[TEAM_CAL];
+    team.add('other', '2026-10-05', '2026-10-12', true, 'secondary|2026-10-05');
+    team.add('standup', '2026-10-01T09:00', '2026-10-01T09:30', false, null);
+    assert.equal(team.live().length, 7);
+    const clean = U.gcalCleanPlan(result, result.ext.gcal, { rotation: 'primary' });
+    assert.equal(clean.to, '2029-10-04T10:00', 'the clean reaches the clean bound');
+    const dryOut = U.gcalClean(clean, { tz: 'UTC', dry: true });
+    assert.equal(dryOut.deleted, 10);
+    assert.equal(team.live().length, 7);
+    const out = plain(U.gcalClean(clean, { tz: 'UTC' }));
+    assert.deepEqual(out, { deleted: 10, errors: [] });
+    assert.deepEqual(team.live().map((ev) => ev.title), ['other', 'standup']);
+    assert.equal(calendars[PERSONAL_CAL].live().length, 0);
+    const all = U.gcalCleanPlan(null, result.ext.gcal, { preset: 'team' });
+    const window = plain(U.gcalCleanWindow(U.parseDateTime(NOW)));
+    assert.deepEqual(window, { from: '2025-10-05T10:00', to: '2029-10-04T10:00' });
+    assert.deepEqual(plain(U.gcalClean(all, { tz: 'UTC', from: window.from, to: window.to })), { deleted: 1, errors: [] });
+    assert.deepEqual(team.live().map((ev) => ev.title), ['standup']);
+    assert.deepEqual(plain(U.gcalClean({ all: true, calendar: 'nope' }, { tz: 'UTC', from: window.from, to: window.to })).errors.length, 1);
+  } finally { removeMocks(); }
+});
+
+test('gcal_afterRun: exports through the runner, dry when not writing or on a dry run, skipped on export: false', () => {
+  const calendars = installMocks([TEAM_CAL, PERSONAL_CAL]);
+  try {
+    const storage = new CsvDirStorage(FIXTURE);
+    const inputs = { ledgers: storage.readLedgers(), holidays: storage.readHolidays(), global: storage.readGlobal(), tabs: { '#GCal': storage.readTabRows(U.GCAL_TAB, U.GCAL_HEADER) } };
+    const dry = runStorage(new MemoryStorage(inputs), storage.readNow(), { write: true, mode: 'dry run' });
+    assert.equal(dry.status.ext.gcal.mode, 'dry run');
+    assert.deepEqual(dry.status.ext.gcal.lines.map((l) => l.create), [3, 3]);
+    assert.equal(calendars[TEAM_CAL].live().length, 0);
+    const noWrite = runStorage(new MemoryStorage(inputs), storage.readNow());
+    assert.equal(noWrite.status.ext.gcal.mode, 'dry run');
+    const skipped = runStorage(new MemoryStorage(inputs), storage.readNow(), { write: true, export: false });
+    assert.equal(skipped.status.ext, undefined);
+    const mem = new MemoryStorage(inputs);
+    const real = runStorage(mem, storage.readNow(), { write: true });
+    assert.equal(real.status.ext.gcal.mode, undefined);
+    assert.deepEqual(real.status.ext.gcal.lines.map((l) => [l.create, l.skipped]), [[3, 1], [3, 1]]);
+    assert.equal(calendars[TEAM_CAL].live().length, 3);
+    assert.deepEqual(plain(mem.status.ext.gcal.lines).map((l) => l.create), [3, 3], 'the written status has the block');
+    assert.match(statusText(real.status), /\nCalendar\nrotation +preset +calendar +create/);
+    // A spreadsheet without cal and without preset errors gets no block.
+    const plainRun = runStorage(new MemoryStorage({ ledgers: ledger(BASE) }), NOW, { write: true });
+    assert.equal(plainRun.status.ext, undefined);
+  } finally { removeMocks(); }
+});
+
+test('menu, help and summary', () => {
+  const items = [];
+  const menu = { addSeparator() { items.push('---'); return this; }, addItem(label, fn) { items.push(`${label} -> ${fn}`); return this; } };
+  U.gcal_menu(menu);
+  assert.deepEqual(items, ['---', 'Re-export calendar -> gcalReexport', 'Re-export calendar: current rotation -> gcalReexportCurrent', 'Clean calendar: current rotation -> gcalCleanCurrent', 'Clean calendar: selected preset -> gcalCleanPreset']);
+  for (const fn of ['gcalReexport', 'gcalReexportCurrent', 'gcalCleanCurrent', 'gcalCleanPreset', 'gcal_setup']) assert.equal(typeof U[fn], 'function', fn);
+  const lines = plain(U.helpText());
+  assert.equal(lines.length, U.HELP_TEXT.length + U.GCAL_HELP_LINES.length);
+  assert.ok(plain(U.helpHeadingRows(lines)).includes(U.HELP_TEXT.length + 1));
+  assert.ok(lines.some((l) => l.startsWith('cal=team personal:')));
+  assert.equal(U.gcalSummary({ lines: [{ create: 1, update: 2, delete: 0, unchanged: 3, skipped: 1 }, { create: 1, update: 0, delete: 1, unchanged: 0, skipped: 1 }], errors: [{ where: 'x', message: 'boom' }] }), 'create 2, update 2, delete 1, unchanged 3, skipped 2; 1 error(s): boom');
+  const sheet = (name, row, names) => ({ getName: () => name, getActiveRange: () => ({ getRow: () => row }), getRange: (r, c, n) => ({ getValues: () => names.slice(0, n).map((v) => [v]) }) });
+  const names = ['preset', 'team', '', '', 'personal', ''];
+  assert.equal(U.gcalSelectedPreset(sheet('#GCal', 4, names)), 'team');
+  assert.equal(U.gcalSelectedPreset(sheet('#GCal', 5, names)), 'personal');
+  assert.equal(U.gcalSelectedPreset(sheet('#GCal', 1, names)), null);
+  assert.equal(U.gcalSelectedPreset(sheet('primary', 3, names)), null);
 });

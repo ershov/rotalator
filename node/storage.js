@@ -3,23 +3,24 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { load } = require('./load.js');
 
-const GCAL_HEADER = ['preset', 'setting', 'value'];
+// Files of the system tabs in a CSV directory; every other <name>.csv is a rotation candidate.
+const TAB_FILES = { '#Holidays': 'holidays.csv', '#Global': 'global.csv', '#GCal': 'gcal.csv' };
 
 // Storage interface of DESIGN 8. Ledgers are cell arrays without the header row; holidays are date texts
-// (null for a blank row); global holds the #Global rows; ignored are tab names reported in #Status; gcal holds
-// the #GCal rows for the GCal extension.
+// (null for a blank row); global holds the #Global rows; ignored are tab names reported in #Status; tabs holds
+// the rows below the header of any other tab an extension reads (tabs['#GCal']).
 class MemoryStorage {
-  constructor({ ledgers = {}, holidays = [], global = [], ignored = [], gcal = [] } = {}) {
+  constructor({ ledgers = {}, holidays = [], global = [], ignored = [], tabs = {} } = {}) {
     this.ledgers = structuredClone(ledgers);
     this.holidays = holidays.slice();
     this.global = structuredClone(global);
     this.ignored = ignored.slice();
-    this.gcal = structuredClone(gcal);
+    this.tabs = structuredClone(tabs);
     this.status = null;
   }
 
-  readGCal() {
-    return structuredClone(this.gcal);
+  readTabRows(name) {
+    return structuredClone(this.tabs[name] || []);
   }
 
   ignoredTabs() {
@@ -77,7 +78,7 @@ class CsvDirStorage {
     const ledgers = {};
     const ignored = [];
     fs.readdirSync(this.dir).sort().forEach((name) => {
-      if (!name.endsWith('.csv') || name === 'holidays.csv' || name === 'global.csv' || name === 'gcal.csv') return;
+      if (!name.endsWith('.csv') || Object.values(TAB_FILES).includes(name)) return;
       const tab = name.slice(0, -4);
       const rows = this.readCsv(name);
       if (!this.U.isSystemTab(tab) && rows.length && this.U.isLedgerHeader(rows[0])) ledgers[tab] = rows.slice(1);
@@ -107,11 +108,11 @@ class CsvDirStorage {
     return rows.length && this.U.isLedgerHeader(rows[0]) ? rows.slice(1) : [];
   }
 
-  // gcal.csv must carry the preset | setting | value header; anything else is ignored.
-  readGCal() {
-    const rows = this.readCsv('gcal.csv') || [];
-    const header = rows.length ? rows[0].map((c) => String(c ?? '').trim().toLowerCase()) : [];
-    return GCAL_HEADER.every((h, i) => header[i] === h) ? rows.slice(1) : [];
+  // Rows below the header of a system tab's file (TAB_FILES, else <name>.csv); [] without the file or its header.
+  readTabRows(name, header) {
+    const rows = this.readCsv(TAB_FILES[name] ?? `${name}.csv`) || [];
+    const first = rows.length ? rows[0].map((c) => String(c ?? '').trim().toLowerCase()) : [];
+    return header.every((h, i) => first[i] === h) ? rows.slice(1) : [];
   }
 
   readNow() {

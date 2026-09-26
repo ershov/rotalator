@@ -9,13 +9,16 @@ const DEFAULT_ROTATION = 'Rotation 1 Primary';
 const USAGE = `usage:
   rotalator run DIR [--now YYYY-MM-DDTHH:MM] [--rotation NAME]... [--write] [--status]
   rotalator init DIR [--rotation NAME] [--start YYYY-MM-DDTHH:MM] [--history-from YYYY-MM-DD] [--now YYYY-MM-DDTHH:MM]
+  rotalator export DIR [--now YYYY-MM-DDTHH:MM] [--rotation NAME]... [--repair]
   rotalator help
 
-run   regenerates the ledgers in DIR and prints them as CSV; --write saves them, --status appends the status tables.
-      --rotation limits regeneration to the named rotations; the others are read but left untouched.
-init  creates <NAME>.csv (default "Rotation 1 Primary") from the rotation template, plus holidays.csv and now.txt when missing.
-      --start dates the set and team rows (default: the most recent Monday 00:00 before now);
-      --history-from adds empty shift rows on the grid from that date up to --start.
+run     regenerates the ledgers in DIR and prints them as CSV; --write saves them, --status appends the status tables.
+        --rotation limits regeneration to the named rotations; the others are read but left untouched.
+init    creates <NAME>.csv (default "Rotation 1 Primary") from the rotation template, plus holidays.csv and now.txt when missing.
+        --start dates the set and team rows (default: the most recent Monday 00:00 before now);
+        --history-from adds empty shift rows on the grid from that date up to --start.
+export  prints the Google Calendar export plan (GCal extension) for the rotations with a cal setting, from gcal.csv;
+        nothing is written and no calendar is touched. --repair plans every shift from the first one.
 `;
 
 function ledgerCsv(rows) {
@@ -42,6 +45,32 @@ function textTable(rows) {
 function statusText(status) {
   const U = load();
   return textTable(U.statusRowsVertical(status).rows) + '\n' + textTable(U.shiftsRows(status).rows);
+}
+
+// Plan of the GCal extension as text: one block per rotation, the events table, then the errors.
+function planText(plan) {
+  const rows = [];
+  plan.rotations.forEach((r) => {
+    rows.push(['rotation', r.rotation], ['presets', r.presets.join(', ')], ['window', `${r.from} to ${r.to}`], ['shifts', String(r.shifts)], ['skipped', String(r.skipped)], []);
+  });
+  if (plan.events.length) {
+    rows.push(['key', 'preset', 'calendar', 'start', 'end', 'all day', 'title', 'guests', 'reminders']);
+    plan.events.forEach((e) => rows.push([e.key, e.preset, e.calendar, e.start, e.end, e.allDay ? 'yes' : 'no', e.title, e.guests.join(' '), e.reminders.join(' ')]));
+    rows.push([]);
+  }
+  if (plan.errors.length) {
+    rows.push(['error', 'where', 'message']);
+    plan.errors.forEach((e) => rows.push(['', e.where, e.message]));
+  }
+  return textTable(rows);
+}
+
+// Runs the scheduler without writing (the GCal export hook is left to the caller) and plans the export.
+function exportDir(dir, nowText, { rotations = null, repair = false } = {}) {
+  const U = load(['GCal']);
+  const result = runDir(dir, nowText, { rotations, export: false });
+  if (result.errors.length) return { result, plan: null };
+  return { result, plan: structuredClone(U.gcalPlan(result, result.ext.gcal, { repair, rotations: rotations || undefined })) };
 }
 
 function runDir(dir, nowText, options = {}) {
@@ -123,6 +152,20 @@ function parseRunArgs(argv) {
   return args;
 }
 
+function parseExportArgs(argv) {
+  const args = { dir: null, now: null, rotations: [], repair: false };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--now') args.now = takeValue(argv, i++, a);
+    else if (a === '--rotation') args.rotations.push(takeValue(argv, i++, a));
+    else if (a === '--repair') args.repair = true;
+    else if (!a.startsWith('--') && args.dir === null) args.dir = a;
+    else throw new Error(`unknown argument "${a}"`);
+  }
+  if (!args.dir) throw new Error(USAGE);
+  return args;
+}
+
 function parseInitArgs(argv) {
   const args = { dir: null, rotation: DEFAULT_ROTATION, start: null, historyFrom: null, now: null };
   for (let i = 0; i < argv.length; i++) {
@@ -150,6 +193,15 @@ function mainRun(argv) {
   return result.errors.length ? 1 : 0;
 }
 
+function mainExport(argv) {
+  const args = parseExportArgs(argv);
+  const { result, plan } = exportDir(args.dir, args.now, { rotations: args.rotations.length ? args.rotations : null, repair: args.repair });
+  if (!plan) { result.errors.forEach((e) => process.stderr.write(e + '\n')); return 1; }
+  process.stdout.write(planText(plan));
+  plan.errors.forEach((e) => process.stderr.write(`${e.where}: ${e.message}\n`));
+  return plan.errors.length ? 1 : 0;
+}
+
 function mainInit(argv) {
   const args = parseInitArgs(argv);
   const result = initDir(args.dir, args);
@@ -163,6 +215,7 @@ function main(argv) {
     const [command, ...rest] = argv;
     if (command === 'run') return mainRun(rest);
     if (command === 'init') return mainInit(rest);
+    if (command === 'export') return mainExport(rest);
     if (command === undefined || command === 'help' || command === '--help' || command === '-h') {
       process.stdout.write(USAGE);
       return command === undefined ? 1 : 0;
@@ -177,4 +230,4 @@ function main(argv) {
 
 if (require.main === module) process.exitCode = main(process.argv.slice(2));
 
-module.exports = { runStorage, runDir, ledgerCsv, statusText, initDir };
+module.exports = { runStorage, runDir, ledgerCsv, statusText, initDir, exportDir, planText, main };

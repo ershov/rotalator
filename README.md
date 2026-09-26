@@ -296,7 +296,8 @@ INSTALL.md).
   exists, and the status tabs. The active tab must be a rotation tab.
 - **Install nightly trigger** schedules Run daily; **Remove trigger**
   deletes it.
-- Installed extensions append their own items below these.
+- Installed extensions append their own items below these; the Google
+  Calendar extension adds its re-export and clean items (see below).
 
 INSTALL.md has the step by step.
 
@@ -525,13 +526,42 @@ stay as written and are reported in `#Status`.
 
 Then `set cal=team personal` in the rotation (or in `#Global` for every
 rotation). Each run exports the shifts from the stored snapshot to the
-horizon end: new shifts are created, changed ones updated, events of shifts
-that no longer exist deleted; events the script did not create are never
-touched, and shifts with nobody get no event. The `#Status` tab gets a
-`Calendar` block with the counts per rotation and preset and any calendar
-errors, which never stop the ledger run. Without the extension the `cal`
-setting is accepted and `#Status` warns that the calendar extension is not
-installed.
+horizon end: new shifts are created, changed ones updated (only the fields
+that differ, no new invitations), events of shifts that no longer exist
+deleted; events the script did not create are never touched, and shifts with
+nobody get no event. A dry run computes the counts without touching the
+calendars. The `#Status` tab gets a `Calendar` block with the counts per
+rotation and preset (`create`, `update`, `delete`, `unchanged`, `skipped`)
+and any calendar errors, which never stop the ledger run. Without the
+extension the `cal` setting is accepted and `#Status` warns that the
+calendar extension is not installed.
+
+Setting it up:
+
+1. Install `GCal.js` next to the core and authorise the calendar access
+   (INSTALL.md). **Set Up Spreadsheet** then creates the `#GCal` tab with
+   its header and help rows, and `#Help` gains a `CALENDAR` section.
+2. Create or pick the calendars and share each one with write access with
+   every account that runs Rotalator: the people who click **Run** and the
+   account that installed the nightly trigger.
+3. Fill `#GCal` with a preset per calendar and put `cal=<presets>` in a `set`
+   row of each rotation to export, or in `#Global`.
+
+Menu items of the extension, below the core ones:
+
+- **Re-export calendar** and **Re-export calendar: current rotation** export
+  every shift from the first one, repairing a calendar that was cleaned or
+  edited by hand. They run the scheduler without writing the ledgers, so run
+  first if the ledger changed.
+- **Clean calendar: current rotation** deletes the events Rotalator created
+  for the active tab's rotation in its presets' calendars.
+- **Clean calendar: selected preset** deletes every Rotalator event in the
+  calendar of the preset on the selected row of `#GCal` (a setting row counts
+  for the preset above it), within a year back and three years ahead.
+
+Events carry the tag `rotalator=<rotation>|<start>`; that is how the script
+finds them again, and events without it are never touched. Two presets of one
+rotation must point at different calendars.
 
 ## Command line
 
@@ -560,6 +590,12 @@ rotations: the others are read so that relations still see their shifts, but
 they are neither printed nor written, and the `tabs` block of the status shows
 which rotations were regenerated. An unknown name stops the run with nothing
 written. Errors go to stderr and set exit code 1.
+
+`export` runs the scheduler without writing and prints the Google Calendar
+export plan of the rotations with a `cal` setting, from `gcal.csv`: the
+window, the count of shifts and skipped nobody shifts per rotation, one line
+per event and preset, then the preset errors. `--repair` plans every shift
+from the first one. No calendar is touched in Node.
 
 `init` creates `NAME.csv` (default `Rotation 1 Primary`) from the rotation
 template, plus `holidays.csv` (with the sample `New Year` row) and `now.txt`
