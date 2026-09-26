@@ -33,6 +33,7 @@ next      dave              from 2026-09-14T09:00
   baseline       median                                              default
   precredit      1ts                                                 default
   autopin        a:0                                                 rotation
+  cal                                                                default
   note           a set row at 2026-09-16T09:00 changes these values
 
 start             primary

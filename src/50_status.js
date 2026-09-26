@@ -204,12 +204,19 @@ function relationsMatrix(status) {
 
 // Rows of the #Status tab plus presentation metadata: headerRows and dividerRows are row indexes for the
 // adapter to format. status.now, status.mode and status.tabs are set by the runner. block: horizontalBlock
-// for the spreadsheet, verticalBlock for the CLI.
+// for the spreadsheet, verticalBlock for the CLI. Extension blocks (<prefix>_status(status) returning
+// { rows, headerRows }) follow the frame, each after a blank row, their rows cut to STATUS_WIDTH; a hook that
+// throws adds an entry to the errors block instead.
 function statusRowsWith(status, block) {
   var rows = [];
   var headerRows = [];
-  var push = function (cells) { rows.push(padStatusRow(cells)); };
+  var push = function (cells) { rows.push(padStatusRow(cells.slice(0, STATUS_WIDTH))); };
   var header = function (cells) { headerRows.push(rows.length); push(cells); };
+  var errors = status.errors.slice();
+  var blocks = [];
+  callExtensionHooks('status', [status], function (h, e) { errors.push(extensionError(h, e)); }).forEach(function (r) {
+    if (r.value && Array.isArray(r.value.rows) && r.value.rows.length) blocks.push(r.value);
+  });
   header(['Rotalator', status.mode || '', status.now || '']);
   if (status.tabs) {
     push([]);
@@ -235,15 +242,19 @@ function statusRowsWith(status, block) {
     header(['rotation', 'start', 'message']);
     status.warnings.forEach(function (w) { push([w.rotation, statusInstant(w.start), w.message]); });
   }
-  if (status.errors.length) {
+  if (errors.length) {
     push([]);
     header(['errors']);
     header(['rotation', 'where', 'message']);
-    status.errors.forEach(function (e) {
+    errors.forEach(function (e) {
       var where = e.rowIndex !== null && e.rowIndex !== undefined ? 'row ' + e.rowIndex : statusInstant(e.start);
       push([e.rotation, where, e.message]);
     });
   }
+  blocks.forEach(function (table) {
+    push([]);
+    table.rows.forEach(function (row, i) { if ((table.headerRows || [0]).indexOf(i) >= 0) header(row); else push(row); });
+  });
   return { rows: rows, headerRows: headerRows, dividerRows: [] };
 }
 

@@ -9,7 +9,10 @@ the appendix for people who prefer to type everything themselves.
 `dist/Code.js` and `dist/appsscript.json` are committed and ready to deploy.
 They are produced by `./build.sh`, which concatenates `src/*.js` and copies
 `src/appsscript.json`; run it only after changing `src/` (the tests check
-that `dist/` matches `src/`). The manifest is:
+that `dist/` matches `src/`). Optional extensions are separate bundles,
+`dist/<Name>.js` built from `src/ext/<Name>/`; the core works without them,
+and an extension is installed by adding its file next to `Code.js` (sections
+2 and 3). The manifest is:
 
 ```json
 {
@@ -63,8 +66,13 @@ Push the bundle. `-f` accepts the manifest change without a prompt.
 clasp push -f
 ```
 
+`clasp push` uploads every file in `dist/`, extension bundles included. To
+leave an extension out, list its file in a `.claspignore` in `dist/` (one
+`<Name>.js` per line) before pushing; to add one later, remove the line and
+push again.
+
 `dist/.clasp.json` is ignored by git and stays in place between builds
-because `build.sh` only rewrites `Code.js` and `appsscript.json`.
+because `build.sh` only rewrites the bundles and the manifest.
 
 Reload the spreadsheet and continue with section 4. If no **Rotalator** menu
 appears, open **Extensions > Apps Script**, select `Setup` (the first
@@ -80,6 +88,10 @@ script, then reload.
 3. Back in the editor, replace the content of `Code.gs` with `dist/Code.js`
    and the content of `appsscript.json` with `dist/appsscript.json`, time zone
    adjusted. Save.
+   Optional: for each extension you want, add a script file (**+ > Script**)
+   named after the bundle, `<Name>.gs`, and paste `dist/<Name>.js` into it.
+   The core finds the extension by its functions; leaving the file out
+   leaves the extension out.
 4. In the function dropdown of the toolbar select `Setup` (the first function
    in the list) and click **Run** once. It installs the menu and triggers the
    authorisation prompt; grant the permissions (spreadsheet access and
@@ -96,6 +108,8 @@ script, then reload.
      year and `#Global` its help rows and a `set` row of defaults;
    - creates a first rotation tab `Rotation 1 Primary` from the template when
      the spreadsheet has no rotation yet;
+   - lets each installed extension create its own tabs (`#GCal` for the
+     calendar extension);
    - rewrites the `#Help` tab (plain text: columns, row types, settings,
      intervals, relations, menu) and keeps it as the last tab;
    - on every rotation, `#Holidays`, `#Global` and `#All shifts` tab: Roboto

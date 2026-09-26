@@ -282,6 +282,7 @@ var GLOBAL_TAB = '#Global';
 var STATUS_TAB = '#Status';
 var ALL_SHIFTS_TAB = '#All shifts';
 var HELP_TAB = '#Help';
+var GCAL_TAB = '#GCal';
 var PREVIEW_TAB_PREFIX = '#Preview ';
 
 function isSystemTab(name) {
@@ -295,7 +296,7 @@ function previewTabName(name) {
 
 function isKnownSystemTab(name) {
   return name === HOLIDAYS_TAB || name === GLOBAL_TAB || name === STATUS_TAB || name === ALL_SHIFTS_TAB ||
-    name === HELP_TAB || name.indexOf(PREVIEW_TAB_PREFIX) === 0;
+    name === HELP_TAB || name === GCAL_TAB || name.indexOf(PREVIEW_TAB_PREFIX) === 0;
 }
 
 // order: same-instant sort (DESIGN 3.6). what: item grammar of the column (see validateWhat).
@@ -391,6 +392,14 @@ var INTERVAL_HINT = 'an interval like 2sl, 1ts, 3d or 0';
 var POSITIVE_INTERVAL_HINT = 'a positive interval like 2sl, 1ts or 3d';
 var AUTOPIN_HINT = 'false, or an interval relative to now like 0, 2w, -2w or 1sl, optionally marker:interval';
 var AUTOPIN_MARKER = 'a';
+var CAL_HINT = 'space-separated preset names of letters, digits, - and _';
+
+// cal (DESIGN 3.5): preset names for the calendar extension, kept verbatim with single spaces between them.
+function parseCalendarPresets(text) {
+  var names = text.trim().split(/\s+/).filter(Boolean);
+  var valid = names.every(function (n) { return /^[A-Za-z0-9_-]+$/.test(n); });
+  return names.length && valid ? names.join(' ') : null;
+}
 
 // autopin (DESIGN 3.5): false, or [marker:]interval where the interval may carry a sign and the marker is
 // everything before the last colon. Returns false, { marker, sign, interval, text } or null; text keeps the
@@ -431,6 +440,7 @@ var SETTINGS = {
   baseline:      { parse: parseBaselineKeyword,    def: 'median',             bare: 'default' },
   precredit:     { parse: parseInterval,           def: parseInterval('1ts'), bare: 'default', hint: INTERVAL_HINT },
   autopin:       { parse: parseAutopin,            def: parseAutopin('a:2sl'), bare: 'default', hint: AUTOPIN_HINT },
+  cal:           { parse: parseCalendarPresets,    def: '',                   bare: 'default', hint: CAL_HINT },
 };
 
 function defaultSettings() {
@@ -1900,12 +1910,19 @@ function relationsMatrix(status) {
 
 // Rows of the #Status tab plus presentation metadata: headerRows and dividerRows are row indexes for the
 // adapter to format. status.now, status.mode and status.tabs are set by the runner. block: horizontalBlock
-// for the spreadsheet, verticalBlock for the CLI.
+// for the spreadsheet, verticalBlock for the CLI. Extension blocks (<prefix>_status(status) returning
+// { rows, headerRows }) follow the frame, each after a blank row, their rows cut to STATUS_WIDTH; a hook that
+// throws adds an entry to the errors block instead.
 function statusRowsWith(status, block) {
   var rows = [];
   var headerRows = [];
-  var push = function (cells) { rows.push(padStatusRow(cells)); };
+  var push = function (cells) { rows.push(padStatusRow(cells.slice(0, STATUS_WIDTH))); };
   var header = function (cells) { headerRows.push(rows.length); push(cells); };
+  var errors = status.errors.slice();
+  var blocks = [];
+  callExtensionHooks('status', [status], function (h, e) { errors.push(extensionError(h, e)); }).forEach(function (r) {
+    if (r.value && Array.isArray(r.value.rows) && r.value.rows.length) blocks.push(r.value);
+  });
   header(['Rotalator', status.mode || '', status.now || '']);
   if (status.tabs) {
     push([]);
@@ -1931,15 +1948,19 @@ function statusRowsWith(status, block) {
     header(['rotation', 'start', 'message']);
     status.warnings.forEach(function (w) { push([w.rotation, statusInstant(w.start), w.message]); });
   }
-  if (status.errors.length) {
+  if (errors.length) {
     push([]);
     header(['errors']);
     header(['rotation', 'where', 'message']);
-    status.errors.forEach(function (e) {
+    errors.forEach(function (e) {
       var where = e.rowIndex !== null && e.rowIndex !== undefined ? 'row ' + e.rowIndex : statusInstant(e.start);
       push([e.rotation, where, e.message]);
     });
   }
+  blocks.forEach(function (table) {
+    push([]);
+    table.rows.forEach(function (row, i) { if ((table.headerRows || [0]).indexOf(i) >= 0) header(row); else push(row); });
+  });
   return { rows: rows, headerRows: headerRows, dividerRows: [] };
 }
 
@@ -2247,9 +2268,10 @@ function recentMonday(t) {
   return dayStart(day - (weekdayOfDay(day) + 6) % 7);
 }
 
-// Every setting spelled out at its default: period=1w, the rest key=default; anchor is left to the dated row.
+// Every setting spelled out at its default: period=1w, the rest key=default; anchor is left to the dated row
+// and a key with an empty default (cal) has nothing to spell.
 function templateSetWhat() {
-  return Object.keys(SETTINGS).filter(function (key) { return key !== 'anchor'; }).map(function (key) {
+  return Object.keys(SETTINGS).filter(function (key) { return key !== 'anchor' && SETTINGS[key].def !== ''; }).map(function (key) {
     if (key === 'period') return 'period=' + TEMPLATE_PERIOD;
     var def = SETTINGS[key].def;
     return key + '=' + (def !== null && typeof def === 'object' ? def.text : String(def));
@@ -2315,6 +2337,7 @@ var HELP_TEXT = [
   'baseline=median: score given to a joiner: median, mean, min or max of the roster',
   'precredit=1ts: how far ahead pinned shifts are credited before turns are decided',
   'autopin=a:2sl: after each run, shifts starting up to now + this interval get the pin marker a (false: never; a:2w sets the marker); pinned shifts are kept, so this fixes the near future',
+  'cal: space-separated names of calendar presets from the #GCal tab (cal=team backup); exported by the GCal extension, a warning in #Status when it is not installed',
   '',
   'INTERVALS (duration, horizon, min_distance, precredit, tolerance):',
   'clock units w d h m; one token may be fractional (1.5w, 0.5d), integer tokens chain from large to small (1d12h)',
@@ -2340,10 +2363,21 @@ var HELP_TEXT = [
   'MORE: README.md (features and everyday tasks) and INSTALL.md (setup, deployment, troubleshooting) in the Rotalator repository.',
 ];
 
-// 0-based indexes of the #Help lines written bold: the first line and every heading, a line ending with ':'.
-function helpHeadingRows() {
+// The #Help lines: HELP_TEXT followed by the lines each installed extension returns from <prefix>_help(lines)
+// (DESIGN 8, Extensions); a hook that throws or returns no array adds nothing.
+function helpText() {
+  var lines = HELP_TEXT.slice();
+  callExtensionHooks('help', [HELP_TEXT.slice()]).forEach(function (r) {
+    if (Array.isArray(r.value)) lines = lines.concat(r.value.map(String));
+  });
+  return lines;
+}
+
+// 0-based indexes of the help lines (HELP_TEXT by default) written bold: the first line and every heading, a
+// line ending with ':'.
+function helpHeadingRows(lines) {
   var out = [];
-  HELP_TEXT.forEach(function (line, i) { if (i === 0 || /:$/.test(line)) out.push(i); });
+  (lines || HELP_TEXT).forEach(function (line, i) { if (i === 0 || /:$/.test(line)) out.push(i); });
   return out;
 }
 
@@ -2479,6 +2513,72 @@ function fillShiftsGridCells(selectedCells, tabCells, holidayTexts, globalCells)
   return { rows: out.map(function (r) { return r.cells || rowToArray(r); }) };
 }
 
+// ---- 75_extensions.js ----
+// Optional extensions (DESIGN 8, Extensions). An extension is a separate bundle dist/<Name>.js built from
+// src/ext/<Name>/*.js; it defines global functions <prefix>_<hook> where the prefix is the lower-case name.
+// The core never registers anything: hooks are probed with typeof when they are called, so an extension that
+// is not installed is simply skipped and file load order never matters.
+var EXTENSIONS = ['GCal'];
+var EXTENSION_HOOKS = ['menu', 'setup', 'help', 'readInputs', 'afterRun', 'status'];
+
+function extensionPrefix(name) {
+  return name.toLowerCase();
+}
+
+function extensionHookName(name, hook) {
+  return extensionPrefix(name) + '_' + hook;
+}
+
+// The hook function of one extension, or null. globalThis is the shared script scope in Apps Script and in
+// the Node loader alike.
+function extensionHook(name, hook) {
+  var fn = globalThis[extensionHookName(name, hook)];
+  return typeof fn === 'function' ? fn : null;
+}
+
+// [{ name, prefix, fn }] for every extension defining the hook, in EXTENSIONS order.
+function extensionHooks(hook) {
+  var out = [];
+  EXTENSIONS.forEach(function (name) {
+    var fn = extensionHook(name, hook);
+    if (fn) out.push({ name: name, prefix: extensionPrefix(name), fn: fn });
+  });
+  return out;
+}
+
+// An extension counts as installed when any of its hooks is defined.
+function extensionInstalled(name) {
+  return EXTENSION_HOOKS.some(function (hook) { return extensionHook(name, hook) !== null; });
+}
+
+function extensionErrorMessage(h, e) {
+  return h.name + ' extension: ' + (e && e.message ? e.message : String(e));
+}
+
+// Status error entry for a failed hook: shows in the errors block like a ledger error.
+function extensionError(h, e) {
+  return { rotation: h.name, rowIndex: null, start: null, message: extensionErrorMessage(h, e) };
+}
+
+function logExtensionError(h, e) {
+  if (typeof console !== 'undefined') console.log(extensionErrorMessage(h, e));
+}
+
+// Calls <prefix>_<hook> of every listed extension with args, in order; returns [{ name, prefix, value }] for
+// the calls that returned. An exception in a hook never reaches the core: onError(h, error) is called (a
+// console line by default) and that extension is skipped.
+function callExtensionHooks(hook, args, onError) {
+  var out = [];
+  extensionHooks(hook).forEach(function (h) {
+    try {
+      out.push({ name: h.name, prefix: h.prefix, value: h.fn.apply(null, args) });
+    } catch (e) {
+      (onError || logExtensionError)(h, e);
+    }
+  });
+  return out;
+}
+
 // ---- 80_runner.js ----
 function isBlankRow(cells) {
   return cells.every(function (c) { return cellText(c) === ''; });
@@ -2496,13 +2596,35 @@ function rowsFromCells(cells) {
     .filter(Boolean);
 }
 
+// Warning per rotation whose cal setting at the status instant names presets while no calendar extension is
+// installed to export them (DESIGN 8, Extensions).
+function missingCalendarWarnings(status) {
+  var out = [];
+  if (extensionInstalled('GCal')) return out;
+  status.rotations.forEach(function (rot) {
+    var cal = rot.settings.values.find(function (s) { return s.key === 'cal'; });
+    if (cal && cal.value !== '') out.push({ rotation: rot.name, start: null, message: 'calendar extension not installed; cal=' + cal.value + ' has no effect' });
+  });
+  return out;
+}
+
 // Read, advance, regenerate and optionally write back through a Storage (DESIGN 8).
 // options: write, mode, rotations (names to regenerate; the others are read but not written).
-// Returns { ledgers, global, errors, status }; ledgers holds only the regenerated ones and global is null when
-// there is no #Global tab. A bad now, holiday cell or rotation name stops the run with nothing written.
+// Returns { ledgers, global, errors, status, ext }; ledgers holds only the regenerated ones and global is null
+// when there is no #Global tab. A bad now, holiday cell or rotation name stops the run with nothing written.
+// Extension hooks: <prefix>_readInputs(storage) before regenerate, its value kept in ext[prefix];
+// <prefix>_afterRun(result, storage, options) when the run had no errors, after the ledgers are written and
+// before the status tabs, so what it records in result.status reaches <prefix>_status. A hook that throws
+// never fails the run: the failure is an error of the run and of the status (errors block), and afterRun is
+// skipped when readInputs failed.
 function runStorage(storage, nowText, options) {
   options = options || {};
   var errors = [];
+  var extErrors = [];
+  var onExtensionError = function (h, e) { extErrors.push(extensionError(h, e)); };
+  var extMessages = function () { return extErrors.map(function (e) { return e.message; }); };
+  var ext = {};
+  callExtensionHooks('readInputs', [storage], onExtensionError).forEach(function (r) { ext[r.prefix] = r.value; });
   var ledgers = storage.readLedgers();
   var only = options.rotations || null;
   (only || []).forEach(function (name) { if (!(name in ledgers)) errors.push('unknown rotation "' + name + '"'); });
@@ -2517,7 +2639,7 @@ function runStorage(storage, nowText, options) {
   });
   var globalCells = storage.readGlobal();
   var ignored = storage.ignoredTabs();
-  if (errors.length) return { ledgers: ledgers, global: null, errors: errors, status: null };
+  if (errors.length) return { ledgers: ledgers, global: null, errors: errors.concat(extMessages()), status: null, ext: ext };
 
   var globalRows = rowsFromCells(globalCells);
   var globalSets = rowsOfType(globalRows, 'set');
@@ -2537,12 +2659,16 @@ function runStorage(storage, nowText, options) {
     rotations: Object.keys(ledgers), regenerated: result.regenerated ? Object.keys(out) : [],
     holidays: holidays.length, global: globalCount, ignored: ignored,
   };
+  result.status.warnings = result.status.warnings.concat(missingCalendarWarnings(result.status));
   if (options.write) {
     Object.keys(out).forEach(function (name) { storage.writeLedger(name, out[name]); });
     if (global) storage.writeGlobal(global);
-    storage.writeStatus(result.status);
   }
-  return { ledgers: out, global: global, errors: errors, status: result.status };
+  var run = { ledgers: out, global: global, errors: errors, status: result.status, ext: ext };
+  if (!errors.length && !extErrors.length) callExtensionHooks('afterRun', [run, storage, options], onExtensionError);
+  extErrors.forEach(function (e) { result.status.errors.push(e); errors.push(e.message); });
+  if (options.write) storage.writeStatus(result.status);
+  return run;
 }
 
 // ---- 90_gas.js ----
@@ -2748,8 +2874,10 @@ class SheetsStorage {
   }
 }
 
+// Core items first, then each installed extension adds its own (<prefix>_menu(menu)); a failing extension is
+// logged and the menu is installed without its items.
 function onOpen() {
-  SpreadsheetApp.getUi().createMenu('Rotalator')
+  var menu = SpreadsheetApp.getUi().createMenu('Rotalator')
     .addItem('Run', 'run')
     .addItem('Run - dry run', 'dryRun')
     .addItem('Run for current rotation', 'runCurrent')
@@ -2760,8 +2888,9 @@ function onOpen() {
     .addItem('Fill Shifts Grid', 'fillShiftsGrid')
     .addSeparator()
     .addItem('Install nightly trigger', 'installTrigger')
-    .addItem('Remove trigger', 'removeTrigger')
-    .addToUi();
+    .addItem('Remove trigger', 'removeTrigger');
+  callExtensionHooks('menu', [menu], logExtensionError);
+  menu.addToUi();
 }
 
 // On errors the ledgers are still written: rows unchanged plus error rows (DESIGN 6).
@@ -2855,10 +2984,11 @@ function writeHeaderRow(sheet, header) {
   writeTextCells(sheet, 1, [header]);
 }
 
-// Header, column widths and notes per tab kind; null for tabs the script does not shape: unknown '#' tabs
-// and non-empty tabs without the ledger header.
+// Header, column widths and notes per tab kind; null for tabs the script does not shape: unknown '#' tabs,
+// non-empty tabs without the ledger header and #GCal, which the calendar extension owns.
 function tabLayout(sheet) {
   var name = sheet.getName();
+  if (name === GCAL_TAB) return null;
   if (name === HOLIDAYS_TAB) return { header: HOLIDAYS_HEADER, widths: HOLIDAYS_COLUMN_WIDTHS, notes: true, freeze: true };
   if (name === ALL_SHIFTS_TAB) return { header: null, widths: null, notes: false, freeze: false };
   if (name === STATUS_TAB) return { header: null, widths: STATUS_COLUMN_WIDTHS, notes: false, freeze: false };
@@ -2936,15 +3066,16 @@ function orderGlobalBeforeHolidays(ss) {
   if (global && holidays && holidays.getIndex() < global.getIndex()) moveTab(ss, global, holidays.getIndex());
 }
 
-// #Help: HELP_TEXT in column A, first line and headings bold, moved to the last position; the active tab is kept.
+// #Help: helpText() in column A, first line and headings bold, moved to the last position; the active tab is kept.
 function writeHelpTab(ss) {
   var sheet = ss.getSheetByName(HELP_TAB) || ss.insertSheet(HELP_TAB);
   sheet.clear();
-  var range = sheet.getRange(1, 1, HELP_TEXT.length, 1);
+  var lines = helpText();
+  var range = sheet.getRange(1, 1, lines.length, 1);
   range.setNumberFormat('@');
   range.setWrap(true);
-  range.setValues(HELP_TEXT.map(function (line) { return [line]; }));
-  helpHeadingRows().forEach(function (i) { sheet.getRange(i + 1, 1).setFontWeight('bold'); });
+  range.setValues(lines.map(function (line) { return [line]; }));
+  helpHeadingRows(lines).forEach(function (i) { sheet.getRange(i + 1, 1).setFontWeight('bold'); });
   moveTab(ss, sheet, ss.getNumSheets());
   return sheet;
 }
@@ -2981,8 +3112,9 @@ function ensureTemplateTab(ss, name, storage) {
   return sheet;
 }
 
-// Menu: Set Up Spreadsheet. Creates missing system tabs, a first rotation when there is none, and formats
-// every tab.
+// Menu: Set Up Spreadsheet. Creates missing system tabs, a first rotation when there is none, lets each
+// installed extension add its tabs (<prefix>_setup(ss); a failure is logged and named in the toast), and
+// formats every tab.
 function setupSpreadsheet() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var storage = new SheetsStorage(ss);
@@ -2995,9 +3127,11 @@ function setupSpreadsheet() {
   ensureTab(ss, STATUS_TAB, null);
   ensureTab(ss, ALL_SHIFTS_TAB, SHIFTS_HEADER);
   orderGlobalBeforeHolidays(ss);
+  var failed = [];
+  callExtensionHooks('setup', [ss], function (h, e) { logExtensionError(h, e); failed.push(extensionErrorMessage(h, e)); });
   writeHelpTab(ss);
   ss.getSheets().forEach(formatTab);
-  toast('Tabs, formatting and #Help are in place');
+  toast('Tabs, formatting and #Help are in place' + (failed.length ? '; ' + failed.join('; ') : ''));
 }
 
 // Menu: Set Up Tab. Fills the active tab according to its name; never overwrites content.
@@ -3006,6 +3140,7 @@ function setupTab() {
   var sheet = ss.getActiveSheet();
   var name = sheet.getName();
   if (isSystemTab(name) && !isKnownSystemTab(name)) { toast('"' + name + '" starts with # and is not a system tab; rename it to use it as a rotation'); return; }
+  if (name === GCAL_TAB) { toast('"' + name + '" belongs to the GCal extension; use Set Up Spreadsheet with the extension installed'); return; }
   if (name === STATUS_TAB || name === ALL_SHIFTS_TAB || name === HELP_TAB || name.indexOf(PREVIEW_TAB_PREFIX) === 0) { toast('"' + name + '" is written by the script; nothing to fill in'); return; }
   if (!isEmptySheet(sheet)) { toast('"' + name + '" is not empty; Set Up Tab only fills empty tabs'); return; }
   writeTemplate(sheet, templateFor(name, new SheetsStorage(ss)));

@@ -200,8 +200,10 @@ class SheetsStorage {
   }
 }
 
+// Core items first, then each installed extension adds its own (<prefix>_menu(menu)); a failing extension is
+// logged and the menu is installed without its items.
 function onOpen() {
-  SpreadsheetApp.getUi().createMenu('Rotalator')
+  var menu = SpreadsheetApp.getUi().createMenu('Rotalator')
     .addItem('Run', 'run')
     .addItem('Run - dry run', 'dryRun')
     .addItem('Run for current rotation', 'runCurrent')
@@ -212,8 +214,9 @@ function onOpen() {
     .addItem('Fill Shifts Grid', 'fillShiftsGrid')
     .addSeparator()
     .addItem('Install nightly trigger', 'installTrigger')
-    .addItem('Remove trigger', 'removeTrigger')
-    .addToUi();
+    .addItem('Remove trigger', 'removeTrigger');
+  callExtensionHooks('menu', [menu], logExtensionError);
+  menu.addToUi();
 }
 
 // On errors the ledgers are still written: rows unchanged plus error rows (DESIGN 6).
@@ -307,10 +310,11 @@ function writeHeaderRow(sheet, header) {
   writeTextCells(sheet, 1, [header]);
 }
 
-// Header, column widths and notes per tab kind; null for tabs the script does not shape: unknown '#' tabs
-// and non-empty tabs without the ledger header.
+// Header, column widths and notes per tab kind; null for tabs the script does not shape: unknown '#' tabs,
+// non-empty tabs without the ledger header and #GCal, which the calendar extension owns.
 function tabLayout(sheet) {
   var name = sheet.getName();
+  if (name === GCAL_TAB) return null;
   if (name === HOLIDAYS_TAB) return { header: HOLIDAYS_HEADER, widths: HOLIDAYS_COLUMN_WIDTHS, notes: true, freeze: true };
   if (name === ALL_SHIFTS_TAB) return { header: null, widths: null, notes: false, freeze: false };
   if (name === STATUS_TAB) return { header: null, widths: STATUS_COLUMN_WIDTHS, notes: false, freeze: false };
@@ -388,15 +392,16 @@ function orderGlobalBeforeHolidays(ss) {
   if (global && holidays && holidays.getIndex() < global.getIndex()) moveTab(ss, global, holidays.getIndex());
 }
 
-// #Help: HELP_TEXT in column A, first line and headings bold, moved to the last position; the active tab is kept.
+// #Help: helpText() in column A, first line and headings bold, moved to the last position; the active tab is kept.
 function writeHelpTab(ss) {
   var sheet = ss.getSheetByName(HELP_TAB) || ss.insertSheet(HELP_TAB);
   sheet.clear();
-  var range = sheet.getRange(1, 1, HELP_TEXT.length, 1);
+  var lines = helpText();
+  var range = sheet.getRange(1, 1, lines.length, 1);
   range.setNumberFormat('@');
   range.setWrap(true);
-  range.setValues(HELP_TEXT.map(function (line) { return [line]; }));
-  helpHeadingRows().forEach(function (i) { sheet.getRange(i + 1, 1).setFontWeight('bold'); });
+  range.setValues(lines.map(function (line) { return [line]; }));
+  helpHeadingRows(lines).forEach(function (i) { sheet.getRange(i + 1, 1).setFontWeight('bold'); });
   moveTab(ss, sheet, ss.getNumSheets());
   return sheet;
 }
@@ -433,8 +438,9 @@ function ensureTemplateTab(ss, name, storage) {
   return sheet;
 }
 
-// Menu: Set Up Spreadsheet. Creates missing system tabs, a first rotation when there is none, and formats
-// every tab.
+// Menu: Set Up Spreadsheet. Creates missing system tabs, a first rotation when there is none, lets each
+// installed extension add its tabs (<prefix>_setup(ss); a failure is logged and named in the toast), and
+// formats every tab.
 function setupSpreadsheet() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var storage = new SheetsStorage(ss);
@@ -447,9 +453,11 @@ function setupSpreadsheet() {
   ensureTab(ss, STATUS_TAB, null);
   ensureTab(ss, ALL_SHIFTS_TAB, SHIFTS_HEADER);
   orderGlobalBeforeHolidays(ss);
+  var failed = [];
+  callExtensionHooks('setup', [ss], function (h, e) { logExtensionError(h, e); failed.push(extensionErrorMessage(h, e)); });
   writeHelpTab(ss);
   ss.getSheets().forEach(formatTab);
-  toast('Tabs, formatting and #Help are in place');
+  toast('Tabs, formatting and #Help are in place' + (failed.length ? '; ' + failed.join('; ') : ''));
 }
 
 // Menu: Set Up Tab. Fills the active tab according to its name; never overwrites content.
@@ -458,6 +466,7 @@ function setupTab() {
   var sheet = ss.getActiveSheet();
   var name = sheet.getName();
   if (isSystemTab(name) && !isKnownSystemTab(name)) { toast('"' + name + '" starts with # and is not a system tab; rename it to use it as a rotation'); return; }
+  if (name === GCAL_TAB) { toast('"' + name + '" belongs to the GCal extension; use Set Up Spreadsheet with the extension installed'); return; }
   if (name === STATUS_TAB || name === ALL_SHIFTS_TAB || name === HELP_TAB || name.indexOf(PREVIEW_TAB_PREFIX) === 0) { toast('"' + name + '" is written by the script; nothing to fill in'); return; }
   if (!isEmptySheet(sheet)) { toast('"' + name + '" is not empty; Set Up Tab only fills empty tabs'); return; }
   writeTemplate(sheet, templateFor(name, new SheetsStorage(ss)));

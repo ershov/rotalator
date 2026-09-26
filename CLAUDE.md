@@ -5,6 +5,9 @@
   functions, destructuring, optional chaining and `??` are fine. No
   `import`/`export`, no `#private` fields, no static class fields, no
   top-level code that references another file. Files share one global scope.
+  Extension files under `src/ext/<Name>/` follow the same rules; the core
+  reaches an extension only through `<prefix>_<hook>` functions probed at
+  call time (DESIGN 8, Extensions), never the other way round.
 - Zero dependencies, runtime or dev. No `package.json`, no `npm install`.
   Tests use `node --test` (Node 24). Any new dependency needs the owner's
   explicit approval.

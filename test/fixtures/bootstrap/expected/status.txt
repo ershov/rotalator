@@ -33,6 +33,7 @@ next      alice             from 2026-06-01T09:00
   baseline       median                                              default
   precredit      1ts                                                 default
   autopin        a:2sl                                               default
+  cal                                                                default
   note           a set row at 2026-06-01T09:00 changes these values
 
 start             primary

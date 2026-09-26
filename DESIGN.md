@@ -25,7 +25,11 @@ Design principles: Rotalator stays a periodic, idempotent script that edits a
 spreadsheet. There is no app and no UI beyond the spreadsheet and its menu.
 Pragmatic spreadsheet conventions (a column, a row type, a tab name prefix) are
 preferred over new components, and the code has zero dependencies unless the
-owner explicitly approves one.
+owner explicitly approves one. The core is complete on its own; optional
+features (calendar export first) ship as extensions, separate bundles that
+the core probes for at call time and works without (8, Extensions). The core
+only carries what the ledger grammar needs regardless of which extensions are
+installed, such as the `cal` setting and the reserved `#GCal` tab.
 
 ## 2. Concepts
 
@@ -58,6 +62,7 @@ owner explicitly approves one.
 | `#All shifts` | script | Every shift of every rotation in one table. Fully rewritten each run. |
 | `#Preview <rotation>`, `#Preview Global` | script | Dry run output. |
 | `#Help` | script | Plain-text help, rewritten by Set Up Spreadsheet, kept as the last tab. |
+| `#GCal` | users | Calendar presets, reserved for the GCal extension (8, Extensions). The core neither reads nor shapes it. |
 
 Every tab whose name starts with `#` is a system tab and is never a rotation.
 Any other tab whose first row is the ledger header is a rotation; anything else
@@ -263,6 +268,7 @@ removed on read, so they are purely diagnostic and never accumulate. See 6.
 | baseline | median | Default for joiners: `median`, `mean`, `min`, `max`. |
 | precredit | 1ts | Interval after the snapshot within which pinned shifts are pre-credited: one full cycle by default. `0` disables. |
 | autopin | a:2sl | `false`, or a signed interval relative to `now` (`0`, `2w`, `-2w`, `1sl`, `0.5ts`), optionally `marker:interval` (`a:2w`; the marker is everything before the last colon, default `a`, so the default is spelled `a:2sl`). After the schedule step, every `shift` row starting at or before `now + autopin` whose pin cell is empty gets the marker (5.8). |
+| cal | (empty) | Space-separated names of calendar presets from `#GCal` (`cal=team backup`); a name is letters, digits, `-` and `_`, anything else is an error; single spaces on read, case kept. The core only validates and reports it: the GCal extension exports the shifts, and without it a rotation with a non-empty `cal` in force at `now` gets the `#Status` warning `calendar extension not installed`. The templates do not spell it. |
 
 A bare key restores the default in this table (`tolerance`, `tiebreak`,
 `precredit`, ...); a bare `anchor` re-anchors the grid at the row's `start`
@@ -575,7 +581,9 @@ header of all three. The CLI `--status` prints the same data vertically: the
 three groups of each rotation one after another, tables indented by one
 cell, as `statusRowsVertical` arranges them from the shared group builder. A
 warnings table follows only when there are warnings, an errors table only
-when there are errors. The `#All shifts` tab is a grid: header `start |
+when there are errors, then the block of each installed extension that
+renders one (`<prefix>_status`, 8). The `#All shifts` tab is a grid: header
+`start |
 <rotation> | ...` in tab order, one row per distinct shift start across all
 rotations, sorted; a rotation's cell holds the assignee of the shift starting
 at that instant, `-` for a nobody shift, and stays empty when that rotation
@@ -738,7 +746,8 @@ tab is the all-rotations view.
 ## 8. Code layout
 
 ```
-build.sh              bundle src/ into dist/Code.js after Setup(), copy manifest
+build.sh              dist/Code.js from src/ after Setup(), the manifest,
+                      dist/<Name>.js from each src/ext/<Name>/
 test.sh               node --test test/**/*.test.js
 src/
   00_util.js          naive datetime, durations, lists, FNV-1a, CSV
@@ -749,11 +758,14 @@ src/
   50_status.js        status data, #Status and #All shifts rows
   60_relations.js     #Global rows, pair states, sweep order, repel, attract
   70_tools.js         template rows, Fill Shifts Grid rows, header notes
+  75_extensions.js    extension names and hook probing
   80_runner.js        storage-agnostic run: read, advance, regenerate, write
   90_gas.js           Apps Script entry points and Sheets adapter
   appsscript.json     V8 runtime, time zone
+  ext/<Name>/*.js     one optional extension per directory (below)
 node/
-  load.js             evaluates src/*.js except 90_gas.js into one vm context
+  load.js             evaluates src/*.js except 90_gas.js into one vm context,
+                      plus the extensions asked for
   storage.js          in-memory and CSV directory adapters
   cli.js              run, init and help commands behind bin/rotalator
 bin/
@@ -761,7 +773,7 @@ bin/
 test/
   *.test.js           unit tests
   fixtures/<case>/    golden scenarios
-dist/                 built bundle and manifest, committed; must match src/
+dist/                 built bundles and manifest, committed; must match src/
 README.md             features from the user's point of view
 INSTALL.md            spreadsheet setup, clasp and manual deployment
 DESIGN.md             this document
@@ -772,7 +784,51 @@ Rules for `src/`: no `import`/`export`, no private `#fields`, no static class
 fields, no top-level code that references another file. Each file defines
 classes or functions on the global scope, as Apps Script requires. The numeric
 prefixes document load order and drive the bundler. Optional chaining and `??`
-are used.
+are used. Extension files under `src/ext/` follow the same rules.
+
+### Extensions
+
+The core is complete on its own. An optional feature is an extension: a
+directory `src/ext/<Name>/*.js` that `build.sh` concatenates, with the same
+separator lines as the core and without the `Setup` prelude, into
+`dist/<Name>.js`, a second file to install next to `Code.js`. The core keeps
+the fixed list `EXTENSIONS` (`GCal`) in `75_extensions.js` and knows an
+extension only by the global functions it may define, `<prefix>_<hook>`, where
+the prefix is the lower-case name (`gcal_menu`). Nothing registers at load
+time: at each call site the core asks `extensionHooks(hook)` for the
+`{ name, prefix, fn }` of every listed extension whose function exists, a
+`typeof` probe on the shared global scope at call time (Apps Script and the
+Node loader share one scope, and `typeof` on an undeclared name does not
+throw), so file load order never matters and a missing hook is skipped.
+`callExtensionHooks(hook, args, onError)` calls them in order and returns the
+values of the calls that returned; `extensionInstalled(name)` is true when
+any hook is defined. An extension error never fails the core: an exception in
+a hook is caught, that extension is skipped, and the failure is reported as
+`<Name> extension: <message>`, as an error of the run and a row of the
+`#Status` errors block for `readInputs`, `afterRun` and `status`, as a console
+line for `menu` and `help`, and as a console line plus a mention in the final
+toast for `setup`. A `readInputs` failure also skips that run's `afterRun`.
+
+| hook | called from | contract |
+|---|---|---|
+| `<prefix>_menu(menu)` | `onOpen` | Adds items to the Rotalator menu after the core items, before `addToUi`. |
+| `<prefix>_setup(ss)` | Set Up Spreadsheet | Creates and formats the extension's own tabs, after the core tabs and before `#Help` is moved last. |
+| `<prefix>_help(lines)` | `helpText()`, used by Set Up Spreadsheet for `#Help` | Receives a copy of `HELP_TEXT` and returns extra lines appended after it (a line ending with `:` is a heading); anything but an array adds nothing. |
+| `<prefix>_readInputs(storage)` | `runStorage`, before `advance` and `regenerate` | Reads the extension's inputs through the storage (a tab, a CSV file); the value is kept as `result.ext[prefix]`. |
+| `<prefix>_afterRun(result, storage, options)` | `runStorage`, when the run had no errors | After the ledgers and `#Global` are written (when writing) and before the status tabs; `result` is the runner's result including `ext`, and whatever the hook records in `result.status` (by convention under `status.ext[prefix]`) reaches `<prefix>_status`. `options` tells write and mode, so a dry run stays dry. |
+| `<prefix>_status(status)` | `statusRows`, `statusRowsVertical` | Returns `{ rows, headerRows }` (cell arrays; `headerRows` are indexes into `rows`, default the first row) appended to `#Status` after the errors table, preceded by a blank row; rows are padded or cut to the tab's 17 columns; null or no rows add nothing. |
+
+The core carries the pieces of the grammar an extension needs regardless of
+whether it is installed, so a ledger validates the same way with and without
+it: the `cal` setting (3.5), the `#GCal` tab as a known system tab (not a
+rotation, not listed under ignored, not shaped by Set Up: `tabLayout` leaves it
+to the extension), and the warning `calendar extension not installed` that
+`runStorage` adds to the status when a rotation has a non-empty `cal` in force
+at `now` while `extensionInstalled('GCal')` is false. `node/load.js` takes an
+optional list of extension names: `load(['GCal'])` evaluates
+`src/ext/GCal/*.js` into the same context after the core, once per process,
+so a test that loads an extension shares it with the CLI in that process; the
+tests and the golden runs load the core alone by default.
 
 The core is storage-agnostic. The `Storage` interface:
 
@@ -809,7 +865,8 @@ Apps Script menu: `Run`, `Run - dry run` (writes `#Preview
 dry run` (the active tab only, through the runner's `rotations` option; a
 dry run then writes that rotation's preview, `#Preview Global` when a `#Global`
 tab exists, and the status tabs), `Set Up Spreadsheet`, `Set Up Tab`, `Fill
-Shifts Grid` (section 10), `Install nightly trigger`, `Remove trigger`. The
+Shifts Grid` (section 10), `Install nightly trigger`, `Remove trigger`, then
+the items of each installed extension (`<prefix>_menu`, Extensions above). The
 nightly trigger always runs all rotations. `90_gas.js` reads cells, calls the
 core and writes cells; the row logic of the tools lives in `70_tools.js`.
 
@@ -842,12 +899,17 @@ Two paths, both in INSTALL.md.
   `clasp` is an external tool, not a project dependency.
 - Manual: create an Apps Script project bound to the spreadsheet, paste
   `dist/Code.js` and `appsscript.json`, run `Setup` once to authorise, use the
-  menu to install the nightly trigger.
+  menu to install the nightly trigger. Each wanted extension is one more file
+  pasted from `dist/<Name>.js`.
 
 `build.sh` prepends `function Setup() { onOpen(); }` with a two-line comment
 to the bundle so that the first function in the Apps Script editor's list
 installs the menu and triggers authorisation; `src/` has no such function
-and `test/dist.test.js` mirrors the prelude byte for byte.
+and `test/dist.test.js` mirrors the prelude byte for byte. Extension bundles
+get no prelude. `test/dist.test.js` checks every bundle, `dist/Code.js` and
+one `dist/<Name>.js` per `src/ext/<Name>/` directory, and fails on a stale
+bundle in `dist/` whose directory is gone; with no extension directory it
+checks the core bundle alone.
 
 INSTALL.md also provides the hand-made spreadsheet template as an appendix:
 header row, ledger columns formatted as plain text, initial `set` and `team`
@@ -863,8 +925,9 @@ Primary` from the rotation template when no rotation exists, rewrites the
 first row bold, column width 900, tab colour light cyan 1 `#76a5af`, no
 conditional rules, columns beyond A removed) and moves it to the last
 position, creates `#Global` before `#Holidays` and moves an existing
-`#Global` directly before `#Holidays` when it comes after it, and
-formats every rotation tab, `#Holidays`, `#Global`,
+`#Global` directly before `#Holidays` when it comes after it, calls each
+installed extension's `<prefix>_setup(ss)` (8, Extensions) before `#Help` is
+placed, and formats every rotation tab, `#Holidays`, `#Global`,
 `#All shifts` and empty non-`#` tabs: Roboto Mono on the whole tab, plain
 text number format on the whole ledger columns (`A:G`), which is expected to
 carry over to rows added later the way a select-all format does in the UI
@@ -939,7 +1002,8 @@ set / repel / attract without start: apply from the beginning
 
 and an epoch `set` row of the same defaults.
 `#Holidays` gets its header and one sample row, `<previous year>-01-01 | New
-Year`. Tabs the script writes get a toast and nothing else.
+Year`. Tabs the script writes get a toast and nothing else, and so does
+`#GCal`, which belongs to the GCal extension (8, Extensions).
 
 ### 10.3 Fill Shifts Grid
 
@@ -1008,7 +1072,8 @@ validates (the grid is unchanged because every boundary is an anchor).
 
 - Month-based periods with day-of-month anchors.
 - A `Members` tab mapping ids to names and emails for notifications.
-- Calendar or PagerDuty export from the ledger.
+- Google Calendar export as the first extension (`GCal`); PagerDuty export
+  could follow the same shape.
 - Concurrency guard via read-compute-reread-compare if runs ever collide with
   editing.
 - A terminator `shift` row with nobody at `horizonEnd`, if a visible end of

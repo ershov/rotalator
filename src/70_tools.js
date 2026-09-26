@@ -21,9 +21,10 @@ function recentMonday(t) {
   return dayStart(day - (weekdayOfDay(day) + 6) % 7);
 }
 
-// Every setting spelled out at its default: period=1w, the rest key=default; anchor is left to the dated row.
+// Every setting spelled out at its default: period=1w, the rest key=default; anchor is left to the dated row
+// and a key with an empty default (cal) has nothing to spell.
 function templateSetWhat() {
-  return Object.keys(SETTINGS).filter(function (key) { return key !== 'anchor'; }).map(function (key) {
+  return Object.keys(SETTINGS).filter(function (key) { return key !== 'anchor' && SETTINGS[key].def !== ''; }).map(function (key) {
     if (key === 'period') return 'period=' + TEMPLATE_PERIOD;
     var def = SETTINGS[key].def;
     return key + '=' + (def !== null && typeof def === 'object' ? def.text : String(def));
@@ -89,6 +90,7 @@ var HELP_TEXT = [
   'baseline=median: score given to a joiner: median, mean, min or max of the roster',
   'precredit=1ts: how far ahead pinned shifts are credited before turns are decided',
   'autopin=a:2sl: after each run, shifts starting up to now + this interval get the pin marker a (false: never; a:2w sets the marker); pinned shifts are kept, so this fixes the near future',
+  'cal: space-separated names of calendar presets from the #GCal tab (cal=team backup); exported by the GCal extension, a warning in #Status when it is not installed',
   '',
   'INTERVALS (duration, horizon, min_distance, precredit, tolerance):',
   'clock units w d h m; one token may be fractional (1.5w, 0.5d), integer tokens chain from large to small (1d12h)',
@@ -114,10 +116,21 @@ var HELP_TEXT = [
   'MORE: README.md (features and everyday tasks) and INSTALL.md (setup, deployment, troubleshooting) in the Rotalator repository.',
 ];
 
-// 0-based indexes of the #Help lines written bold: the first line and every heading, a line ending with ':'.
-function helpHeadingRows() {
+// The #Help lines: HELP_TEXT followed by the lines each installed extension returns from <prefix>_help(lines)
+// (DESIGN 8, Extensions); a hook that throws or returns no array adds nothing.
+function helpText() {
+  var lines = HELP_TEXT.slice();
+  callExtensionHooks('help', [HELP_TEXT.slice()]).forEach(function (r) {
+    if (Array.isArray(r.value)) lines = lines.concat(r.value.map(String));
+  });
+  return lines;
+}
+
+// 0-based indexes of the help lines (HELP_TEXT by default) written bold: the first line and every heading, a
+// line ending with ':'.
+function helpHeadingRows(lines) {
   var out = [];
-  HELP_TEXT.forEach(function (line, i) { if (i === 0 || /:$/.test(line)) out.push(i); });
+  (lines || HELP_TEXT).forEach(function (line, i) { if (i === 0 || /:$/.test(line)) out.push(i); });
   return out;
 }
 
