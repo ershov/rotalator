@@ -32,6 +32,7 @@ test('status: scores, last and next shift, active exclusions, instants', () => {
   assert.deepEqual(status.tabs, { rotations: ['primary', 'secondary'], regenerated: ['primary', 'secondary'], holidays: 1, global: 0, ignored: ['Notes'] });
   const [primary, secondary] = status.rotations;
   assert.equal(primary.snapshotAt, dt('2026-10-05T09:00'));
+  assert.equal(primary.previousAt, null);
   assert.equal(primary.horizonEnd, dt('2026-10-26T09:00'));
   assert.deepEqual(primary.current, { who: 'alice', start: dt('2026-10-05T09:00'), end: dt('2026-10-12T09:00') });
   assert.deepEqual(primary.next, { who: 'carol', start: dt('2026-10-12T09:00'), end: dt('2026-10-19T09:00') });
@@ -58,7 +59,8 @@ test('status: shifts view lists every shift by start then rotation order', () =>
     ['2026-10-19T09:00', 'primary', 'carol'],
     ['2026-10-19T09:00', 'secondary', 'dave'],
   ]);
-  assert.deepEqual(Object.keys(status.shifts[0]), ['start', 'rotation', 'who']);
+  assert.deepEqual(Object.keys(status.shifts[0]), ['start', 'end', 'rotation', 'who']);
+  assert.equal(status.shifts[0].end, dt('2026-10-12T09:00'));
 });
 
 test('statusRows and shiftsRows: rows, header and divider metadata', () => {

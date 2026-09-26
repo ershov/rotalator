@@ -549,7 +549,8 @@ lies before it is fixed either way.
 Status data is built from the swept state: the run instant and mode, the
 recognised tabs (rotations found, rotations regenerated in this run, holidays
 and `#Global` rows read, tabs ignored),
-and per rotation the snapshot instant, `horizonEnd`, and for each roster
+and per rotation the snapshot instant, the stored snapshot the run started
+from (`previousAt`, null on a first run), `horizonEnd`, and for each roster
 member the score at `S`, the projected score at `horizonEnd`, the last shift
 (latest start at or before `S`), the next shift (first start after `S`) and
 the exclusions active at `S`; plus the warnings of the sweep (relaxations and
@@ -563,12 +564,14 @@ rows change the values from there, plus the current shift (the entry covering
 `regenerate` as an optional input used only for status; the ledgers never
 depend on it, and `S` stands in when it is absent. The status also carries
 the relation states in force at `now` as `{ reader, target, kind }` entries
-for every ordered pair, a mutual state appearing twice. The `#Status` tab is
-this data as text, 17 columns wide: a title line; a `Tabs` block of key/value
-rows; a `Relations` matrix with one column and one row per rotation in tab
-order, `+` where the row's rotation attracts the column's and `-` where it
-repels it (mutual states fill both cells, one-sided ones only the reader's
-row), omitted with a single rotation or without relations; then per rotation
+for every ordered pair, a mutual state appearing twice, and every shift of
+every rotation as `{ start, end, rotation, who }` with its scored extent. The
+`#Status` tab is this data as text, 17 columns wide: a title line; a `Tabs`
+block of key/value rows; a `Relations` matrix with one column and one row per
+rotation in tab order, `+` where the row's rotation attracts the column's and
+`-` where it repels it (mutual states fill both cells, one-sided ones only the
+reader's row), omitted with a single rotation or without relations; then per
+rotation
 one horizontal block of three column groups separated by two empty columns:
 the key/value rows `rotation`, `snapshot`, `horizon`, `current | <member> |
 until <end>` and `next | <member> | from <start>` (columns A to C), the
@@ -763,6 +766,11 @@ src/
   90_gas.js           Apps Script entry points and Sheets adapter
   appsscript.json     V8 runtime, time zone
   ext/<Name>/*.js     one optional extension per directory (below)
+  ext/GCal/
+    10_presets.js     #GCal rows to presets, gcal_readInputs
+    20_format.js      strftime subset, title and body templates
+    30_plan.js        export, repair and clean plans
+    40_status.js      status block data, gcal_status
 node/
   load.js             evaluates src/*.js except 90_gas.js into one vm context,
                       plus the extensions asked for
@@ -837,6 +845,7 @@ readLedgers()   -> { [rotation]: rows[] }
 readHolidays()  -> dates[]
 readGlobal()    -> rows[]
 ignoredTabs()   -> names[]
+readGCal()      -> rows[]        (for the GCal extension, 13)
 writeLedger(rotation, rows)
 writeGlobal(rows)
 writeStatus(status)
@@ -844,7 +853,8 @@ writeStatus(status)
 
 `90_gas.js` implements it on `SpreadsheetApp`, `node/storage.js` on memory and
 CSV files. In the CSV directory `<rotation>.csv` is a rotation tab,
-`holidays.csv` is `#Holidays`, `global.csv` is `#Global`, `status.json` holds
+`holidays.csv` is `#Holidays`, `global.csv` is `#Global`, `gcal.csv` is
+`#GCal`, `status.json` holds
 the `#Status` and `#All shifts` data and `now.txt` the run instant; a file
 named `#<anything>.csv` is never a rotation, like a `#` tab. `writeStatus`
 receives
@@ -1068,7 +1078,103 @@ validates (the grid is unchanged because every boundary is an anchor).
 - A hand-entered history shift without `end` or `duration` extends only to
   the next grid boundary, so a longer shift is credited one period.
 
-## 13. Future extensions
+## 13. Google Calendar extension
+
+The first extension (8, Extensions): `src/ext/GCal/`, bundle `dist/GCal.js`,
+prefix `gcal`. It exports the shifts of the rotations that ask for it to
+Google Calendars through `CalendarApp`. This section covers the pure part:
+presets, templates and the plans; the adapter that reconciles a calendar
+against a plan, the menu items, `gcal_setup` and `gcal_afterRun` follow it
+and are described where they land.
+
+### 13.1 Presets: the `#GCal` tab
+
+`#GCal` (CSV: `gcal.csv`) has the header `preset | setting | value`. A row
+with a non-empty column A starts a preset named A, column C its free-text
+note; a row with an empty A and a non-empty B is a setting of the current
+preset, C the whole value; a row with A and B empty is a comment. Preset
+names follow the `cal` rule (letters, digits, `-`, `_`), so every preset can
+be named in a `cal` value. Settings:
+
+| setting | default | meaning |
+|---|---|---|
+| id | required | Calendar id (`x@group.calendar.google.com`, an address, `primary`). |
+| title | `{rotation}: {who}` | Event title template (13.2). |
+| body | `Rotalator shift {rotation} {start} to {end}. {note}` | Event description template. |
+| allday | auto | `auto`: all-day when both instants are at 00:00; `true` or `false` force it. |
+| color | none | A `CalendarApp.EventColor` name (`pale blue`, `PALE_BLUE`) or its number 1 to 11. |
+| free | true | Show the time as free (transparent) rather than busy. |
+| invite | true | Invite the assignee when their member id contains `@`. |
+| reminders | none | Comma-separated clock intervals before the start (`1d, 1h`), stored as minutes. |
+
+`parseGCalPresets(rows)` returns every preset in tab order with its own error
+list and the flat errors as `{ where: '#GCal row N', message }`: a setting
+before any preset, an unknown or duplicate setting, a bad value (with the
+accepted forms), a bad or duplicate preset name, a preset without `id`, and
+unknown placeholders or directives in a template, reported once each. A
+preset with errors stays in the list but is unusable: a rotation naming it
+gets a plan error and the preset is skipped, like an unknown name.
+`gcal_readInputs(storage)` parses `storage.readGCal()` (an empty list when the
+storage has no such method).
+
+### 13.2 Templates
+
+`gcalFormat(template, values)` substitutes `{who}`, `{rotation}`, `{note}`,
+`{pin}`, `{start}` and `{end}`, names case-insensitive; the two instants take
+an optional strftime format after a colon, `{start:%a %e %b}`, and without
+one give the sheet's datetime form (`2026-10-05`, `2026-10-05T09:00`). The
+strftime subset is `%Y
+%m %d %e %H %M %a %A %b %B %j %u` and `%%`, English names, `%e` the day
+without padding (not space-padded as in C), `%u` Monday 1 to Sunday 7, `%j`
+zero-padded to three digits. An unknown placeholder or directive stays in the
+text verbatim and is reported by `gcalTemplateErrors` when the preset is
+parsed. Title and body are trimmed, so an empty `{note}` at the end leaves no
+trailing space.
+
+### 13.3 Plans
+
+`gcalPlan(run, inputs, options)` is pure. `run` is the runner's result
+(`ledgers`, `status`), `inputs` the parsed presets, `options` `repair` and
+`rotations`. For every written rotation whose effective `cal` at `now` names
+presets it takes the shifts from `status.shifts` (start, end and assignee,
+the swept extents) joined by start with the written rows for `pin` and
+`note`, and plans the shifts inside the export window: `[P, horizonEnd)`
+where `P` is the stored snapshot the run started from, the earliest instant
+the run may have changed; without one (a first run), or with `repair`, from
+the rotation's first shift. Shifts with nobody inside the window are skipped
+and counted. Each remaining shift gives one event per preset:
+
+```
+{ key: '<rotation>|<start>', rotation, preset, calendar: id, title, body,
+  start, end, allDay, color, free, guests, reminders }
+```
+
+`start` and `end` in the sheet's form, `allDay` per the preset's `allday`,
+`guests` the assignee when `invite` is on and the id contains `@`, `reminders`
+in minutes. The key is what the adapter tags events with (`rotalator=<key>`)
+to find them again. The plan is `{ rotations: [{ rotation, presets,
+calendars, from, to, shifts, skipped }], events, errors }`, events in
+rotation, start, preset order, errors the preset errors plus the rotation's
+unknown or skipped presets. Frozen rotations (run scope) are not planned, so
+`Run for current rotation` exports that rotation only.
+
+`gcalCleanPlan(run, inputs, target)` lists what a clean removes: for `{
+rotation }` the keys of every shift of the rotation with the calendars of its
+presets and the window from its first shift to the later of the last shift end
+and `horizonEnd`; for `{ preset }` the calendar and `all: true`, every
+Rotalator-tagged event there. `gcalStatusData(plan)` is the status block
+data, one line per rotation and preset with the counts `create`, `update`,
+`delete`, `unchanged` at zero for the adapter to fill and `skipped` from the
+plan, plus the plan's errors; `gcal_status(status)` renders `status.ext.gcal`
+as a `Calendar` block (a `(dry run)` suffix when `mode` is set), one row per
+line and a `calendar errors` table when there are errors.
+
+Golden scenario `gcal`: two rotations, one with `cal=team personal` and a
+stored snapshot, one without; the core alone writes the ledgers and warns
+that no calendar extension is installed, and `test/gcal.test.js` loads the
+extension and compares the plan with `expected/gcal.json`.
+
+## 14. Future extensions
 
 - Month-based periods with day-of-month anchors.
 - A `Members` tab mapping ids to names and emails for notifications.

@@ -1,0 +1,123 @@
+{
+  "rotations": [
+    {
+      "rotation": "primary",
+      "presets": [
+        "team",
+        "personal"
+      ],
+      "calendars": [
+        "team@group.calendar.google.com",
+        "oncall@example.com"
+      ],
+      "from": "2026-09-28",
+      "to": "2026-10-26",
+      "shifts": 3,
+      "skipped": 1
+    }
+  ],
+  "events": [
+    {
+      "key": "primary|2026-09-28",
+      "rotation": "primary",
+      "preset": "team",
+      "calendar": "team@group.calendar.google.com",
+      "title": "primary: carol",
+      "body": "Rotalator shift primary 2026-09-28 to 2026-10-05. volunteered",
+      "start": "2026-09-28",
+      "end": "2026-10-05",
+      "allDay": true,
+      "color": 1,
+      "free": true,
+      "guests": [],
+      "reminders": [
+        1440,
+        60
+      ]
+    },
+    {
+      "key": "primary|2026-09-28",
+      "rotation": "primary",
+      "preset": "personal",
+      "calendar": "oncall@example.com",
+      "title": "On call: carol (Mon 28 Sep to Mon 5 Oct)",
+      "body": "volunteered",
+      "start": "2026-09-28",
+      "end": "2026-10-05",
+      "allDay": false,
+      "color": null,
+      "free": false,
+      "guests": [],
+      "reminders": []
+    },
+    {
+      "key": "primary|2026-10-05",
+      "rotation": "primary",
+      "preset": "team",
+      "calendar": "team@group.calendar.google.com",
+      "title": "primary: dave@example.com",
+      "body": "Rotalator shift primary 2026-10-05 to 2026-10-12.",
+      "start": "2026-10-05",
+      "end": "2026-10-12",
+      "allDay": true,
+      "color": 1,
+      "free": true,
+      "guests": [],
+      "reminders": [
+        1440,
+        60
+      ]
+    },
+    {
+      "key": "primary|2026-10-05",
+      "rotation": "primary",
+      "preset": "personal",
+      "calendar": "oncall@example.com",
+      "title": "On call: dave@example.com (Mon 5 Oct to Mon 12 Oct)",
+      "body": "",
+      "start": "2026-10-05",
+      "end": "2026-10-12",
+      "allDay": false,
+      "color": null,
+      "free": false,
+      "guests": [
+        "dave@example.com"
+      ],
+      "reminders": []
+    },
+    {
+      "key": "primary|2026-10-19",
+      "rotation": "primary",
+      "preset": "team",
+      "calendar": "team@group.calendar.google.com",
+      "title": "primary: alice",
+      "body": "Rotalator shift primary 2026-10-19 to 2026-10-26.",
+      "start": "2026-10-19",
+      "end": "2026-10-26",
+      "allDay": true,
+      "color": 1,
+      "free": true,
+      "guests": [],
+      "reminders": [
+        1440,
+        60
+      ]
+    },
+    {
+      "key": "primary|2026-10-19",
+      "rotation": "primary",
+      "preset": "personal",
+      "calendar": "oncall@example.com",
+      "title": "On call: alice (Mon 19 Oct to Mon 26 Oct)",
+      "body": "",
+      "start": "2026-10-19",
+      "end": "2026-10-26",
+      "allDay": false,
+      "color": null,
+      "free": false,
+      "guests": [],
+      "reminders": []
+    }
+  ],
+  "errors": []
+}

@@ -54,6 +54,7 @@ function rotationStatus(rot, now) {
   return {
     name: rot.name,
     snapshotAt: S,
+    previousAt: rot.previousAt,
     horizonEnd: rot.horizonEnd,
     current: shiftRef(current),
     next: shiftRef(upcoming),
@@ -79,12 +80,13 @@ function rotationStatus(rot, now) {
   };
 }
 
-// Every shift of every rotation, by start then rotation order. who is '' for a nobody shift.
+// Every shift of every rotation with its scored extent, by start then rotation order. who is '' for a nobody
+// shift.
 function shiftsView(rots) {
   var out = [];
   rots.forEach(function (rot) {
     rot.entries.forEach(function (e) {
-      out.push({ start: e.start, rotation: rot.name, who: e.who === null ? '' : e.who });
+      out.push({ start: e.start, end: e.end, rotation: rot.name, who: e.who === null ? '' : e.who });
     });
   });
   return out.sort(function (a, b) { return a.start - b.start; });

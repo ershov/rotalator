@@ -3,15 +3,23 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { load } = require('./load.js');
 
+const GCAL_HEADER = ['preset', 'setting', 'value'];
+
 // Storage interface of DESIGN 8. Ledgers are cell arrays without the header row; holidays are date texts
-// (null for a blank row); global holds the #Global rows; ignored are tab names reported in #Status.
+// (null for a blank row); global holds the #Global rows; ignored are tab names reported in #Status; gcal holds
+// the #GCal rows for the GCal extension.
 class MemoryStorage {
-  constructor({ ledgers = {}, holidays = [], global = [], ignored = [] } = {}) {
+  constructor({ ledgers = {}, holidays = [], global = [], ignored = [], gcal = [] } = {}) {
     this.ledgers = structuredClone(ledgers);
     this.holidays = holidays.slice();
     this.global = structuredClone(global);
     this.ignored = ignored.slice();
+    this.gcal = structuredClone(gcal);
     this.status = null;
+  }
+
+  readGCal() {
+    return structuredClone(this.gcal);
   }
 
   ignoredTabs() {
@@ -44,8 +52,9 @@ class MemoryStorage {
 }
 
 // Directory form of the spreadsheet. File to tab mapping: <rotation>.csv is a rotation tab (recognised by
-// header), holidays.csv is #Holidays, global.csv is #Global, status.json holds the #Status and #All shifts data,
-// now.txt is the run instant. A file named #<anything>.csv is never a rotation, like a '#' tab.
+// header), holidays.csv is #Holidays, global.csv is #Global, gcal.csv is #GCal, status.json holds the #Status
+// and #All shifts data, now.txt is the run instant. A file named #<anything>.csv is never a rotation, like a
+// '#' tab.
 // Blank lines are kept as all-empty rows so row numbers match the file; callers drop them.
 class CsvDirStorage {
   constructor(dir) {
@@ -68,7 +77,7 @@ class CsvDirStorage {
     const ledgers = {};
     const ignored = [];
     fs.readdirSync(this.dir).sort().forEach((name) => {
-      if (!name.endsWith('.csv') || name === 'holidays.csv' || name === 'global.csv') return;
+      if (!name.endsWith('.csv') || name === 'holidays.csv' || name === 'global.csv' || name === 'gcal.csv') return;
       const tab = name.slice(0, -4);
       const rows = this.readCsv(name);
       if (!this.U.isSystemTab(tab) && rows.length && this.U.isLedgerHeader(rows[0])) ledgers[tab] = rows.slice(1);
@@ -96,6 +105,13 @@ class CsvDirStorage {
   readGlobal() {
     const rows = this.readCsv('global.csv') || [];
     return rows.length && this.U.isLedgerHeader(rows[0]) ? rows.slice(1) : [];
+  }
+
+  // gcal.csv must carry the preset | setting | value header; anything else is ignored.
+  readGCal() {
+    const rows = this.readCsv('gcal.csv') || [];
+    const header = rows.length ? rows[0].map((c) => String(c ?? '').trim().toLowerCase()) : [];
+    return GCAL_HEADER.every((h, i) => header[i] === h) ? rows.slice(1) : [];
   }
 
   readNow() {

@@ -1,0 +1,13 @@
+preset,setting,value
+team,,Shared team calendar: all-day events nobody is invited to
+,id,team@group.calendar.google.com
+,color,pale blue
+,invite,false
+,reminders,"1d, 1h"
+,,reminders are intervals before the shift start
+personal,,Timed events on the on-call calendar; members with an email id are invited
+,id,oncall@example.com
+,title,On call: {who} ({start:%a %e %b} to {end:%a %e %b})
+,body,{note}
+,allday,false
+,free,false

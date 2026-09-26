@@ -1,0 +1,79 @@
+Rotalator  dry run  2026-10-05T10:00
+
+Tabs
+rotations    primary, secondary
+regenerated  primary, secondary
+holidays     1
+global       0
+ignored
+
+rotation  primary
+snapshot  2026-10-05
+horizon   2026-10-26
+current   dave@example.com  until 2026-10-12
+next                        from 2026-10-12
+
+  member            current  score  projected  last shift  next shift  exclusions
+  alice                      7      14         2026-09-14  2026-10-19
+  bob                        7      7          2026-09-21
+  carol                      7      7          2026-09-28
+  dave@example.com  x        0      7          2026-10-05
+
+  settings       as of 2026-10-05T10:00  source
+  period         1w                      rotation
+  anchor         2026-09-14              rotation
+  grid           calendar                default
+  horizon        3w                      rotation
+  skip_weekends  false                   rotation
+  skip_holidays  false                   rotation
+  tolerance      0                       rotation
+  min_distance   0                       rotation
+  tiebreak       order                   default
+  seed           0                       default
+  baseline       median                  default
+  precredit      1ts                     default
+  autopin        a:0                     rotation
+  cal            team personal           rotation
+
+rotation  secondary
+snapshot  2026-10-05T09:00
+horizon   2026-10-26T09:00
+current   frank             until 2026-10-12T09:00
+next      erin              from 2026-10-12T09:00
+
+  member  current  score  projected  last shift        next shift        exclusions
+  erin             7      14         2026-09-28T09:00  2026-10-12T09:00
+  frank   x        0      14         2026-10-05T09:00  2026-10-19T09:00
+
+  settings       as of 2026-10-05T10:00  source
+  period         1w                      rotation
+  anchor         2026-09-28T09:00        rotation
+  grid           calendar                default
+  horizon        3w                      rotation
+  skip_weekends  false                   rotation
+  skip_holidays  false                   rotation
+  tolerance      0                       rotation
+  min_distance   0                       rotation
+  tiebreak       order                   default
+  seed           0                       default
+  baseline       median                  default
+  precredit      1ts                     default
+  autopin        a:0                     rotation
+  cal                                    default
+
+warnings
+rotation  start  message
+primary          calendar extension not installed; cal=team personal has no effect
+
+start             primary           secondary
+2026-09-14        alice
+2026-09-21        bob
+2026-09-28        carol
+2026-09-28T09:00                    erin
+2026-10-05        dave@example.com
+2026-10-05T09:00                    frank
+2026-10-05T10:00  --now--           --now--
+2026-10-12        -
+2026-10-12T09:00                    erin
+2026-10-19        alice
+2026-10-19T09:00                    frank

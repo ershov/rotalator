@@ -491,15 +491,57 @@ generated shift's `note`.
 - Only the seven ledger columns are managed. Extra columns do not follow rows
   when the ledger is re-sorted.
 
+## Google Calendar export
+
+The Google Calendar extension is a second script file, `GCal.js`, installed
+next to the core (INSTALL.md). With it, every rotation whose `cal` setting
+names presets gets its shifts exported to the calendars those presets
+describe, one event per shift and preset, after each successful run. Presets
+live in the `#GCal` tab:
+
+```
+preset   | setting   | value
+team     |           | Shared team calendar
+         | id        | team@group.calendar.google.com
+         | color     | pale blue
+         | invite    | false
+         | reminders | 1d, 1h
+personal |           | Timed events for the person on call
+         | id        | oncall@example.com
+         | title     | On call: {who} ({start:%a %e %b} to {end:%a %e %b})
+         | allday    | false
+```
+
+A row with a name in the first column starts a preset (the third column is
+a note); the rows below it set `id` (required), `title` and `body`
+templates, `allday` (`auto`: all-day when the shift starts and ends at
+midnight), `color` (a Calendar colour name or 1 to 11), `free` (default
+true: the time shows as free), `invite` (default true: the assignee is
+invited when their member id is an email address) and `reminders` (intervals
+before the start, `1d, 30m`). Templates take `{who}`, `{rotation}`,
+`{note}`, `{pin}`, `{start}` and `{end}`, the instants optionally with a
+strftime format (`%Y %m %d %e %H %M %a %A %b %B %j %u`). Unknown placeholders
+stay as written and are reported in `#Status`.
+
+Then `set cal=team personal` in the rotation (or in `#Global` for every
+rotation). Each run exports the shifts from the stored snapshot to the
+horizon end: new shifts are created, changed ones updated, events of shifts
+that no longer exist deleted; events the script did not create are never
+touched, and shifts with nobody get no event. The `#Status` tab gets a
+`Calendar` block with the counts per rotation and preset and any calendar
+errors, which never stop the ledger run. Without the extension the `cal`
+setting is accepted and `#Status` warns that the calendar extension is not
+installed.
+
 ## Command line
 
 The core also runs in Node without a spreadsheet, using a directory of CSV
 files. Files map to tabs: one `<rotation>.csv` per ledger with the header row,
 `holidays.csv` for `#Holidays` (`date,note`), optional `global.csv` for
-`#Global`, `status.json` for the `#Status` and `#All shifts` data, and
-`now.txt` with the run instant. A file named `#<anything>.csv` is never a
-rotation, like a `#` tab, and other `.csv` files without the ledger header are
-ignored.
+`#Global`, optional `gcal.csv` for `#GCal`, `status.json` for the `#Status`
+and `#All shifts` data, and `now.txt` with the run instant. A file named
+`#<anything>.csv` is never a rotation, like a `#` tab, and other `.csv` files
+without the ledger header are ignored.
 
 ```
 bin/rotalator run DIR [--now YYYY-MM-DDTHH:MM] [--rotation NAME]...
