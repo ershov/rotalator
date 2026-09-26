@@ -27,7 +27,7 @@ const names = (hook) => plain(U.extensionHooks(hook).map((h) => h.name));
 
 test('extension hooks: none present without an extension bundle', () => {
   assert.deepEqual(plain(U.EXTENSIONS), ['GCal']);
-  assert.deepEqual(plain(U.EXTENSION_HOOKS), ['menu', 'setup', 'help', 'readInputs', 'afterRun', 'status']);
+  assert.deepEqual(plain(U.EXTENSION_HOOKS), ['menu', 'setup', 'setupTab', 'help', 'readInputs', 'afterRun', 'status']);
   assert.equal(U.extensionHookName('GCal', 'menu'), 'gcal_menu');
   assert.equal(U.extensionHook('GCal', 'menu'), null);
   assert.deepEqual(plain(U.extensionHooks('status')), []);

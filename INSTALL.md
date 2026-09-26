@@ -180,8 +180,9 @@ script, then reload.
 ## 4a. Google Calendar extension
 
 With `GCal.js` installed, **Set Up Spreadsheet** creates the `#GCal` tab
-(`preset | setting | value`) with help rows, and the **Rotalator** menu
-gains the re-export and clean items. Then:
+(`preset | setting | value`) right after `#Global`, with a cheat sheet of
+the settings and a first preset `preset-1` to fill in, and the **Rotalator**
+menu gains the re-export and clean items. Then:
 
 1. Create a calendar per preset, or pick existing ones, and note their ids
    (**Settings and sharing > Integrate calendar > Calendar ID**; a personal
@@ -191,8 +192,10 @@ gains the re-export and clean items. Then:
    installed the nightly trigger (menu actions run as the clicking user, the
    trigger as its installer). A calendar the running account cannot write
    is reported in `#Status` as not found and skipped.
-3. Fill `#GCal` (README, "Google Calendar export") and add `cal=<preset
-   names>` to a `set` row of each rotation to export, or to `#Global`.
+3. Replace `FILL IN WITH CALENDAR ID` in `preset-1` with the calendar id,
+   add a preset per further calendar (README, "Google Calendar export"), and
+   add `cal=<preset names>` to a `set` row of each rotation to export, or to
+   `#Global`.
 4. **Run - dry run** shows the counts in the `Calendar` block of `#Status`
    without touching the calendars; **Run** exports.
 

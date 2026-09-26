@@ -302,8 +302,14 @@ function isEmptySheet(sheet) {
   return sheet.getLastRow() === 0 && sheet.getLastColumn() === 0;
 }
 
-// Writes rows as plain text in the script font from `row` down, growing the grid first: a trimmed or narrowed
-// tab may have fewer columns or rows than the data, and getRange beyond the grid throws instead of extending it.
+// Every cell top-left aligned, so multi-line notes and wrapped help read from the top like the header.
+function alignTopLeft(range) {
+  range.setVerticalAlignment('top').setHorizontalAlignment('left');
+}
+
+// Writes rows as plain text in the script font, top-left aligned, from `row` down, growing the grid first: a
+// trimmed or narrowed tab may have fewer columns or rows than the data, and getRange beyond the grid throws
+// instead of extending it.
 function writeTextCells(sheet, row, rows) {
   if (!rows.length) return;
   var width = rows[0].length;
@@ -313,6 +319,7 @@ function writeTextCells(sheet, row, rows) {
   var range = sheet.getRange(row, 1, rows.length, width);
   range.setNumberFormat('@');
   range.setFontFamily(FONT_FAMILY);
+  alignTopLeft(range);
   range.setValues(rows);
 }
 
@@ -356,14 +363,16 @@ function setConditionalRules(sheet, rules, width) {
   }));
 }
 
-// Idempotent formatting: fonts, plain text on the whole ledger columns (A:G), bold grey frozen header,
-// widths, notes and spare columns removed on tabs that have their header, conditional row colours on
-// rotation tabs and #Global, tab colour on system tabs. Never touches cell values.
+// Idempotent formatting: font and top-left alignment on the whole tab, plain text on the whole ledger columns
+// (A:G), bold grey frozen header, widths, notes and spare columns removed on tabs that have their header,
+// conditional row colours on rotation tabs and #Global, tab colour on system tabs. Never touches cell values.
 function formatTab(sheet) {
   var name = sheet.getName();
   var layout = tabLayout(sheet);
   if (!layout) return;
-  sheet.getRange(1, 1, sheet.getMaxRows(), sheet.getMaxColumns()).setFontFamily(FONT_FAMILY);
+  var all = sheet.getRange(1, 1, sheet.getMaxRows(), sheet.getMaxColumns());
+  all.setFontFamily(FONT_FAMILY);
+  alignTopLeft(all);
   var width = layout.header ? layout.header.length : layout.widths ? layout.widths.length : STATUS_WIDTH;
   var present = Math.min(width, sheet.getMaxColumns());
   sheet.getRange('A:' + String.fromCharCode(64 + present)).setNumberFormat('@');
@@ -410,6 +419,7 @@ function writeHelpTab(ss) {
   var range = sheet.getRange(1, 1, lines.length, 1);
   range.setNumberFormat('@');
   range.setWrap(true);
+  alignTopLeft(range);
   range.setValues(lines.map(function (line) { return [line]; }));
   helpHeadingRows(lines).forEach(function (i) { sheet.getRange(i + 1, 1).setFontWeight('bold'); });
   moveTab(ss, sheet, ss.getNumSheets());
@@ -470,11 +480,14 @@ function setupSpreadsheet() {
   toast('Tabs, formatting and #Help are in place' + (failed.length ? '; ' + failed.join('; ') : ''));
 }
 
-// Menu: Set Up Tab. Fills the active tab according to its name; never overwrites content.
+// Menu: Set Up Tab. Fills the active tab according to its name; never overwrites content. An installed
+// extension may take the tab first (<prefix>_setupTab(sheet) returning true, DESIGN 8).
 function setupTab() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getActiveSheet();
   var name = sheet.getName();
+  var taken = callExtensionHooks('setupTab', [sheet], logExtensionError).some(function (r) { return r.value === true; });
+  if (taken) return;
   if (isSystemTab(name) && !isKnownSystemTab(name)) { toast('"' + name + '" starts with # and is not a system tab; rename it to use it as a rotation'); return; }
   if (name === GCAL_TAB) { toast('"' + name + '" belongs to the GCal extension; use Set Up Spreadsheet with the extension installed'); return; }
   if (name === STATUS_TAB || name === ALL_SHIFTS_TAB || name === HELP_TAB || name.indexOf(PREVIEW_TAB_PREFIX) === 0) { toast('"' + name + '" is written by the script; nothing to fill in'); return; }

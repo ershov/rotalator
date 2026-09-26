@@ -22,7 +22,7 @@ test('loader: the extension is in the shared context and its hooks are visible t
   assert.equal(load(), U);
   assert.equal(typeof U.gcal_readInputs, 'function');
   assert.equal(typeof U.gcal_status, 'function');
-  assert.deepEqual(plain(U.EXTENSION_HOOKS.filter((hook) => U.extensionHooks(hook).length)), ['menu', 'setup', 'help', 'readInputs', 'afterRun', 'status']);
+  assert.deepEqual(plain(U.EXTENSION_HOOKS.filter((hook) => U.extensionHooks(hook).length)), ['menu', 'setup', 'setupTab', 'help', 'readInputs', 'afterRun', 'status']);
   assert.equal(U.extensionInstalled('GCal'), true);
 });
 
@@ -93,10 +93,10 @@ test('presets: every error, presets with errors are kept but unusable', () => {
     { where: '#GCal row 7', message: 'unknown setting "colour"' },
     { where: '#GCal row 8', message: 'duplicate setting "id"' },
     { where: '#GCal row 9', message: 'bad value for allday: "maybe"; use auto, true or false' },
-    { where: '#GCal row 10', message: 'bad value for color: "12"; use a Calendar colour name like pale blue, or 1 to 11' },
+    { where: '#GCal row 10', message: 'bad value for color: "12"; use a Calendar colour name like pale blue, its number 1 to 11, or #RRGGBB (the nearest colour is used)' },
     { where: '#GCal row 11', message: 'bad value for free: "sometimes"; use true or false' },
     { where: '#GCal row 12', message: 'bad value for invite: ""; use true or false' },
-    { where: '#GCal row 13', message: 'bad value for reminders: "1d, 2sl"; use comma-separated clock intervals like 1d, 2h, 30m' },
+    { where: '#GCal row 13', message: 'bad value for reminders: "1d, 2sl"; use comma-separated clock intervals like 1d, 2h, 30m, or empty for the calendar defaults' },
     { where: '#GCal row 14', message: 'unknown placeholder {what} in title' },
     { where: '#GCal row 14', message: 'unknown directive %Q in title' },
     { where: '#GCal row 14', message: 'unknown directive %q in title' },
@@ -116,6 +116,17 @@ test('presets: every error, presets with errors are kept but unusable', () => {
   assert.equal(U.gcalParseColor('11'), 11);
   assert.equal(U.gcalParseColor('0'), null);
   assert.equal(U.gcalParseColor('purple'), null);
+  // #RRGGBB maps to the nearest palette colour by RGB distance.
+  assert.equal(U.gcalParseColor('#a4bdfc'), 1);
+  assert.equal(U.gcalParseColor('#A4BDFC'), 1);
+  assert.equal(U.gcalParseColor('#ff0000'), 11);
+  assert.equal(U.gcalParseColor('#FFFFFF'), 8);
+  assert.equal(U.gcalParseColor('#000000'), 10);
+  assert.equal(U.gcalParseColor('#dbadff'), 3);
+  assert.equal(U.gcalParseColor('#12345'), null);
+  assert.equal(U.gcalParseColor('a4bdfc'), null, 'the # is required');
+  assert.equal(U.gcalParseColor('#a4bdfg'), null);
+  assert.deepEqual(Object.keys(plain(U.GCAL_COLOR_RGB)), Object.keys(plain(U.GCAL_COLORS)));
   assert.deepEqual(plain(U.gcalParseReminders('30m; 1h30m')), [30, 90]);
   assert.deepEqual(plain(U.gcalParseReminders('')), []);
   assert.equal(U.gcalParseReminders('soon'), null);
@@ -358,11 +369,13 @@ test('reconcile: create, unchanged without writes, update only what differs, del
     ]);
     assert.equal(created[0].description, 'Rotalator shift primary 2026-09-28 to 2026-10-05. volunteered');
     const timed = personal.live();
+    // personal sets no reminders: the events keep the calendar default (10 in the mock) and no reminder call is made.
     assert.deepEqual(timed.map((ev) => [ev.title, ev.allDay, ev.color, ev.transparency, ev.guests, ev.invitesSent, ev.reminders]), [
-      ['On call: carol (Mon 28 Sep to Mon 5 Oct)', false, '', 'OPAQUE', [], false, []],
-      ['On call: dave@example.com (Mon 5 Oct to Mon 12 Oct)', false, '', 'OPAQUE', ['dave@example.com'], true, []],
-      ['On call: alice (Mon 19 Oct to Mon 26 Oct)', false, '', 'OPAQUE', [], false, []],
+      ['On call: carol (Mon 28 Sep to Mon 5 Oct)', false, '', 'OPAQUE', [], false, [10]],
+      ['On call: dave@example.com (Mon 5 Oct to Mon 12 Oct)', false, '', 'OPAQUE', ['dave@example.com'], true, [10]],
+      ['On call: alice (Mon 19 Oct to Mon 26 Oct)', false, '', 'OPAQUE', [], false, [10]],
     ]);
+    assert.ok(!personal.writes.some((w) => /remind/i.test(w)), 'no reminder calls for an empty list');
     // Same plan again: everything unchanged, not a single write.
     team.writes = []; personal.writes = [];
     const again = U.gcalReconcile(plan, U.gcalStatusData(plan), { tz: 'UTC' });
@@ -407,6 +420,13 @@ test('reconcile: create, unchanged without writes, update only what differs, del
     const far = team.add('far', '2030-01-07', '2030-01-14', true, 'primary|2030-01-07');
     U.gcalReconcile(shorter, U.gcalStatusData(shorter), { tz: 'UTC' });
     assert.equal(far.deleted, false, 'beyond the clean bound nothing is touched');
+    // Back to an empty reminders list: existing events keep the [30] they have, nothing is written.
+    const noReminders = structuredClone(shorter);
+    noReminders.events.forEach((e) => { if (e.preset === 'personal') e.reminders = []; });
+    personal.writes = [];
+    assert.equal(plain(U.gcalReconcile(noReminders, U.gcalStatusData(noReminders), { tz: 'UTC' }).lines)[1].unchanged, 2);
+    assert.deepEqual(personal.writes, []);
+    assert.deepEqual(personal.live()[0].reminders, [30]);
   } finally { removeMocks(); }
 });
 
@@ -508,7 +528,33 @@ test('menu, help and summary', () => {
   const lines = plain(U.helpText());
   assert.equal(lines.length, U.HELP_TEXT.length + U.GCAL_HELP_LINES.length);
   assert.ok(plain(U.helpHeadingRows(lines)).includes(U.HELP_TEXT.length + 1));
-  assert.ok(lines.some((l) => l.startsWith('cal=team personal:')));
+  const help = plain(U.GCAL_HELP_LINES);
+  for (const key of Object.keys(U.GCAL_SETTINGS)) assert.ok(help.some((l) => l.startsWith(`${key}: `)), key);
+  assert.ok(help.some((l) => l.startsWith('TEMPLATES: {who} {rotation} {note} {pin} {start} {end}')));
+  assert.ok(help.some((l) => l.startsWith('USE: set cal=<preset> [<preset> ...]')));
+  // The #GCal template: header, the cheat sheet as comment rows, then preset-1 to fill in; it parses clean.
+  const rows = plain(U.gcalTemplateRows());
+  assert.deepEqual(rows[0], ['preset', 'setting', 'value']);
+  const comments = rows.slice(1, 1 + U.GCAL_CHEAT_SHEET.length);
+  assert.ok(comments.every((r) => r[0] === '' && r[1] === '' && r[2] !== ''));
+  assert.deepEqual(comments.map((r) => r[2]), plain(U.GCAL_CHEAT_SHEET));
+  assert.deepEqual(rows.slice(1 + U.GCAL_CHEAT_SHEET.length), [
+    ['preset-1', '', 'First Google Calendar preset'],
+    ['', 'id', 'FILL IN WITH CALENDAR ID'],
+    ['', 'title', '{rotation}: {who}'],
+    ['', 'body', 'Rotalator shift {rotation} {start} to {end}. {note}'],
+    ['', 'allday', 'auto'],
+    ['', 'free', 'true'],
+    ['', 'invite', 'true'],
+    ['', 'reminders', ''],
+  ]);
+  const parsed = plain(U.parseGCalPresets(rows.slice(1)));
+  assert.deepEqual(parsed.errors, []);
+  assert.equal(parsed.presets.length, 1);
+  assert.deepEqual(parsed.presets[0], { name: 'preset-1', note: 'First Google Calendar preset', row: 2 + U.GCAL_CHEAT_SHEET.length, errors: [], id: 'FILL IN WITH CALENDAR ID', title: '{rotation}: {who}', body: 'Rotalator shift {rotation} {start} to {end}. {note}', allday: 'auto', color: null, free: true, invite: true, reminders: [] });
+  assert.equal(typeof U.gcal_setupTab, 'function');
+  assert.equal(U.gcal_setupTab({ getName: () => 'primary' }), false, 'other tabs are left to the core');
+  assert.deepEqual(plain(U.GCAL_COLUMN_WIDTHS), [140, 120, 700]);
   assert.equal(U.gcalSummary({ lines: [{ create: 1, update: 2, delete: 0, unchanged: 3, skipped: 1 }, { create: 1, update: 0, delete: 1, unchanged: 0, skipped: 1 }], errors: [{ where: 'x', message: 'boom' }] }), 'create 2, update 2, delete 1, unchanged 3, skipped 2; 1 error(s): boom');
   const sheet = (name, row, names) => ({ getName: () => name, getActiveRange: () => ({ getRow: () => row }), getRange: (r, c, n) => ({ getValues: () => names.slice(0, n).map((v) => [v]) }) });
   const names = ['preset', 'team', '', '', 'personal', ''];

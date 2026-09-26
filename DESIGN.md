@@ -823,6 +823,7 @@ toast for `setup`. A `readInputs` failure also skips that run's `afterRun`.
 |---|---|---|
 | `<prefix>_menu(menu)` | `onOpen` | Adds items to the Rotalator menu after the core items, before `addToUi`. |
 | `<prefix>_setup(ss)` | Set Up Spreadsheet | Creates and formats the extension's own tabs, after the core tabs and before `#Help` is moved last. |
+| `<prefix>_setupTab(sheet)` | Set Up Tab, before the core's own handling | Returns `true` when the extension filled or refused the active tab itself (its own tabs); anything else leaves the tab to the core. |
 | `<prefix>_help(lines)` | `helpText()`, used by Set Up Spreadsheet for `#Help` | Receives a copy of `HELP_TEXT` and returns extra lines appended after it (a line ending with `:` is a heading); anything but an array adds nothing. |
 | `<prefix>_readInputs(storage)` | `runStorage`, before `advance` and `regenerate` | Reads the extension's inputs through the storage (a tab, a CSV file); the value is kept as `result.ext[prefix]`. |
 | `<prefix>_afterRun(result, storage, options)` | `runStorage`, when the run had no errors | After the ledgers and `#Global` are written (when writing) and before the status tabs; `result` is the runner's result including `ext`, and whatever the hook records in `result.status` (by convention under `status.ext[prefix]`) reaches `<prefix>_status`. `options` tells write and mode, so a dry run stays dry. |
@@ -940,7 +941,11 @@ position, creates `#Global` before `#Holidays` and moves an existing
 `#Global` directly before `#Holidays` when it comes after it, calls each
 installed extension's `<prefix>_setup(ss)` (8, Extensions) before `#Help` is
 placed, and formats every rotation tab, `#Holidays`, `#Global`,
-`#All shifts` and empty non-`#` tabs: Roboto Mono on the whole tab, plain
+`#All shifts` and empty non-`#` tabs: Roboto Mono and top-left alignment on
+the whole tab (every cell `setVerticalAlignment('top')` and
+`setHorizontalAlignment('left')`, re-applied by `writeTextCells` on every
+range the script writes, since generated tabs are cleared with their
+formats), plain
 text number format on the whole ledger columns (`A:G`), which is expected to
 carry over to rows added later the way a select-all format does in the UI
 (to be confirmed on a live spreadsheet), and on tabs that have their header
@@ -948,8 +953,9 @@ a bold header row on a light grey background, frozen, column widths per
 column (`note` twice as wide as `what`), a note on each header cell
 explaining the column and empty columns beyond the last one deleted; plus a
 tab colour on `#` tabs (blue for the generated `#Status`, `#All shifts` and
-previews, grey for the editable `#Holidays` and `#Global`). Tabs with content
-but no ledger header are left alone. The runner keeps applying plain text to
+previews, grey for the editable `#Holidays`, `#Global` and `#GCal`). Tabs
+with content but no ledger header are left alone; `#GCal` is placed and
+formatted by the GCal extension (13.5). The runner keeps applying plain text to
 the ranges it writes. Preview tabs are created right after the tab they
 preview and never moved.
 
@@ -983,7 +989,10 @@ editable `#9e9e9e`.
 ### 10.2 Set Up Tab
 
 `setupTab()` fills the active tab according to its name and formats it like
-10.1. The tab must be empty, otherwise the command refuses with a toast.
+10.1. The tab must be empty, otherwise the command refuses with a toast. An
+installed extension gets the tab first through `<prefix>_setupTab(sheet)`
+(8, Extensions): the GCal extension fills an empty `#GCal` from its template
+(13.5); without the extension `#GCal` gets a toast naming it.
 Templates start with in-tab help: undated comment rows (empty `type`, text
 in `note`) that attach to the `set` row below them and therefore stay at the
 top of the tab through every run (3.6). A rotation tab gets the header, the
@@ -1014,8 +1023,7 @@ set / repel / attract without start: apply from the beginning
 
 and an epoch `set` row of the same defaults.
 `#Holidays` gets its header and one sample row, `<previous year>-01-01 | New
-Year`. Tabs the script writes get a toast and nothing else, and so does
-`#GCal`, which belongs to the GCal extension (8, Extensions).
+Year`. Tabs the script writes get a toast and nothing else.
 
 ### 10.3 Fill Shifts Grid
 
@@ -1103,10 +1111,15 @@ be named in a `cal` value. Settings:
 | title | `{rotation}: {who}` | Event title template (13.2). |
 | body | `Rotalator shift {rotation} {start} to {end}. {note}` | Event description template. |
 | allday | auto | `auto`: all-day when both instants are at 00:00; `true` or `false` force it. |
-| color | none | A `CalendarApp.EventColor` name (`pale blue`, `PALE_BLUE`) or its number 1 to 11. |
+| color | none | A `CalendarApp.EventColor` name (`pale blue`, `PALE_BLUE`), its number 1 to 11, or `#RRGGBB` (6 hex digits, any case) mapped to the nearest palette colour by RGB distance, ties to the lowest number. None leaves the event colour alone. |
 | free | true | Show the time as free (transparent) rather than busy. |
 | invite | true | Invite the assignee when their member id contains `@`. |
-| reminders | none | Comma-separated clock intervals before the start (`1d, 1h`), stored as minutes. |
+| reminders | none | Comma-separated clock intervals before the start (`1d, 1h`), stored as minutes. Empty leaves the event's reminders alone, so the calendar's default notifications apply (13.4). |
+
+Palette of the event colours, as the Calendar UI shows them: 1 pale blue
+`#a4bdfc`, 2 pale green `#7ae7bf`, 3 mauve `#dbadff`, 4 pale red `#ff887c`,
+5 yellow `#fbd75b`, 6 orange `#ffb878`, 7 cyan `#46d6db`, 8 gray `#e1e1e1`,
+9 blue `#5484ed`, 10 green `#51b749`, 11 red `#dc2127`.
 
 `parseGCalPresets(rows)` returns every preset in tab order with its own error
 list and the flat errors as `{ where: '#GCal row N', message }`: a setting
@@ -1191,16 +1204,20 @@ desired event without a match is created: `createAllDayEvent(title, start,
 endExclusive, options)` or `createEvent(title, start, end, options)` with
 `description`, and `guests` plus `sendInvites: true` when there are guests,
 then `setTag`, `setColor(CalendarApp.EventColor.<name>)` when the preset sets
-a colour, `setTransparency(TRANSPARENT|OPAQUE)` for `free`, and
-`removeAllReminders` followed by `addPopupReminder(minutes)` for each
-reminder, so an event carries exactly the preset's reminders and the
-calendar defaults never drift in. An existing event is compared field by
+a colour, `setTransparency(TRANSPARENT|OPAQUE)` for `free`, and, when the
+preset lists reminders, `removeAllReminders` followed by
+`addPopupReminder(minutes)` for each, so the event carries exactly that
+list; a preset without reminders never touches them, and the new event keeps
+the calendar's default notifications. An existing event is compared field by
 field (title, description, all-day flag and dates or times, colour when the
-preset sets one, transparency, sorted guests, sorted reminders) and only the
+preset sets one, transparency, sorted guests, sorted reminders when the
+preset lists some) and only the
 differing fields are written: `setTitle`, `setDescription`,
 `setAllDayDates` or `setTime` (which also switches between all-day and
 timed), `setColor`, `setTransparency`, `addGuest` and `removeGuest` (no
-invitations on update), reminders as above. Tagged events of the rotation in
+invitations on update), reminders as above; a preset that goes from a list
+back to empty therefore leaves existing events' reminders as they are.
+Tagged events of the rotation in
 the window that no desired event claims are deleted, and duplicates of one
 key are deleted down to one; untagged events and other rotations' events are
 never touched. With `dry` the counts are computed and nothing is written.
@@ -1245,14 +1262,32 @@ the first error. `Clean calendar: current rotation` deletes the events of the
 active tab's rotation in its presets' calendars. `Clean calendar: selected
 preset` takes the preset from the active cell's row in `#GCal`, walking up
 from a setting row to its preset row, and deletes every Rotalator event of
-that calendar in the window above. `gcal_setup(ss)` creates `#GCal` with its
-header and four comment rows (how presets work, the settings, an example, how
-to use it) when the tab is missing or empty, and formats it like an editable
-system tab: script font, plain text, bold grey frozen header, widths 120,
-120, 640, spare columns removed, grey tab colour. `gcal_help` returns the
-`CALENDAR` lines appended to `#Help` (8, Extensions). The `#GCal` tab is a
-known system tab of the core, so `Set Up Tab` refuses it with a toast that
-names the extension and the storage reads it through `readTabRows`.
+that calendar in the window above.
+
+`gcal_setup(ss)` creates `#GCal` directly after `#Global` when missing, and
+moves an existing one there when it sits elsewhere (once; a tab coming from
+before `#Global` is moved to `#Global`'s current index, since `#Global`
+shifts up when the tab leaves), so on a fresh spreadsheet the editable tabs
+read `#Global`, `#GCal`, `#Holidays` (on an existing one `#Holidays` follows
+only when it already followed `#Global`, 10.1) and `#Help` stays last. An
+empty tab gets the template
+(`gcalTemplateRows`): the header, the cheat sheet `GCAL_CHEAT_SHEET` as
+comment rows in column C (a `SETTINGS` heading, one line per setting with
+its values and default, a `TEMPLATES` line with the variables and the
+`{start:%fmt}` directives, a `USE` line with `set cal=<preset> [<preset>
+...]`), then the preset block `preset-1` (note `First Google Calendar
+preset`) with `id` = `FILL IN WITH CALENDAR ID`, `title` and `body` at their
+defaults, `allday` `auto`, `free` `true`, `invite` `true` and `reminders`
+empty, so a run with `cal=preset-1` reports the placeholder id as not found
+until it is filled in. It then formats the tab like an editable system tab:
+script font, wrap text and top-left alignment on the whole sheet, plain text,
+bold grey frozen header, widths 140, 120, 700, spare columns removed, grey
+tab colour. `gcal_setupTab(sheet)` gives `Set Up Tab` the same template on an
+empty `#GCal` (and refuses a filled one), returning `true` for that tab only.
+`gcal_help` returns the `CALENDAR` lines appended to `#Help` (8,
+Extensions): the same cheat sheet plus the export rule and the menu items.
+The `#GCal` tab is a known system tab of the core, read through
+`readTabRows`.
 
 ### 13.6 Credentials and time zone
 

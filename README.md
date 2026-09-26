@@ -516,10 +516,12 @@ personal |           | Timed events for the person on call
 A row with a name in the first column starts a preset (the third column is
 a note); the rows below it set `id` (required), `title` and `body`
 templates, `allday` (`auto`: all-day when the shift starts and ends at
-midnight), `color` (a Calendar colour name or 1 to 11), `free` (default
-true: the time shows as free), `invite` (default true: the assignee is
-invited when their member id is an email address) and `reminders` (intervals
-before the start, `1d, 30m`). Templates take `{who}`, `{rotation}`,
+midnight), `color` (a Calendar colour name, its number 1 to 11, or `#RRGGBB`
+for the nearest of the eleven event colours), `free` (default true: the time
+shows as free), `invite` (default true: the assignee is invited when their
+member id is an email address) and `reminders` (intervals before the start,
+`1d, 30m`; empty, the default, leaves the calendar's own default
+notifications in place). Templates take `{who}`, `{rotation}`,
 `{note}`, `{pin}`, `{start}` and `{end}`, the instants optionally with a
 strftime format (`%Y %m %d %e %H %M %a %A %b %B %j %u`). Unknown placeholders
 stay as written and are reported in `#Status`.
@@ -539,13 +541,17 @@ calendar extension is not installed.
 Setting it up:
 
 1. Install `GCal.js` next to the core and authorise the calendar access
-   (INSTALL.md). **Set Up Spreadsheet** then creates the `#GCal` tab with
-   its header and help rows, and `#Help` gains a `CALENDAR` section.
+   (INSTALL.md). **Set Up Spreadsheet** then creates the `#GCal` tab right
+   after `#Global` with a cheat sheet of the settings and a first preset,
+   `preset-1`, whose `id` reads `FILL IN WITH CALENDAR ID`; `#Help` gains a
+   `CALENDAR` section. **Set Up Tab** on an empty `#GCal` writes the same
+   template.
 2. Create or pick the calendars and share each one with write access with
    every account that runs Rotalator: the people who click **Run** and the
    account that installed the nightly trigger.
-3. Fill `#GCal` with a preset per calendar and put `cal=<presets>` in a `set`
-   row of each rotation to export, or in `#Global`.
+3. Fill in the id of `preset-1` (rename it if you like), add a preset per
+   further calendar, and put `cal=<presets>` in a `set` row of each rotation
+   to export, or in `#Global`.
 
 Menu items of the extension, below the core ones:
 

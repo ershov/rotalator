@@ -59,7 +59,8 @@ function gcalEventState(ev, tz) {
   };
 }
 
-// Fields of an existing event that differ from the desired one. A preset without color leaves the colour alone.
+// Fields of an existing event that differ from the desired one. A preset without color leaves the colour
+// alone, and one without reminders leaves the event's reminders alone (the calendar defaults apply).
 function gcalDiff(state, want) {
   var diff = [];
   if (state.title !== want.title) diff.push('title');
@@ -68,7 +69,7 @@ function gcalDiff(state, want) {
   if (want.color !== null && state.color !== String(want.color)) diff.push('color');
   if (state.free !== want.free) diff.push('free');
   if (!gcalSameList(state.guests, gcalGuests(want.guests))) diff.push('guests');
-  if (!gcalSameList(state.reminders, gcalSorted(want.reminders))) diff.push('reminders');
+  if (want.reminders.length && !gcalSameList(state.reminders, gcalSorted(want.reminders))) diff.push('reminders');
   return diff;
 }
 
@@ -79,8 +80,10 @@ function gcalApplyTime(ev, want, tz) {
   else ev.setTime(start, end);
 }
 
-// The reminders are exactly the preset's: none when it sets none, so the calendar defaults never drift in.
+// A non-empty list is applied exactly; an empty one is never applied, so a new event keeps the calendar's
+// default reminders and an existing one keeps whatever it has.
 function gcalApplyReminders(ev, want) {
+  if (!want.reminders.length) return;
   ev.removeAllReminders();
   want.reminders.forEach(function (m) { ev.addPopupReminder(m); });
 }
