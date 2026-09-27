@@ -30,17 +30,45 @@ function gcalRotationShifts(run, name) {
 }
 
 // Presets named by the rotation's cal value, in order; unknown names, presets with errors and a second preset
-// on the same calendar (its events would share the first one's keys) are reported and skipped.
+// on the same calendar (its events would share the first one's keys) are reported and skipped. Errors that
+// the cal value itself causes carry setting: 'cal' so they can be written above the set row (DESIGN 6); a
+// preset skipped for its own errors is already reported in #GCal.
 function gcalRotationPresets(cal, inputs, rotation, errors) {
   var out = [];
   var calendars = {};
+  var atCal = function (message) { errors.push({ where: rotation, rotation: rotation, setting: 'cal', message: message }); };
   (cal === '' ? [] : cal.split(' ')).forEach(function (name) {
     var preset = gcalPreset(inputs, name);
-    if (!preset) errors.push({ where: rotation, message: 'unknown preset "' + name + '" in cal; add it to ' + GCAL_TAB });
-    else if (preset.errors.length) errors.push({ where: rotation, message: 'preset "' + name + '" skipped: ' + preset.errors.join('; ') });
-    else if (calendars[preset.id]) errors.push({ where: rotation, message: 'preset "' + name + '" skipped: calendar ' + preset.id + ' is already used by preset "' + calendars[preset.id] + '"' });
+    if (!preset) atCal('unknown preset "' + name + '" in cal; add it to ' + GCAL_TAB);
+    else if (preset.errors.length) errors.push({ where: rotation, rotation: rotation, message: 'preset "' + name + '" skipped: ' + preset.errors.join('; ') });
+    else if (calendars[preset.id]) atCal('preset "' + name + '" skipped: calendar ' + preset.id + ' is already used by preset "' + calendars[preset.id] + '"');
     else { calendars[preset.id] = name; out.push(preset); }
   });
+  return out;
+}
+
+// Index in the written cells (sorted ledger or #Global rows) of the set row that put cal in force at now:
+// the last set row at or before now, epoch rows included, whose what sets cal.
+function gcalCalRowIndex(cells, now) {
+  var found = -1;
+  cells.forEach(function (c, i) {
+    var row = rowFromArray(c, i + 2);
+    if (row.type !== 'set' || row.start === null) return;
+    if (now !== null && now !== undefined && row.start > now) return;
+    var parsed = parseSetArg(row.what, row.start);
+    if (parsed.error === null && 'cal' in parsed.values && parsed.reset.indexOf('cal') < 0) found = i;
+  });
+  return found;
+}
+
+// The cells with an error row above the cal set row for each message (same start, so the ledger order keeps
+// it there); null when no such row exists.
+function gcalCellsWithCalErrors(cells, now, messages) {
+  var i = gcalCalRowIndex(cells, now);
+  if (i < 0) return null;
+  var out = cells.slice();
+  var rows = messages.map(function (m) { return rowToArray(makeRow({ type: 'error', startText: cells[i][1], what: m })); });
+  out.splice.apply(out, [i, 0].concat(rows));
   return out;
 }
 

@@ -26,6 +26,7 @@ var STATUS_COLUMN_WIDTHS = [100, 150, 150, 60, 60, 120, 60, 100, 100, 150, 150, 
 var COLOR_HEADER = '#eeeeee';
 var COLOR_DIVIDER = '#d9ead3';
 var COLOR_ERROR = '#f4c7c3';
+var COLOR_WARNING = '#fce5cd';
 var COLOR_SETTINGS = '#c9daf8';
 var COLOR_ROSTER = '#d0e0e3';
 var COLOR_SNAPSHOT = '#d9ead3';
@@ -164,8 +165,9 @@ class SheetsStorage {
     writeTextCells(sheet, row, rows);
   }
 
-  // Bold grey header rows, a green divider and yellow current cells, from the 0-based indexes the status
-  // module reports in table { headerRows, dividerRows, currentCells }.
+  // Bold grey header rows, a green divider, red error rows, orange warning rows and yellow current cells,
+  // from the 0-based indexes the status module reports in table { headerRows, dividerRows, errorRows,
+  // warningRows, currentCells }.
   formatTableRows(sheet, width, table) {
     var paint = function (indexes, color) {
       (indexes || []).forEach(function (i) { sheet.getRange(i + 1, 1, 1, width).setBackground(color); });
@@ -173,6 +175,8 @@ class SheetsStorage {
     (table.headerRows || []).forEach(function (i) { sheet.getRange(i + 1, 1, 1, width).setFontWeight('bold'); });
     paint(table.headerRows, COLOR_HEADER);
     paint(table.dividerRows, COLOR_DIVIDER);
+    paint(table.errorRows, COLOR_ERROR);
+    paint(table.warningRows, COLOR_WARNING);
     (table.currentCells || []).forEach(function (c) { sheet.getRange(c.row + 1, c.col + 1).setBackground(COLOR_CURRENT_CELL); });
   }
 
@@ -256,9 +260,9 @@ function runWith(preview, rotations) {
   var result = runStorage(storage, storage.nowText, options);
   var title = preview ? 'Rotalator dry run' : 'Rotalator';
   var what = rotations ? rotations.join(', ') : Object.keys(result.ledgers).length + ' rotation(s)';
-  var message = result.errors.length
-    ? result.errors.length + ' error(s): ' + result.errors[0]
-    : what + ' ' + (preview ? 'previewed' : 'updated') + ' at ' + storage.nowText;
+  var done = result.status ? what + ' ' + (preview ? 'previewed' : 'updated') + ' at ' + storage.nowText : result.errors[0];
+  var warnings = result.status ? result.status.warnings.length : 0;
+  var message = done + '; ' + finishedText(result.errors.length, warnings);
   result.errors.forEach(function (e) { console.log(e); });
   ss.toast(message, title, 10);
   return result;

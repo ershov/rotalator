@@ -89,6 +89,11 @@ function runStorage(storage, nowText, options) {
   return run;
 }
 
+// Closing words of a run's toast (DESIGN 10.4): the counts cover core and extension errors and warnings alike.
+function finishedText(errors, warnings) {
+  return errors || warnings ? 'finished with ' + errors + ' error(s) and ' + warnings + ' warning(s)' : 'finished, no errors';
+}
+
 // Long-run guard (DESIGN 10.4). A loop that could outlive the Apps Script execution limit asks stopReason()
 // between steps: 'aborted' when the user asked to abort, 'budget' when the run has used its time budget,
 // else null. start and clock() are milliseconds, aborted() reads the abort flag; both are injected so the

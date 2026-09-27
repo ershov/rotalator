@@ -204,16 +204,20 @@ function relationsMatrix(status) {
   return rows;
 }
 
-// Rows of the #Status tab plus presentation metadata: headerRows and dividerRows are row indexes for the
-// adapter to format. status.now, status.mode and status.tabs are set by the runner. block: horizontalBlock
+// Rows of the #Status tab plus presentation metadata: headerRows, dividerRows, errorRows and warningRows are
+// row indexes for the adapter to format (the errors and warnings tables and the same rows of extension
+// blocks). status.now, status.mode and status.tabs are set by the runner. block: horizontalBlock
 // for the spreadsheet, verticalBlock for the CLI. Extension blocks (<prefix>_status(status) returning
 // { rows, headerRows }) follow the frame, each after a blank row, their rows cut to STATUS_WIDTH; a hook that
 // throws adds an entry to the errors block instead.
 function statusRowsWith(status, block) {
   var rows = [];
   var headerRows = [];
+  var errorRows = [];
+  var warningRows = [];
   var push = function (cells) { rows.push(padStatusRow(cells.slice(0, STATUS_WIDTH))); };
   var header = function (cells) { headerRows.push(rows.length); push(cells); };
+  var marked = function (cells, list) { list.push(rows.length); push(cells); };
   var errors = status.errors.slice();
   var blocks = [];
   callExtensionHooks('status', [status], function (h, e) { errors.push(extensionError(h, e)); }).forEach(function (r) {
@@ -242,7 +246,7 @@ function statusRowsWith(status, block) {
     push([]);
     header(['warnings']);
     header(['rotation', 'start', 'message']);
-    status.warnings.forEach(function (w) { push([w.rotation, statusInstant(w.start), w.message]); });
+    status.warnings.forEach(function (w) { marked([w.rotation, statusInstant(w.start), w.message], warningRows); });
   }
   if (errors.length) {
     push([]);
@@ -250,14 +254,19 @@ function statusRowsWith(status, block) {
     header(['rotation', 'where', 'message']);
     errors.forEach(function (e) {
       var where = e.rowIndex !== null && e.rowIndex !== undefined ? 'row ' + e.rowIndex : statusInstant(e.start);
-      push([e.rotation, where, e.message]);
+      marked([e.rotation, where, e.message], errorRows);
     });
   }
   blocks.forEach(function (table) {
     push([]);
-    table.rows.forEach(function (row, i) { if ((table.headerRows || [0]).indexOf(i) >= 0) header(row); else push(row); });
+    table.rows.forEach(function (row, i) {
+      var at = rows.length;
+      if ((table.headerRows || [0]).indexOf(i) >= 0) header(row); else push(row);
+      if ((table.errorRows || []).indexOf(i) >= 0) errorRows.push(at);
+      if ((table.warningRows || []).indexOf(i) >= 0) warningRows.push(at);
+    });
   });
-  return { rows: rows, headerRows: headerRows, dividerRows: [] };
+  return { rows: rows, headerRows: headerRows, dividerRows: [], errorRows: errorRows, warningRows: warningRows };
 }
 
 function statusRows(status) {

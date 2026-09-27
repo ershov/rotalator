@@ -599,7 +599,10 @@ from future, placed after any row with the same start (omitted when `now` is
 unknown). `statusRows` and `shiftsRows` return `{ rows, headerRows,
 dividerRows }`: the row indexes of the title, `Tabs` and `Relations` headers,
 each rotation block's first row, the warnings and errors headers and the
-`#All shifts` header, and of the now row; `shiftsRows` adds `currentCells`,
+`#All shifts` header, and of the now row, plus `errorRows` and
+`warningRows`, the data rows of the errors and warnings tables and the
+error and warning rows extension blocks report (8); `shiftsRows` adds
+`currentCells`,
 the `{ row, col }` (0-based) of each rotation's shift covering `now` (the
 same rule as `current`), empty when `now` is unknown. Adapters format them
 without knowing the layout while the CLI prints rows only. Both tabs are
@@ -620,7 +623,11 @@ rewritten in full on every run, including dry runs.
 ## 6. Errors and warnings
 
 The script writes diagnostics into the ledger tabs as `error` rows. They are
-removed on the next read, so fixing the cause and rerunning clears them.
+removed on the next read, so fixing the cause and rerunning clears them. The
+same rule holds for every tab the script reads (section 1): `#Global` and,
+through its extension, `#GCal`. Every run ends with the counts in the toast
+(`finished with N error(s) and M warning(s)`, or `finished, no errors`),
+covering core and extension errors alike (10.4).
 
 - Validation errors: the run writes every tab back with its rows unchanged,
   with an `error` row for each offending row using the same `start`, so it
@@ -636,6 +643,31 @@ removed on the next read, so fixing the cause and rerunning clears them.
   ignored, run continues.
 - Malformed global `set` row: `error` row in `#Global` and no regeneration,
   like a ledger validation error.
+
+Audit of every error and warning a run can produce, where it is written in
+place and where it is only reported in `#Status` (and why):
+
+| message | in place | `#Status` |
+|---|---|---|
+| Validation errors of 5.1 (`unknown type`, `bad start`, `bad duration`, `shift takes exactly one member id`, `unknown setting`, ...) | `error` row above the row, same `start`, in the ledger or `#Global` | errors |
+| `<rotation>: ledger is empty`, `no period in force`, `no anchor`, `row before the anchor` | `error` row at the top of the ledger (no `start`) or above the first dated row | errors |
+| Replay errors (`join: "x" is already a member`, `leave: unknown member`, `exclude`/`include`/`score` on an unknown member, `team: duplicate member`) | `error` row above the row | errors |
+| Relation row errors (unknown or disabled rotation, itself, twice, `#Global` shape, `relation order cycle`) | `error` row above the row in its own tab | errors |
+| Malformed global `set` row | `error` row in `#Global`; blocks regeneration | errors |
+| `no eligible member for shift <a> to <b>` | `error` row at the slot start, next to the `shift` with nobody | warnings |
+| `min_distance relaxed to ...`, `repel! relaxed to ...`, `repel relaxed: <who> also on <rotation>` | `note` of the generated shift | warnings |
+| `comment row N: unparseable start, treated as undated` | none: comments are never rewritten and the row stays where it is | warnings |
+| `calendar extension not installed; cal=... has no effect` | none: no extension is there to write it | warnings |
+| `<Name> extension: <message>` (a hook threw, 8) | none: no source row; also logged | errors |
+| `bad now`, `holidays row N: bad date`, `unknown rotation` | none: the run stops before writing; toast, log, CLI stderr | none (no status) |
+| `another Rotalator run is in progress` | none; toast and log | none |
+| `#GCal` preset errors (13.1) | `error` row above the offending `#GCal` row | Calendar block errors |
+| `unknown preset "p" in cal; add it to #GCal` | `error` row above the `set` row carrying `cal` at `now`: in the rotation tab, or in `#Global` prefixed with the rotation | Calendar block errors, run errors |
+| `preset "p" skipped: calendar <id> is already used by preset "q"` | same as above | same |
+| `preset "p" skipped: <its errors>` | in `#GCal` through the preset's own error rows; not repeated at the `cal` row | Calendar block errors, run errors |
+| `calendar "<id>" not found or not shared with this account`, API failures per calendar | `error` row above the preset's `id` row in `#GCal` (the preset row without one), written after the export | Calendar block errors, run errors |
+| `aborted after N event(s)`, `time budget reached ...` (10.4) | none: transient, nothing to fix in a tab | warnings (once; the Calendar block repeats it in its toast only) |
+| Menu-action failures: a clean that cannot open a calendar, `unknown rotation`/`unknown preset`/`preset has errors` from a clean, `N error(s), nothing exported` from a re-export, an extension `setup` failure named in the Set Up toast | none: no run result and no row to attach to | none; toast and log |
 
 ## 7. Multiple rotations and the `#Global` tab
 
@@ -830,7 +862,7 @@ toast for `setup`. A `readInputs` failure also skips that run's `afterRun`.
 | `<prefix>_help(lines)` | `helpText()`, used by Set Up Spreadsheet for `#Help` | Receives a copy of `HELP_TEXT` and returns extra lines appended after it (a line ending with `:` is a heading); anything but an array adds nothing. |
 | `<prefix>_readInputs(storage)` | `runStorage`, before `advance` and `regenerate` | Reads the extension's inputs through the storage (a tab, a CSV file); the value is kept as `result.ext[prefix]`. |
 | `<prefix>_afterRun(result, storage, options)` | `runStorage`, when the run had no errors | After the ledgers and `#Global` are written (when writing) and before the status tabs; `result` is the runner's result including `ext`, and whatever the hook records in `result.status` (by convention under `status.ext[prefix]`) reaches `<prefix>_status`. `options` tells write and mode, so a dry run stays dry. |
-| `<prefix>_status(status)` | `statusRows`, `statusRowsVertical` | Returns `{ rows, headerRows }` (cell arrays; `headerRows` are indexes into `rows`, default the first row) appended to `#Status` after the errors table, preceded by a blank row; rows are padded or cut to the tab's 17 columns; null or no rows add nothing. |
+| `<prefix>_status(status)` | `statusRows`, `statusRowsVertical` | Returns `{ rows, headerRows, errorRows, warningRows }` (cell arrays; the index lists point into `rows`, `headerRows` default the first row) appended to `#Status` after the errors table, preceded by a blank row; rows are padded or cut to the tab's 17 columns; error and warning rows are painted like the core's; null or no rows add nothing. |
 
 Core helpers for extension actions (10.4): `withLock(fn)` runs a menu action
 under the script lock with the abort flag cleared and the run guard armed;
@@ -984,16 +1016,18 @@ the same palette from its extension (13.5). Generated tabs
 (`#Status`,
 `#All shifts`, previews) are cleared with their formats and rewritten on every
 run; the adapter then
-applies bold and the light grey background to the `headerRows` and light
-green to the `dividerRows` and light yellow to the `currentCells` reported
-with the rows (5.8). `#All shifts` columns are auto-sized to their content on
+applies bold and the light grey background to the `headerRows`, light green
+to the `dividerRows`, light red to the `errorRows`, light orange to the
+`warningRows` and light yellow to the `currentCells` reported with the rows
+(5.8). `#All shifts` columns are auto-sized to their content on
 every run (`autoResizeColumns`) and then widened to at least 120px, so names
 always fit and short names never leave needle-thin columns; columns beyond
 the last rotation are deleted when they hold nothing, like the ledger trim.
 In `#Help` the first line and every heading (a line ending with `:`) are
 bold; `helpHeadingRows()` in `70_tools.js` lists them.
 
-Palette: header `#eeeeee`, error `#f4c7c3`, settings `#c9daf8`, roster
+Palette: header `#eeeeee`, error `#f4c7c3`, warning `#fce5cd`, settings
+`#c9daf8`, roster
 `#d0e0e3`, snapshot and relation and divider `#d9ead3`, comment and current
 shift cell `#fff2cc`, detach `#efefef`; tab colours generated `#4285f4`,
 editable `#9e9e9e`.
@@ -1178,11 +1212,11 @@ Palette of the event colours, as the Calendar UI shows them: 1 pale blue
 9 blue `#5484ed`, 10 green `#51b749`, 11 red `#dc2127`.
 
 `parseGCalPresets(rows)` returns every preset in tab order with its own error
-list and the flat errors as `{ row, where: '#GCal row N', message }`, sorted
-by row (`N` as below): a setting before any preset, an unknown or duplicate
-setting, a bad value (with the accepted forms), a bad or duplicate preset
-name, a preset without `id` (reported on the preset row), and unknown
-placeholders or
+list (and `setRows`, the tab row of each setting given) and the flat errors
+as `{ row, where: '#GCal row N', message }`, sorted by row (`N` as below): a
+setting before any preset, an unknown or duplicate setting, a bad value (with
+the accepted forms), a bad or duplicate preset name, a preset without `id`
+(reported on the preset row), and unknown placeholders or
 directives in a template, reported once each. A preset with errors stays in
 the list but is unusable: a rotation naming it gets a plan error and the
 preset is skipped, like an unknown name.
@@ -1202,7 +1236,9 @@ the same tab; fixing a row removes its error row on the next run.
 This happens on every read, dry runs included, wherever the storage can
 write: the Sheets adapter always, the CSV directory unless it was opened
 read-only (the CLI without `--write`), the memory storage in tests; a storage
-without `writeTabRows` only reads.
+without `writeTabRows` only reads. The inputs keep the cleaned rows
+(`inputs.rows`), so the adapter can add its own error rows after the export
+(13.4).
 
 ### 13.2 Templates
 
@@ -1258,12 +1294,15 @@ line and a `calendar errors` table when there are errors.
 
 A rotation naming two presets on the same calendar keeps the first: their
 events would share keys. Golden scenario `gcal`: two rotations, one with
-`cal=team personal` and a stored snapshot, one without; the core alone writes
-the ledgers and warns that no calendar extension is installed, and
-`test/gcal.test.js` loads the extension and compares the plan with
-`expected/gcal.json`. The CLI `rotalator export DIR [--rotation NAME]
-[--repair]` runs the scheduler without writing and prints the plan as text;
-no calendar exists in Node.
+`cal=team personal` and a stored snapshot, one without; the golden run loads
+the extension (the directory holds a `gcal.csv`), writes the ledgers and
+shows the plan's counts in a `Calendar (no calendar)` block of
+`expected/status.txt`, and `test/gcal.test.js` compares the plan with
+`expected/gcal.json`. The CLI loads the extension for any directory that
+holds a `gcal.csv`, so `run` mirrors the spreadsheet (error rows written
+with `--write`, the Calendar block in `--status`, exit 1 on preset errors)
+without calendar calls, and `rotalator export DIR [--rotation NAME]
+[--repair]` runs the scheduler without writing and prints the plan as text.
 
 ### 13.4 Reconcile
 
@@ -1294,6 +1333,22 @@ Tagged events of the rotation in
 the window that no desired event claims are deleted, and duplicates of one
 key are deleted down to one; untagged events and other rotations' events are
 never touched. With `dry` the counts are computed and nothing is written.
+A calendar that cannot be opened or fails is also written in place (section
+6): `gcalWriteCalendarErrors` puts `| error | <message> (<rotation> /
+<preset>)` above the preset's `id` row in `#GCal`, on top of the parse
+errors, wherever the storage can write; the next read drops it like any
+error row, so a shared calendar clears it. The plan errors the `cal` value
+causes (an unknown preset, two presets on one calendar; they carry `setting:
+'cal'`) go above the `set` row that put `cal` in force at `now`
+(`gcalCalRowIndex`, `gcalCellsWithCalErrors`): in the rotation tab, or in
+`#Global` prefixed with the rotation name when the value comes from there;
+written through `writeLedger`/`writeGlobal` only when the run writes, and
+into the result's cells so the CLI prints them. That tab is therefore
+written a second time in the same run, after the core wrote it, only when
+such an error row has to be added. The extension's errors are
+appended to the run's errors (`GCal <where>: <message>`) and a stop note to
+the status warnings, so the toast counts them and `#Status` lists the note
+once, in the warnings table (6).
 Between calendars and between events the reconcile asks the run guard (10.4)
 whether to stop; on `aborted` or `budget` the remaining events and calendars
 are left for the next run, `data.note` carries `aborted after N event(s)` or

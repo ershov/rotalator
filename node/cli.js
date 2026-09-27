@@ -73,8 +73,11 @@ function exportDir(dir, nowText, { rotations = null, repair = false } = {}) {
   return { result, plan: structuredClone(U.gcalPlan(result, result.ext.gcal, { repair, rotations: rotations || undefined })) };
 }
 
-// Without write the storage is read-only, so extensions writing their own tab from readInputs change nothing.
+// A directory with a gcal.csv gets the GCal extension, so the CLI mirrors the spreadsheet: error rows written
+// with --write, the Calendar block in --status, exit 1 on preset errors, no calendar calls in Node. Without
+// write the storage is read-only.
 function runDir(dir, nowText, options = {}) {
+  if (fs.existsSync(path.join(dir, 'gcal.csv'))) load(['GCal']);
   const storage = new CsvDirStorage(dir, { readOnly: !options.write });
   return runStorage(storage, nowText ?? storage.readNow(), options);
 }

@@ -82,8 +82,10 @@ function gcalIsValidPresetName(name) {
   return /^[A-Za-z0-9_-]+$/.test(name);
 }
 
+// setRows: the tab row of each setting given, so a later error about a setting (a calendar that cannot be
+// opened) can be written above it.
 function gcalNewPreset(name, note, row) {
-  var preset = { name: name, note: note, row: row, errors: [] };
+  var preset = { name: name, note: note, row: row, setRows: {}, errors: [] };
   Object.keys(GCAL_SETTINGS).forEach(function (key) { preset[key] = GCAL_SETTINGS[key].def; });
   return preset;
 }
@@ -112,22 +114,20 @@ function parseGCalPresets(rows) {
       if (!gcalIsValidPresetName(name)) fail(i, current, 'bad preset name "' + name + '"; use letters, digits, - and _ without spaces');
       else if (seen[name]) fail(i, current, 'duplicate preset "' + name + '"');
       seen[name] = true;
-      current.set = {};
       return;
     }
     if (key === '') return;
     if (current === null) { fail(i, null, 'setting "' + key + '" before any preset'); return; }
     var spec = GCAL_SETTINGS[key];
     if (!spec) { fail(i, current, 'unknown setting "' + key + '"'); return; }
-    if (current.set[key]) { fail(i, current, 'duplicate setting "' + key + '"'); return; }
-    current.set[key] = true;
+    if (current.setRows[key] !== undefined) { fail(i, current, 'duplicate setting "' + key + '"'); return; }
+    current.setRows[key] = i + 2;
     var parsed = spec.parse(value);
     if (parsed === null) { fail(i, current, 'bad value for ' + key + ': "' + value + '"' + (spec.hint ? '; use ' + spec.hint : '')); return; }
     if (spec.template) gcalTemplateErrors(parsed, key).forEach(function (message) { fail(i, current, message); });
     current[key] = parsed;
   });
   presets.forEach(function (preset) {
-    delete preset.set;
     if (preset.id === null) {
       errors.push({ row: preset.row, where: null, message: 'preset "' + preset.name + '" has no id' });
       preset.errors.push('no id');
@@ -153,14 +153,16 @@ function gcalDropErrorRows(rows) {
   return rows.filter(function (cells) { return !gcalIsErrorRow(cells); });
 }
 
-// The tab with an error row (| error | message) directly above each row an error names, in message order;
-// rows are the cleaned rows the errors were computed on. Rows are padded to the header width.
+// The tab with an error row (| error | message) directly above each row an error names ({ row, message },
+// sorted by row here, equal rows in list order); rows are the cleaned rows the errors were computed on.
+// Rows are padded to the header width.
 function gcalRowsWithErrors(rows, errors) {
   var out = rows.map(function (cells) {
     return GCAL_HEADER.map(function (_, i) { return cells[i] === undefined || cells[i] === null ? '' : cells[i]; });
   });
-  for (var k = errors.length - 1; k >= 0; k--) {
-    out.splice(errors[k].row - 2, 0, ['', GCAL_ERROR_TYPE, errors[k].message]);
+  var sorted = errors.slice().sort(function (a, b) { return a.row - b.row; });
+  for (var k = sorted.length - 1; k >= 0; k--) {
+    out.splice(sorted[k].row - 2, 0, ['', GCAL_ERROR_TYPE, sorted[k].message]);
   }
   return out;
 }
@@ -177,6 +179,7 @@ function gcal_readInputs(storage) {
   var read = typeof storage.readTabRows === 'function' ? storage.readTabRows(GCAL_TAB, GCAL_HEADER) : [];
   var rows = gcalDropErrorRows(read);
   var inputs = parseGCalPresets(rows);
+  inputs.rows = rows;
   if (typeof storage.writeTabRows === 'function') {
     var written = gcalRowsWithErrors(rows, inputs.errors);
     if (JSON.stringify(written) !== JSON.stringify(gcalRowsWithErrors(read, []))) storage.writeTabRows(GCAL_TAB, GCAL_HEADER, written);
@@ -284,17 +287,45 @@ function gcalRotationShifts(run, name) {
 }
 
 // Presets named by the rotation's cal value, in order; unknown names, presets with errors and a second preset
-// on the same calendar (its events would share the first one's keys) are reported and skipped.
+// on the same calendar (its events would share the first one's keys) are reported and skipped. Errors that
+// the cal value itself causes carry setting: 'cal' so they can be written above the set row (DESIGN 6); a
+// preset skipped for its own errors is already reported in #GCal.
 function gcalRotationPresets(cal, inputs, rotation, errors) {
   var out = [];
   var calendars = {};
+  var atCal = function (message) { errors.push({ where: rotation, rotation: rotation, setting: 'cal', message: message }); };
   (cal === '' ? [] : cal.split(' ')).forEach(function (name) {
     var preset = gcalPreset(inputs, name);
-    if (!preset) errors.push({ where: rotation, message: 'unknown preset "' + name + '" in cal; add it to ' + GCAL_TAB });
-    else if (preset.errors.length) errors.push({ where: rotation, message: 'preset "' + name + '" skipped: ' + preset.errors.join('; ') });
-    else if (calendars[preset.id]) errors.push({ where: rotation, message: 'preset "' + name + '" skipped: calendar ' + preset.id + ' is already used by preset "' + calendars[preset.id] + '"' });
+    if (!preset) atCal('unknown preset "' + name + '" in cal; add it to ' + GCAL_TAB);
+    else if (preset.errors.length) errors.push({ where: rotation, rotation: rotation, message: 'preset "' + name + '" skipped: ' + preset.errors.join('; ') });
+    else if (calendars[preset.id]) atCal('preset "' + name + '" skipped: calendar ' + preset.id + ' is already used by preset "' + calendars[preset.id] + '"');
     else { calendars[preset.id] = name; out.push(preset); }
   });
+  return out;
+}
+
+// Index in the written cells (sorted ledger or #Global rows) of the set row that put cal in force at now:
+// the last set row at or before now, epoch rows included, whose what sets cal.
+function gcalCalRowIndex(cells, now) {
+  var found = -1;
+  cells.forEach(function (c, i) {
+    var row = rowFromArray(c, i + 2);
+    if (row.type !== 'set' || row.start === null) return;
+    if (now !== null && now !== undefined && row.start > now) return;
+    var parsed = parseSetArg(row.what, row.start);
+    if (parsed.error === null && 'cal' in parsed.values && parsed.reset.indexOf('cal') < 0) found = i;
+  });
+  return found;
+}
+
+// The cells with an error row above the cal set row for each message (same start, so the ledger order keeps
+// it there); null when no such row exists.
+function gcalCellsWithCalErrors(cells, now, messages) {
+  var i = gcalCalRowIndex(cells, now);
+  if (i < 0) return null;
+  var out = cells.slice();
+  var rows = messages.map(function (m) { return rowToArray(makeRow({ type: 'error', startText: cells[i][1], what: m })); });
+  out.splice.apply(out, [i, 0].concat(rows));
   return out;
 }
 
@@ -416,7 +447,8 @@ function gcalStatusData(plan) {
 }
 
 // Hook: rows for #Status from status.ext.gcal (DESIGN 8, Extensions); nothing without it. The title row
-// carries the elapsed seconds of the run when known; a note row says why a loop stopped early.
+// carries the elapsed seconds of the run when known; the calendar errors are error rows. A stop note is a
+// warning of the run (50_calendar.js) and appears in the warnings table, not here.
 function gcal_status(status) {
   var data = status.ext && status.ext.gcal;
   if (!data) return null;
@@ -424,17 +456,18 @@ function gcal_status(status) {
   if (data.elapsed !== undefined) title.push('elapsed', data.elapsed + ' s');
   var rows = [title, ['rotation', 'preset', 'calendar'].concat(GCAL_COUNTS)];
   var headerRows = [0, 1];
+  var errorRows = [];
+  var warningRows = [];
   (data.lines || []).forEach(function (line) {
     rows.push([line.rotation, line.preset, line.calendar].concat(GCAL_COUNTS.map(function (c) { return String(line[c]); })));
   });
-  if (data.note) rows.push(['note', data.note]);
   var errors = data.errors || [];
   if (errors.length) {
     headerRows.push(rows.length);
     rows.push(['calendar errors', 'where', 'message']);
-    errors.forEach(function (e) { rows.push(['', e.where, e.message]); });
+    errors.forEach(function (e) { errorRows.push(rows.length); rows.push(['', e.where, e.message]); });
   }
-  return { rows: rows, headerRows: headerRows };
+  return { rows: rows, headerRows: headerRows, errorRows: errorRows, warningRows: warningRows };
 }
 
 // ---- 50_calendar.js ----
@@ -630,11 +663,47 @@ function gcalReconcile(plan, data, options) {
         }
         if (stopper.reason() === null) progress(line);
       } catch (e) {
-        data.errors.push({ where: rot.rotation + ' / ' + preset, message: e && e.message ? e.message : String(e) });
+        data.errors.push({ where: rot.rotation + ' / ' + preset, rotation: rot.rotation, preset: preset, message: e && e.message ? e.message : String(e) });
       }
     });
   });
   return gcalFinish(data, stopper, done, 'event(s)', guard);
+}
+
+// In-place error rows for the plan errors the cal value causes (DESIGN 6): above the set row that carries cal
+// in the rotation tab, or in #Global (prefixed with the rotation) when the value comes from there. Written
+// only when the run writes; the core drops error rows on its next read. The result's cells are updated too,
+// so the CLI prints them.
+function gcalWriteCalErrors(result, storage, plan, options) {
+  if (!options.write) return;
+  var byTarget = {};
+  plan.errors.filter(function (e) { return e.setting === 'cal'; }).forEach(function (e) {
+    var rot = result.status.rotations.find(function (r) { return r.name === e.rotation; });
+    var cal = rot && rot.settings.values.find(function (s) { return s.key === 'cal'; });
+    var global = Boolean(cal && cal.source === 'global');
+    var target = global ? GLOBAL_TAB : e.rotation;
+    (byTarget[target] = byTarget[target] || []).push(global ? e.rotation + ': ' + e.message : e.message);
+  });
+  Object.keys(byTarget).forEach(function (target) {
+    var global = target === GLOBAL_TAB;
+    var cells = global ? result.global : result.ledgers[target];
+    var out = cells ? gcalCellsWithCalErrors(cells, result.status.at, byTarget[target]) : null;
+    if (!out) return;
+    if (global) { result.global = out; storage.writeGlobal(out); } else { result.ledgers[target] = out; storage.writeLedger(target, out); }
+  });
+}
+
+// In-place error rows for calendars that could not be opened or failed (DESIGN 13.4): above the preset's id
+// row in #GCal (the preset row when it has none), on top of the parse errors already there, wherever the
+// storage can write.
+function gcalWriteCalendarErrors(storage, inputs, data) {
+  if (typeof storage.writeTabRows !== 'function' || !inputs || !inputs.rows) return;
+  var extra = [];
+  data.errors.forEach(function (e) {
+    var preset = e.preset ? gcalPreset(inputs, e.preset) : null;
+    if (preset) extra.push({ row: preset.setRows.id || preset.row, message: e.message + ' (' + e.where + ')' });
+  });
+  if (extra.length) storage.writeTabRows(GCAL_TAB, GCAL_HEADER, gcalRowsWithErrors(inputs.rows, inputs.errors.concat(extra)));
 }
 
 // Deletes tagged events per a clean plan (gcalCleanPlan): a rotation's events (tag prefix rotation|) in its
@@ -697,6 +766,11 @@ function gcal_afterRun(result, storage, options) {
     if (plan.events.length) gcalAnnounce(plan);
     gcalReconcile(plan, data, { tz: storage.tz, dry: dry, progress: gcalProgress });
   }
+  gcalWriteCalErrors(result, storage, plan, options);
+  gcalWriteCalendarErrors(storage, result.ext.gcal, data);
+  // The extension's errors count as errors of the run and a stop note as a warning (DESIGN 6, 10.4).
+  data.errors.forEach(function (e) { result.errors.push('GCal ' + e.where + ': ' + e.message); });
+  if (data.note) result.status.warnings.push({ rotation: 'GCal', start: null, message: data.note });
   if (!plan.rotations.length && !data.errors.length) return;
   result.status.ext = result.status.ext || {};
   result.status.ext.gcal = data;
@@ -833,7 +907,7 @@ function gcalSummary(data) {
   var text = GCAL_COUNTS.map(function (c) { return c + ' ' + totals[c]; }).join(', ');
   if (data.elapsed !== undefined) text += ' in ' + data.elapsed + ' s';
   if (data.note) text += '; ' + data.note;
-  return text + (data.errors.length ? '; ' + data.errors.length + ' error(s): ' + data.errors[0].message : '');
+  return text + '; ' + finishedText(data.errors.length, data.note ? 1 : 0);
 }
 
 // Runs the scheduler without writing (the ledgers stay as they are) to get the plan inputs.
@@ -853,6 +927,7 @@ function gcalExportWith(rotations) {
   var plan = gcalPlan(result, result.ext.gcal, { repair: true, rotations: rotations || undefined });
   if (plan.events.length) gcalAnnounce(plan);
   var data = gcalReconcile(plan, gcalStatusData(plan), { tz: storage.tz, dry: false, progress: gcalProgress });
+  gcalWriteCalendarErrors(storage, result.ext.gcal, data);
   data.errors.forEach(function (e) { console.log(e.where + ': ' + e.message); });
   toast(gcalSummary(data), GCAL_TOAST_TITLE);
   return data;
@@ -869,7 +944,7 @@ function gcalReexportCurrent() {
 }
 
 function gcalCleanNote(out) {
-  return (out.note ? '; ' + out.note : '') + (out.errors.length ? '; ' + out.errors[0].message : '');
+  return (out.note ? '; ' + out.note : '') + '; ' + finishedText(out.errors.length, out.note ? 1 : 0);
 }
 
 function gcalCleanCurrent() {

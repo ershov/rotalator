@@ -260,6 +260,14 @@ trigger management.
 **"Authorization is required" when installing the trigger.** Accept the
 prompt and choose the menu item again.
 
+**A run ends with "finished with N error(s)".** Look for red `error` rows:
+directly above the offending row in the rotation tab or `#Global`, above the
+`set` row carrying `cal` when a preset is unknown, above a preset's `id` row
+in `#GCal` when its calendar cannot be opened (not shared with the running
+account, or a placeholder id such as `FILL IN WITH CALENDAR ID`). `#Status`
+lists them all with the row numbers; fix the cause and run again, the rows
+disappear.
+
 **Times are off by some hours, or the script writes a different time than
 you typed.** Date cells are converted using the spreadsheet's time zone in
 **File > Settings**; check it is the zone the team means, and make sure the

@@ -39,7 +39,7 @@ test('storage: readTabRows for gcal.csv and the tabs option, header required, ne
   assert.deepEqual(mem.readTabRows('#GCal', U.GCAL_HEADER), TEAM);
   assert.deepEqual(new MemoryStorage().readTabRows('#GCal', U.GCAL_HEADER), []);
   // A storage without readTabRows yields no presets.
-  assert.deepEqual(plain(U.gcal_readInputs({})), { presets: [], errors: [] });
+  assert.deepEqual(plain(U.gcal_readInputs({})), { presets: [], errors: [], rows: [] });
 });
 
 test('presets: fixture parses into two presets with defaults filled', () => {
@@ -47,12 +47,12 @@ test('presets: fixture parses into two presets with defaults filled', () => {
   assert.deepEqual(errors, []);
   assert.deepEqual(presets.map((p) => p.name), ['team', 'personal']);
   assert.deepEqual(presets[0], {
-    name: 'team', note: 'Shared team calendar: all-day events nobody is invited to', row: 2, errors: [],
+    name: 'team', note: 'Shared team calendar: all-day events nobody is invited to', row: 2, setRows: { id: 3, color: 4, invite: 5, reminders: 6 }, errors: [],
     id: 'team@group.calendar.google.com', title: '{rotation}: {who}', body: 'Rotalator shift {rotation} {start} to {end}. {note}',
     allday: 'auto', color: 1, free: true, invite: false, reminders: [1440, 60],
   });
   assert.deepEqual(presets[1], {
-    name: 'personal', note: 'Timed events on the on-call calendar; members with an email id are invited', row: 8, errors: [],
+    name: 'personal', note: 'Timed events on the on-call calendar; members with an email id are invited', row: 8, setRows: { id: 9, title: 10, body: 11, allday: 12, free: 13 }, errors: [],
     id: 'oncall@example.com', title: 'On call: {who} ({start:%a %e %b} to {end:%a %e %b})', body: '{note}',
     allday: false, color: 'default', free: false, invite: true, reminders: [],
   });
@@ -192,12 +192,17 @@ test('plan: first run window, timed shifts, unknown and broken presets, no statu
   const rows = [G('team', '', ''), G('', 'id', 'team@example.com'), G('', 'title', '{who} {start:%H:%M}'), G('broken', '', ''), G('', 'id', 'b'), G('', 'free', 'nah')];
   const storage = new MemoryStorage({ ledgers: ledger(BASE + ', cal=team broken nope'), tabs: { '#GCal': rows } });
   const result = runStorage(storage, NOW);
-  assert.deepEqual(result.errors, []);
+  // The extension's plan errors count as errors of the run (toast, stderr).
+  assert.deepEqual(result.errors, [
+    'GCal #GCal row 8: bad value for free: "nah"; use true or false',
+    'GCal primary: preset "broken" skipped: bad value for free: "nah"; use true or false',
+    'GCal primary: unknown preset "nope" in cal; add it to #GCal',
+  ]);
   const plan = plain(U.gcalPlan(result, result.ext.gcal));
   assert.deepEqual(plan.errors, [
     { row: 7, where: '#GCal row 8', message: 'bad value for free: "nah"; use true or false' },
-    { where: 'primary', message: 'preset "broken" skipped: bad value for free: "nah"; use true or false' },
-    { where: 'primary', message: 'unknown preset "nope" in cal; add it to #GCal' },
+    { where: 'primary', rotation: 'primary', message: 'preset "broken" skipped: bad value for free: "nah"; use true or false' },
+    { where: 'primary', rotation: 'primary', setting: 'cal', message: 'unknown preset "nope" in cal; add it to #GCal' },
   ]);
   // No stored snapshot: the window starts at the first shift; 09:00 shifts are timed under allday=auto.
   assert.deepEqual(plan.rotations, [{ rotation: 'primary', presets: ['team'], calendars: ['team@example.com'], from: '2026-10-05T09:00', to: '2026-10-19T09:00', until: '2029-10-04T10:00', shifts: 2, skipped: 0 }]);
@@ -218,7 +223,7 @@ test('plan: first run window, timed shifts, unknown and broken presets, no statu
   const twice = runStorage(new MemoryStorage({ ledgers: ledger(BASE + ', cal=a b'), tabs: { '#GCal': shared } }), NOW);
   const twicePlan = plain(U.gcalPlan(twice, twice.ext.gcal));
   assert.deepEqual(twicePlan.rotations[0].presets, ['a']);
-  assert.deepEqual(twicePlan.errors, [{ where: 'primary', message: 'preset "b" skipped: calendar same@example.com is already used by preset "a"' }]);
+  assert.deepEqual(twicePlan.errors, [{ where: 'primary', rotation: 'primary', setting: 'cal', message: 'preset "b" skipped: calendar same@example.com is already used by preset "a"' }]);
 });
 
 test('clean plan: every key of a rotation, or a whole calendar', () => {
@@ -259,7 +264,7 @@ test('status block: data from the plan, rows through the core hook', () => {
   data.mode = 'dry run';
   result.status.ext = { gcal: data };
   const block = plain(U.gcal_status(result.status));
-  assert.deepEqual(plain(U.gcal_status({ ext: { gcal: { lines: [] } } })), { rows: [['Calendar'], ['rotation', 'preset', 'calendar', 'create', 'update', 'delete', 'unchanged', 'skipped']], headerRows: [0, 1] }, 'errors may be omitted');
+  assert.deepEqual(plain(U.gcal_status({ ext: { gcal: { lines: [] } } })), { rows: [['Calendar'], ['rotation', 'preset', 'calendar', 'create', 'update', 'delete', 'unchanged', 'skipped']], headerRows: [0, 1], errorRows: [], warningRows: [] }, 'errors may be omitted');
   assert.deepEqual(block, { rows: [
     ['Calendar (dry run)'],
     ['rotation', 'preset', 'calendar', 'create', 'update', 'delete', 'unchanged', 'skipped'],
@@ -267,14 +272,19 @@ test('status block: data from the plan, rows through the core hook', () => {
     ['primary', 'personal', 'oncall@example.com', '0', '0', '0', '0', '1'],
     ['calendar errors', 'where', 'message'],
     ['', 'primary', 'calendar not found'],
-  ], headerRows: [0, 1, 4] });
-  // Elapsed seconds go on the title row, a stop note on its own row before the errors.
+  ], headerRows: [0, 1, 4], errorRows: [5], warningRows: [] });
+  // The core maps the block's error rows into its own metadata.
+  const painted = plain(U.statusRows(result.status));
+  assert.deepEqual(painted.errorRows, [painted.rows.length - 1]);
+  assert.deepEqual(painted.warningRows, []);
+  // Elapsed seconds go on the title row; a stop note is a warning of the run, not a row of the block.
   data.elapsed = 42;
   data.note = 'aborted after 3 event(s)';
   const noted = plain(U.gcal_status(result.status));
   assert.deepEqual(noted.rows[0], ['Calendar (dry run)', 'elapsed', '42 s']);
-  assert.deepEqual(noted.rows[4], ['note', 'aborted after 3 event(s)']);
-  assert.deepEqual(noted.headerRows, [0, 1, 5]);
+  assert.equal(noted.rows.length, 6);
+  assert.ok(!noted.rows.some((r) => r[0] === 'note'));
+  assert.deepEqual(noted.headerRows, [0, 1, 4]);
   delete data.elapsed;
   delete data.note;
   const rows = plain(U.statusRows(result.status));
@@ -471,7 +481,7 @@ test('reconcile: dry run counts without writing; missing calendar and API failur
     const dry = U.gcalReconcile(plan, U.gcalStatusData(plan), { tz: 'UTC', dry: true });
     assert.deepEqual(plain(dry.lines).map((l) => [l.preset, l.create]), [['team', 3], ['personal', 0]]);
     assert.deepEqual(calendars[TEAM_CAL].writes, []);
-    assert.deepEqual(plain(dry.errors), [{ where: 'primary / personal', message: 'calendar "oncall@example.com" not found or not shared with this account' }]);
+    assert.deepEqual(plain(dry.errors), [{ where: 'primary / personal', rotation: 'primary', preset: 'personal', message: 'calendar "oncall@example.com" not found or not shared with this account' }]);
     calendars[TEAM_CAL].failing = true;
     const failed = U.gcalReconcile(plan, U.gcalStatusData(plan), { tz: 'UTC' });
     assert.deepEqual(plain(failed.errors).map((e) => e.message), ['API quota', 'calendar "oncall@example.com" not found or not shared with this account']);
@@ -569,11 +579,12 @@ test('menu, help and summary', () => {
   assert.deepEqual(parsed.errors, []);
   assert.deepEqual(plain(U.gcalRowsWithErrors(rows.slice(1), [])), rows.slice(1), 'no error rows to add');
   assert.equal(parsed.presets.length, 1);
-  assert.deepEqual(parsed.presets[0], { name: 'preset-1', note: 'First Google Calendar preset', row: 3 + U.GCAL_CHEAT_SHEET.length, errors: [], id: 'FILL IN WITH CALENDAR ID', title: '{rotation}: {who}', body: 'Rotalator shift {rotation} {start} to {end}. {note}', allday: 'auto', color: 'default', free: true, invite: true, reminders: [] });
+  const first = 4 + U.GCAL_CHEAT_SHEET.length;
+  assert.deepEqual(parsed.presets[0], { name: 'preset-1', note: 'First Google Calendar preset', row: 3 + U.GCAL_CHEAT_SHEET.length, setRows: { id: first, title: first + 1, body: first + 2, allday: first + 3, color: first + 4, free: first + 5, invite: first + 6, reminders: first + 7 }, errors: [], id: 'FILL IN WITH CALENDAR ID', title: '{rotation}: {who}', body: 'Rotalator shift {rotation} {start} to {end}. {note}', allday: 'auto', color: 'default', free: true, invite: true, reminders: [] });
   assert.equal(typeof U.gcal_setupTab, 'function');
   assert.equal(U.gcal_setupTab({ getName: () => 'primary' }), false, 'other tabs are left to the core');
   assert.deepEqual(plain(U.GCAL_COLUMN_WIDTHS), [140, 120, 700]);
-  assert.equal(U.gcalSummary({ lines: [{ create: 1, update: 2, delete: 0, unchanged: 3, skipped: 1 }, { create: 1, update: 0, delete: 1, unchanged: 0, skipped: 1 }], errors: [{ where: 'x', message: 'boom' }] }), 'create 2, update 2, delete 1, unchanged 3, skipped 2; 1 error(s): boom');
+  assert.equal(U.gcalSummary({ lines: [{ create: 1, update: 2, delete: 0, unchanged: 3, skipped: 1 }, { create: 1, update: 0, delete: 1, unchanged: 0, skipped: 1 }], errors: [{ where: 'x', message: 'boom' }] }), 'create 2, update 2, delete 1, unchanged 3, skipped 2; finished with 1 error(s) and 0 warning(s)');
   const sheet = (name, row, names) => ({ getName: () => name, getActiveRange: () => ({ getRow: () => row }), getRange: (r, c, n) => ({ getValues: () => names.slice(0, n).map((v) => [v]) }) });
   const names = ['preset', 'team', '', '', 'personal', ''];
   assert.equal(U.gcalSelectedPreset(sheet('#GCal', 4, names)), 'team');
@@ -627,7 +638,8 @@ test('reconcile and clean stop between events on abort or budget, recording the 
     assert.deepEqual(partial, { deleted: 3, errors: [], stopped: 'aborted', note: 'aborted after 3 deletion(s)', elapsed: 0 });
     assert.equal(calendars[TEAM_CAL].live().length, 0);
     assert.equal(calendars[PERSONAL_CAL].live().length, 3);
-    assert.equal(U.gcalSummary({ lines: [], errors: [], elapsed: 7, note: 'aborted after 3 event(s)' }), 'create 0, update 0, delete 0, unchanged 0, skipped 0 in 7 s; aborted after 3 event(s)');
+    assert.equal(U.gcalSummary({ lines: [], errors: [], elapsed: 7, note: 'aborted after 3 event(s)' }), 'create 0, update 0, delete 0, unchanged 0, skipped 0 in 7 s; aborted after 3 event(s); finished with 0 error(s) and 1 warning(s)');
+  assert.equal(U.gcalSummary({ lines: [], errors: [{ message: 'x' }], elapsed: 1 }), 'create 0, update 0, delete 0, unchanged 0, skipped 0 in 1 s; finished with 1 error(s) and 0 warning(s)');
   } finally { removeMocks(); }
 });
 
@@ -700,4 +712,104 @@ test('error rows: placed above the offending row, dropped on read, written back 
   assert.equal(fs.readFileSync(path.join(dir, 'gcal.csv'), 'utf8'), U.formatCsv([['preset', 'setting', 'value'], ...withErrors]));
   assert.deepEqual(plain(new CsvDirStorage(dir).readTabRows(U.GCAL_TAB, U.GCAL_HEADER)), withErrors);
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('in-place errors: unknown preset above the cal set row in the rotation or in #Global, idempotent', () => {
+  const ERR = (start, message) => ['', start, 'error', message, '', '', ''];
+  const presets = [G('team', '', ''), G('', 'id', 'team@example.com')];
+  // In the rotation: the error row lands directly above the set row that names the preset, same start.
+  const mem = new MemoryStorage({ ledgers: ledger(BASE + ', cal=team nope'), tabs: { '#GCal': presets } });
+  const result = runStorage(mem, NOW, { write: true });
+  assert.deepEqual(result.errors, ['GCal primary: unknown preset "nope" in cal; add it to #GCal']);
+  const rows = mem.ledgers.primary;
+  assert.deepEqual(rows[0], ERR('2026-10-05T09:00', 'unknown preset "nope" in cal; add it to #GCal'));
+  assert.equal(rows[1][2], 'set');
+  assert.deepEqual(result.ledgers.primary, rows, 'the result carries the written rows');
+  // Second run: the core drops the error row on read and the extension writes it again; identical output.
+  const again = runStorage(new MemoryStorage({ ledgers: mem.ledgers, tabs: { '#GCal': presets } }), NOW, { write: true });
+  assert.deepEqual(again.ledgers.primary, rows);
+  // Fixed: no error row.
+  const fixed = runStorage(new MemoryStorage({ ledgers: mem.ledgers.primary ? { primary: mem.ledgers.primary.map((r) => (r[2] === 'set' ? [r[0], r[1], r[2], r[3].replace(' nope', ''), r[4], r[5], r[6]] : r)) } : {}, tabs: { '#GCal': presets } }), NOW, { write: true });
+  assert.deepEqual(fixed.errors, []);
+  assert.ok(!fixed.ledgers.primary.some((r) => r[2] === 'error'));
+  // Without write nothing is written and the result's ledgers stay as the core produced them.
+  const dry = new MemoryStorage({ ledgers: ledger(BASE + ', cal=team nope'), tabs: { '#GCal': presets } });
+  const dryRun = runStorage(dry, NOW);
+  assert.ok(!dryRun.ledgers.primary.some((r) => r[2] === 'error'));
+  assert.equal(dry.ledgers.primary.length, 2);
+  // From #Global: the error goes above the global set row, prefixed with the rotation; two rotations, two rows.
+  const global = [R('', '', 'set', 'cal=team nope'), R('', '2026-10-05T09:00', 'set', 'horizon=2w')];
+  const two = { primary: ledger(BASE).primary, secondary: ledger(BASE).primary };
+  const gmem = new MemoryStorage({ ledgers: two, global, tabs: { '#GCal': presets } });
+  const gres = runStorage(gmem, NOW, { write: true });
+  assert.deepEqual(gres.errors, ['GCal primary: unknown preset "nope" in cal; add it to #GCal', 'GCal secondary: unknown preset "nope" in cal; add it to #GCal']);
+  assert.deepEqual(gmem.global.slice(0, 3), [
+    ERR('', 'primary: unknown preset "nope" in cal; add it to #GCal'),
+    ERR('', 'secondary: unknown preset "nope" in cal; add it to #GCal'),
+    R('', '', 'set', 'cal=team nope'),
+  ]);
+  assert.ok(!gmem.ledgers.primary.some((r) => r[2] === 'error'), 'nothing in the rotation tabs');
+  const gagain = runStorage(new MemoryStorage({ ledgers: gmem.ledgers, global: gmem.global, tabs: { '#GCal': presets } }), NOW, { write: true });
+  assert.deepEqual(gagain.global, gmem.global);
+  // A later set row that puts cal in force after now is not the carrier; the one in force at now is.
+  const later = ledger(BASE + ', cal=team');
+  later.primary.push(R('', '2026-10-12T09:00', 'set', 'cal=nope'));
+  const lmem = new MemoryStorage({ ledgers: later, tabs: { '#GCal': presets } });
+  runStorage(lmem, NOW, { write: true });
+  assert.ok(!lmem.ledgers.primary.some((r) => r[2] === 'error'), 'cal=team is in force at now, so nothing is wrong yet');
+  // Shared calendar between two presets: above the cal row too.
+  const shared = [G('a', '', ''), G('', 'id', 'same@example.com'), G('b', '', ''), G('', 'id', 'same@example.com')];
+  const smem = new MemoryStorage({ ledgers: ledger(BASE + ', cal=a b'), tabs: { '#GCal': shared } });
+  runStorage(smem, NOW, { write: true });
+  assert.deepEqual(smem.ledgers.primary[0], ERR('2026-10-05T09:00', 'preset "b" skipped: calendar same@example.com is already used by preset "a"'));
+  assert.equal(U.gcalCellsWithCalErrors([R('', '2026-10-05T09:00', 'set', 'period=1w')], U.parseDateTime(NOW), ['x']), null, 'no cal row, nothing to place');
+});
+
+test('in-place errors: a calendar that cannot be opened is reported above the preset id row in #GCal', () => {
+  const calendars = installMocks([TEAM_CAL]);
+  try {
+    const storage = new CsvDirStorage(FIXTURE);
+    const presets = storage.readTabRows(U.GCAL_TAB, U.GCAL_HEADER);
+    const inputs = { ledgers: storage.readLedgers(), holidays: storage.readHolidays(), global: storage.readGlobal(), tabs: { '#GCal': presets } };
+    const mem = new MemoryStorage(inputs);
+    const result = runStorage(mem, storage.readNow(), { write: true });
+    assert.deepEqual(result.errors, ['GCal primary / personal: calendar "oncall@example.com" not found or not shared with this account']);
+    const tab = mem.tabs['#GCal'];
+    const idRow = tab.findIndex((r) => r[1] === 'id' && r[2] === 'oncall@example.com');
+    assert.deepEqual(tab[idRow - 1], ['', 'error', 'calendar "oncall@example.com" not found or not shared with this account (primary / personal)']);
+    assert.equal(tab.length, presets.length + 1);
+    assert.deepEqual(result.status.ext.gcal.errors.map((e) => e.where), ['primary / personal']);
+    // Second run: dropped on read, written again; identical.
+    const again = new MemoryStorage({ ...inputs, ledgers: mem.ledgers, tabs: { '#GCal': tab } });
+    runStorage(again, storage.readNow(), { write: true });
+    assert.deepEqual(again.tabs['#GCal'], tab);
+    // Once the calendar exists the row is gone.
+    calendars[PERSONAL_CAL] = new MockCalendar(PERSONAL_CAL);
+    const fixed = new MemoryStorage({ ...inputs, ledgers: mem.ledgers, tabs: { '#GCal': tab } });
+    const ok = runStorage(fixed, storage.readNow(), { write: true });
+    assert.deepEqual(ok.errors, []);
+    assert.deepEqual(fixed.tabs['#GCal'], plain(presets));
+    // A stop note becomes a warning of the run too.
+    const stopped = runStorage(new MemoryStorage({ ...inputs, tabs: { '#GCal': presets } }), storage.readNow(), { write: true });
+    assert.deepEqual(stopped.status.warnings, []);
+  } finally { removeMocks(); }
+});
+
+test('status metadata: errors and warnings rows are marked for the adapter', () => {
+  const { status } = runStorage(new MemoryStorage({ ledgers: ledger(BASE.replace('min_distance=0', 'min_distance=2sl').replace('horizon=2w', 'horizon=3w')) }), NOW);
+  const out = plain(U.statusRows(status));
+  const rows = out.rows;
+  const w = rows.findIndex((r) => r[0] === 'warnings');
+  assert.ok(w > 0 && status.warnings.length > 0);
+  assert.deepEqual(out.warningRows, status.warnings.map((_, i) => w + 2 + i));
+  assert.deepEqual(out.errorRows, []);
+  const broken = ledger(BASE);
+  broken.primary.push(R('', '2026-10-12T09:00', 'holiday', ''));
+  const failed = plain(U.statusRows(runStorage(new MemoryStorage({ ledgers: broken }), NOW).status));
+  const e = failed.rows.findIndex((r) => r[0] === 'errors');
+  assert.deepEqual(failed.errorRows, [e + 2]);
+  assert.deepEqual(failed.warningRows, []);
+  assert.equal(U.finishedText(0, 0), 'finished, no errors');
+  assert.equal(U.finishedText(2, 1), 'finished with 2 error(s) and 1 warning(s)');
+  assert.equal(U.finishedText(0, 3), 'finished with 0 error(s) and 3 warning(s)');
 });

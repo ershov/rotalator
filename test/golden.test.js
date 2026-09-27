@@ -64,7 +64,9 @@ for (const name of fs.readdirSync(FIXTURES).sort()) {
     const statusFile = path.join(dir, 'expected', 'status.txt');
     if (fs.existsSync(statusFile)) assert.equal(statusText(result.status), fs.readFileSync(statusFile, 'utf8'));
 
-    const again = runStorage(new MemoryStorage({ ledgers: result.ledgers, holidays: storage.readHolidays(), global: result.global ?? [] }), nowText);
+    // Extension tabs travel along: a gcal.csv loads the GCal extension, which reads #GCal on the second run too.
+    const tabs = { '#GCal': storage.readTabRows('#GCal', ['preset', 'setting', 'value']) };
+    const again = runStorage(new MemoryStorage({ ledgers: result.ledgers, holidays: storage.readHolidays(), global: result.global ?? [], tabs }), nowText);
     if (result.global) assert.equal(ledgerCsv(again.global), ledgerCsv(result.global), 'global second run');
     for (const rotation of expected) {
       assert.equal(ledgerCsv(again.ledgers[rotation]), ledgerCsv(result.ledgers[rotation]), `${rotation} second run`);

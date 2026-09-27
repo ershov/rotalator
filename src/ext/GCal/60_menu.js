@@ -128,7 +128,7 @@ function gcalSummary(data) {
   var text = GCAL_COUNTS.map(function (c) { return c + ' ' + totals[c]; }).join(', ');
   if (data.elapsed !== undefined) text += ' in ' + data.elapsed + ' s';
   if (data.note) text += '; ' + data.note;
-  return text + (data.errors.length ? '; ' + data.errors.length + ' error(s): ' + data.errors[0].message : '');
+  return text + '; ' + finishedText(data.errors.length, data.note ? 1 : 0);
 }
 
 // Runs the scheduler without writing (the ledgers stay as they are) to get the plan inputs.
@@ -148,6 +148,7 @@ function gcalExportWith(rotations) {
   var plan = gcalPlan(result, result.ext.gcal, { repair: true, rotations: rotations || undefined });
   if (plan.events.length) gcalAnnounce(plan);
   var data = gcalReconcile(plan, gcalStatusData(plan), { tz: storage.tz, dry: false, progress: gcalProgress });
+  gcalWriteCalendarErrors(storage, result.ext.gcal, data);
   data.errors.forEach(function (e) { console.log(e.where + ': ' + e.message); });
   toast(gcalSummary(data), GCAL_TOAST_TITLE);
   return data;
@@ -164,7 +165,7 @@ function gcalReexportCurrent() {
 }
 
 function gcalCleanNote(out) {
-  return (out.note ? '; ' + out.note : '') + (out.errors.length ? '; ' + out.errors[0].message : '');
+  return (out.note ? '; ' + out.note : '') + '; ' + finishedText(out.errors.length, out.note ? 1 : 0);
 }
 
 function gcalCleanCurrent() {

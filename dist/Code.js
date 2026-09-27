@@ -1910,16 +1910,20 @@ function relationsMatrix(status) {
   return rows;
 }
 
-// Rows of the #Status tab plus presentation metadata: headerRows and dividerRows are row indexes for the
-// adapter to format. status.now, status.mode and status.tabs are set by the runner. block: horizontalBlock
+// Rows of the #Status tab plus presentation metadata: headerRows, dividerRows, errorRows and warningRows are
+// row indexes for the adapter to format (the errors and warnings tables and the same rows of extension
+// blocks). status.now, status.mode and status.tabs are set by the runner. block: horizontalBlock
 // for the spreadsheet, verticalBlock for the CLI. Extension blocks (<prefix>_status(status) returning
 // { rows, headerRows }) follow the frame, each after a blank row, their rows cut to STATUS_WIDTH; a hook that
 // throws adds an entry to the errors block instead.
 function statusRowsWith(status, block) {
   var rows = [];
   var headerRows = [];
+  var errorRows = [];
+  var warningRows = [];
   var push = function (cells) { rows.push(padStatusRow(cells.slice(0, STATUS_WIDTH))); };
   var header = function (cells) { headerRows.push(rows.length); push(cells); };
+  var marked = function (cells, list) { list.push(rows.length); push(cells); };
   var errors = status.errors.slice();
   var blocks = [];
   callExtensionHooks('status', [status], function (h, e) { errors.push(extensionError(h, e)); }).forEach(function (r) {
@@ -1948,7 +1952,7 @@ function statusRowsWith(status, block) {
     push([]);
     header(['warnings']);
     header(['rotation', 'start', 'message']);
-    status.warnings.forEach(function (w) { push([w.rotation, statusInstant(w.start), w.message]); });
+    status.warnings.forEach(function (w) { marked([w.rotation, statusInstant(w.start), w.message], warningRows); });
   }
   if (errors.length) {
     push([]);
@@ -1956,14 +1960,19 @@ function statusRowsWith(status, block) {
     header(['rotation', 'where', 'message']);
     errors.forEach(function (e) {
       var where = e.rowIndex !== null && e.rowIndex !== undefined ? 'row ' + e.rowIndex : statusInstant(e.start);
-      push([e.rotation, where, e.message]);
+      marked([e.rotation, where, e.message], errorRows);
     });
   }
   blocks.forEach(function (table) {
     push([]);
-    table.rows.forEach(function (row, i) { if ((table.headerRows || [0]).indexOf(i) >= 0) header(row); else push(row); });
+    table.rows.forEach(function (row, i) {
+      var at = rows.length;
+      if ((table.headerRows || [0]).indexOf(i) >= 0) header(row); else push(row);
+      if ((table.errorRows || []).indexOf(i) >= 0) errorRows.push(at);
+      if ((table.warningRows || []).indexOf(i) >= 0) warningRows.push(at);
+    });
   });
-  return { rows: rows, headerRows: headerRows, dividerRows: [] };
+  return { rows: rows, headerRows: headerRows, dividerRows: [], errorRows: errorRows, warningRows: warningRows };
 }
 
 function statusRows(status) {
@@ -2674,6 +2683,11 @@ function runStorage(storage, nowText, options) {
   return run;
 }
 
+// Closing words of a run's toast (DESIGN 10.4): the counts cover core and extension errors and warnings alike.
+function finishedText(errors, warnings) {
+  return errors || warnings ? 'finished with ' + errors + ' error(s) and ' + warnings + ' warning(s)' : 'finished, no errors';
+}
+
 // Long-run guard (DESIGN 10.4). A loop that could outlive the Apps Script execution limit asks stopReason()
 // between steps: 'aborted' when the user asked to abort, 'budget' when the run has used its time budget,
 // else null. start and clock() are milliseconds, aborted() reads the abort flag; both are injected so the
@@ -2748,6 +2762,7 @@ var STATUS_COLUMN_WIDTHS = [100, 150, 150, 60, 60, 120, 60, 100, 100, 150, 150, 
 var COLOR_HEADER = '#eeeeee';
 var COLOR_DIVIDER = '#d9ead3';
 var COLOR_ERROR = '#f4c7c3';
+var COLOR_WARNING = '#fce5cd';
 var COLOR_SETTINGS = '#c9daf8';
 var COLOR_ROSTER = '#d0e0e3';
 var COLOR_SNAPSHOT = '#d9ead3';
@@ -2886,8 +2901,9 @@ class SheetsStorage {
     writeTextCells(sheet, row, rows);
   }
 
-  // Bold grey header rows, a green divider and yellow current cells, from the 0-based indexes the status
-  // module reports in table { headerRows, dividerRows, currentCells }.
+  // Bold grey header rows, a green divider, red error rows, orange warning rows and yellow current cells,
+  // from the 0-based indexes the status module reports in table { headerRows, dividerRows, errorRows,
+  // warningRows, currentCells }.
   formatTableRows(sheet, width, table) {
     var paint = function (indexes, color) {
       (indexes || []).forEach(function (i) { sheet.getRange(i + 1, 1, 1, width).setBackground(color); });
@@ -2895,6 +2911,8 @@ class SheetsStorage {
     (table.headerRows || []).forEach(function (i) { sheet.getRange(i + 1, 1, 1, width).setFontWeight('bold'); });
     paint(table.headerRows, COLOR_HEADER);
     paint(table.dividerRows, COLOR_DIVIDER);
+    paint(table.errorRows, COLOR_ERROR);
+    paint(table.warningRows, COLOR_WARNING);
     (table.currentCells || []).forEach(function (c) { sheet.getRange(c.row + 1, c.col + 1).setBackground(COLOR_CURRENT_CELL); });
   }
 
@@ -2978,9 +2996,9 @@ function runWith(preview, rotations) {
   var result = runStorage(storage, storage.nowText, options);
   var title = preview ? 'Rotalator dry run' : 'Rotalator';
   var what = rotations ? rotations.join(', ') : Object.keys(result.ledgers).length + ' rotation(s)';
-  var message = result.errors.length
-    ? result.errors.length + ' error(s): ' + result.errors[0]
-    : what + ' ' + (preview ? 'previewed' : 'updated') + ' at ' + storage.nowText;
+  var done = result.status ? what + ' ' + (preview ? 'previewed' : 'updated') + ' at ' + storage.nowText : result.errors[0];
+  var warnings = result.status ? result.status.warnings.length : 0;
+  var message = done + '; ' + finishedText(result.errors.length, warnings);
   result.errors.forEach(function (e) { console.log(e); });
   ss.toast(message, title, 10);
   return result;

@@ -61,9 +61,10 @@ next      erin              from 2026-10-12T09:00
   autopin        a:0                     rotation
   cal                                    default
 
-warnings
-rotation  start  message
-primary          calendar extension not installed; cal=team personal has no effect
+Calendar (no calendar)  elapsed   0 s
+rotation                preset    calendar                        create  update  delete  unchanged  skipped
+primary                 team      team@group.calendar.google.com  0       0       0       0          1
+primary                 personal  oncall@example.com              0       0       0       0          1
 
 start             primary           secondary
 2026-09-14        alice

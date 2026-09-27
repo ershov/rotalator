@@ -81,8 +81,10 @@ function gcalIsValidPresetName(name) {
   return /^[A-Za-z0-9_-]+$/.test(name);
 }
 
+// setRows: the tab row of each setting given, so a later error about a setting (a calendar that cannot be
+// opened) can be written above it.
 function gcalNewPreset(name, note, row) {
-  var preset = { name: name, note: note, row: row, errors: [] };
+  var preset = { name: name, note: note, row: row, setRows: {}, errors: [] };
   Object.keys(GCAL_SETTINGS).forEach(function (key) { preset[key] = GCAL_SETTINGS[key].def; });
   return preset;
 }
@@ -111,22 +113,20 @@ function parseGCalPresets(rows) {
       if (!gcalIsValidPresetName(name)) fail(i, current, 'bad preset name "' + name + '"; use letters, digits, - and _ without spaces');
       else if (seen[name]) fail(i, current, 'duplicate preset "' + name + '"');
       seen[name] = true;
-      current.set = {};
       return;
     }
     if (key === '') return;
     if (current === null) { fail(i, null, 'setting "' + key + '" before any preset'); return; }
     var spec = GCAL_SETTINGS[key];
     if (!spec) { fail(i, current, 'unknown setting "' + key + '"'); return; }
-    if (current.set[key]) { fail(i, current, 'duplicate setting "' + key + '"'); return; }
-    current.set[key] = true;
+    if (current.setRows[key] !== undefined) { fail(i, current, 'duplicate setting "' + key + '"'); return; }
+    current.setRows[key] = i + 2;
     var parsed = spec.parse(value);
     if (parsed === null) { fail(i, current, 'bad value for ' + key + ': "' + value + '"' + (spec.hint ? '; use ' + spec.hint : '')); return; }
     if (spec.template) gcalTemplateErrors(parsed, key).forEach(function (message) { fail(i, current, message); });
     current[key] = parsed;
   });
   presets.forEach(function (preset) {
-    delete preset.set;
     if (preset.id === null) {
       errors.push({ row: preset.row, where: null, message: 'preset "' + preset.name + '" has no id' });
       preset.errors.push('no id');
@@ -152,14 +152,16 @@ function gcalDropErrorRows(rows) {
   return rows.filter(function (cells) { return !gcalIsErrorRow(cells); });
 }
 
-// The tab with an error row (| error | message) directly above each row an error names, in message order;
-// rows are the cleaned rows the errors were computed on. Rows are padded to the header width.
+// The tab with an error row (| error | message) directly above each row an error names ({ row, message },
+// sorted by row here, equal rows in list order); rows are the cleaned rows the errors were computed on.
+// Rows are padded to the header width.
 function gcalRowsWithErrors(rows, errors) {
   var out = rows.map(function (cells) {
     return GCAL_HEADER.map(function (_, i) { return cells[i] === undefined || cells[i] === null ? '' : cells[i]; });
   });
-  for (var k = errors.length - 1; k >= 0; k--) {
-    out.splice(errors[k].row - 2, 0, ['', GCAL_ERROR_TYPE, errors[k].message]);
+  var sorted = errors.slice().sort(function (a, b) { return a.row - b.row; });
+  for (var k = sorted.length - 1; k >= 0; k--) {
+    out.splice(sorted[k].row - 2, 0, ['', GCAL_ERROR_TYPE, sorted[k].message]);
   }
   return out;
 }
@@ -176,6 +178,7 @@ function gcal_readInputs(storage) {
   var read = typeof storage.readTabRows === 'function' ? storage.readTabRows(GCAL_TAB, GCAL_HEADER) : [];
   var rows = gcalDropErrorRows(read);
   var inputs = parseGCalPresets(rows);
+  inputs.rows = rows;
   if (typeof storage.writeTabRows === 'function') {
     var written = gcalRowsWithErrors(rows, inputs.errors);
     if (JSON.stringify(written) !== JSON.stringify(gcalRowsWithErrors(read, []))) storage.writeTabRows(GCAL_TAB, GCAL_HEADER, written);

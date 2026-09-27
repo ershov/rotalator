@@ -483,12 +483,20 @@ sorted; a dry run writes `#Preview Global`.
 
 ## Errors
 
-Problems are written into the ledger as `error` rows with the same `start` as
-the offending row, so they sort directly above it. While any ledger has a
-validation error, no tab is regenerated and no snapshot moves. Error rows are
-removed on every read, so fixing the cause and running again clears them. In
-Sheets a run also shows a toast with the error count and the first message; the
-CLI prints them to stderr.
+Problems are written in place, as `error` rows next to what they describe:
+in a ledger or `#Global` with the same `start` as the offending row, so they
+sort directly above it; in `#GCal` directly above the offending row; a `cal`
+value naming a preset that does not exist gets its row above the `set` row
+that carries it; a calendar the script cannot open gets its row above the
+preset's `id` in `#GCal`. While any ledger has a validation error, no tab is
+regenerated and no snapshot moves. Error rows are removed on every read, so
+fixing the cause and running again clears them. `#Status` lists every error
+and warning as well, error rows in red and warning rows in orange, and every
+run ends its toast with `finished with N error(s) and M warning(s)` or
+`finished, no errors`; the CLI prints errors to stderr. The few messages with
+no row to attach to (a missing calendar extension, a comment whose date does
+not parse, an extension that failed, an aborted export) appear in `#Status`
+only.
 
 An unassignable slot (everyone excluded) produces a `shift` with nobody plus an
 `error` row at the slot start. A relaxed `min_distance` is recorded in the
@@ -594,8 +602,10 @@ rotation must point at different calendars.
 The core also runs in Node without a spreadsheet, using a directory of CSV
 files. Files map to tabs: one `<rotation>.csv` per ledger with the header row,
 `holidays.csv` for `#Holidays` (`date,note`), optional `global.csv` for
-`#Global`, optional `gcal.csv` for `#GCal`, `status.json` for the `#Status`
-and `#All shifts` data, and `now.txt` with the run instant. A file named
+`#Global`, optional `gcal.csv` for `#GCal` (its presence loads the Google
+Calendar extension, so `run` reports preset errors like the spreadsheet does,
+without touching any calendar), `status.json` for the `#Status` and `#All
+shifts` data, and `now.txt` with the run instant. A file named
 `#<anything>.csv` is never a rotation, like a `#` tab, and other `.csv` files
 without the ledger header are ignored.
 
