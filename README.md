@@ -532,15 +532,19 @@ personal |           | Timed events for the person on call
 A row with a name in the first column starts a preset (the third column is
 a note); the rows below it set `id` (required), `title` and `body`
 templates, `allday` (`auto`: all-day when the shift starts and ends at
-midnight), `color` (a Calendar colour name, its number 1 to 11, or `#RRGGBB`
-for the nearest of the eleven event colours), `free` (default true: the time
-shows as free), `invite` (default true: the assignee is invited when their
-member id is an email address) and `reminders` (intervals before the start,
-`1d, 30m`; empty, the default, leaves the calendar's own default
-notifications in place). Templates take `{who}`, `{rotation}`,
-`{note}`, `{pin}`, `{start}` and `{end}`, the instants optionally with a
-strftime format (`%Y %m %d %e %H %M %a %A %b %B %j %u`). Unknown placeholders
-stay as written and are reported in `#Status`.
+midnight), `color` (`default` for the calendar's own colour, a Calendar
+colour name, its number 1 to 11, or `#RRGGBB` for the nearest of the eleven
+event colours), `free` (default true: the time shows as free), `invite`
+(default true: the assignee is invited when their member id is an email
+address) and `reminders` (intervals before the start, `1d, 30m`; empty, the
+default, leaves the calendar's own default notifications in place).
+Templates take `{who}`, `{rotation}`, `{note}`, `{pin}`, `{start}` and
+`{end}`, the instants optionally with a strftime format (`%Y %m %d %e %H %M
+%a %A %b %B %j %u`). Unknown placeholders stay as written and are reported.
+Mistakes in `#GCal` are reported like ledger errors: every run writes an
+`error` row directly above the offending row (and lists it in `#Status`);
+the script removes its error rows on the next run, so fixing the row clears
+them.
 
 Then `set cal=team personal` in the rotation (or in `#Global` for every
 rotation). Each run exports the shifts from the stored snapshot to the

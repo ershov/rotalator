@@ -66,7 +66,7 @@ function gcalEvent(rotation, preset, shift) {
     start: formatDateTime(shift.start),
     end: formatDateTime(shift.end),
     allDay: preset.allday === 'auto' ? midnight : preset.allday,
-    color: preset.color,
+    color: preset.color === GCAL_COLOR_DEFAULT ? null : preset.color,
     free: preset.free,
     guests: preset.invite && shift.who.indexOf('@') >= 0 ? [shift.who] : [],
     reminders: preset.reminders.slice(),

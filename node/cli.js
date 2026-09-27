@@ -73,8 +73,9 @@ function exportDir(dir, nowText, { rotations = null, repair = false } = {}) {
   return { result, plan: structuredClone(U.gcalPlan(result, result.ext.gcal, { repair, rotations: rotations || undefined })) };
 }
 
+// Without write the storage is read-only, so extensions writing their own tab from readInputs change nothing.
 function runDir(dir, nowText, options = {}) {
-  const storage = new CsvDirStorage(dir);
+  const storage = new CsvDirStorage(dir, { readOnly: !options.write });
   return runStorage(storage, nowText ?? storage.readNow(), options);
 }
 

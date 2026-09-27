@@ -25,7 +25,10 @@ Design principles: Rotalator stays a periodic, idempotent script that edits a
 spreadsheet. There is no app and no UI beyond the spreadsheet and its menu.
 Pragmatic spreadsheet conventions (a column, a row type, a tab name prefix) are
 preferred over new components, and the code has zero dependencies unless the
-owner explicitly approves one. The core is complete on its own; optional
+owner explicitly approves one. Errors are reported in place: as script-owned
+rows next to what they describe, removed and recomputed on every run, in
+every tab the script reads (the ledgers, `#Global`, `#GCal`), and listed in
+`#Status` as well. The core is complete on its own; optional
 features (calendar export first) ship as extensions, separate bundles that
 the core probes for at call time and works without (8, Extensions). The core
 only carries what the ledger grammar needs regardless of which extensions are
@@ -855,6 +858,7 @@ readHolidays()  -> dates[]
 readGlobal()    -> rows[]
 ignoredTabs()   -> names[]
 readTabRows(name, header) -> rows[]   (extension tabs; [] without tab or header)
+writeTabRows(name, header, rows)      (mirror; no-op when read-only)
 writeLedger(rotation, rows)
 writeGlobal(rows)
 writeStatus(status)
@@ -975,7 +979,8 @@ columns `A:G` keyed on the `type` cell. Rotation tabs: `error` light red,
 green, `detach` light grey, comment rows (empty type with content,
 `=AND($C1="", COUNTA($A1:$G1)>0)`) light yellow, `shift` no colour.
 `#Global`: `set` and `score` light blue, `attract` and `repel` light green,
-`detach` light grey, `error` light red, comments light yellow. Generated tabs
+`detach` light grey, `error` light red, comments light yellow. `#GCal` gets
+the same palette from its extension (13.5). Generated tabs
 (`#Status`,
 `#All shifts`, previews) are cleared with their formats and rewritten on every
 run; the adapter then
@@ -1162,7 +1167,7 @@ be named in a `cal` value. Settings:
 | title | `{rotation}: {who}` | Event title template (13.2). |
 | body | `Rotalator shift {rotation} {start} to {end}. {note}` | Event description template. |
 | allday | auto | `auto`: all-day when both instants are at 00:00; `true` or `false` force it. |
-| color | none | A `CalendarApp.EventColor` name (`pale blue`, `PALE_BLUE`), its number 1 to 11, or `#RRGGBB` (6 hex digits, any case) mapped to the nearest palette colour by RGB distance, ties to the lowest number. None leaves the event colour alone. |
+| color | default | `default` (or `none`): the calendar's own colour, left alone on the events. Else a `CalendarApp.EventColor` name (`pale blue`, `PALE_BLUE`), its number 1 to 11, or `#RRGGBB` (6 hex digits, any case) mapped to the nearest palette colour by RGB distance, ties to the lowest number. |
 | free | true | Show the time as free (transparent) rather than busy. |
 | invite | true | Invite the assignee when their member id contains `@`. |
 | reminders | none | Comma-separated clock intervals before the start (`1d, 1h`), stored as minutes. Empty leaves the event's reminders alone, so the calendar's default notifications apply (13.4). |
@@ -1173,14 +1178,31 @@ Palette of the event colours, as the Calendar UI shows them: 1 pale blue
 9 blue `#5484ed`, 10 green `#51b749`, 11 red `#dc2127`.
 
 `parseGCalPresets(rows)` returns every preset in tab order with its own error
-list and the flat errors as `{ where: '#GCal row N', message }`: a setting
-before any preset, an unknown or duplicate setting, a bad value (with the
-accepted forms), a bad or duplicate preset name, a preset without `id`, and
-unknown placeholders or directives in a template, reported once each. A
-preset with errors stays in the list but is unusable: a rotation naming it
-gets a plan error and the preset is skipped, like an unknown name.
-`gcal_readInputs(storage)` parses `storage.readTabRows('#GCal', header)` (an
-empty list when the storage has no such method).
+list and the flat errors as `{ row, where: '#GCal row N', message }`, sorted
+by row (`N` as below): a setting before any preset, an unknown or duplicate
+setting, a bad value (with the accepted forms), a bad or duplicate preset
+name, a preset without `id` (reported on the preset row), and unknown
+placeholders or
+directives in a template, reported once each. A preset with errors stays in
+the list but is unusable: a rotation naming it gets a plan error and the
+preset is skipped, like an unknown name.
+
+Errors are also written into the tab (section 1): `gcal_readInputs(storage)`
+reads `storage.readTabRows('#GCal', header)`, drops the rows whose `setting`
+column reads `error` (the script's own rows from the previous run, never
+parsed), parses the rest, and when there are errors, or error rows were
+dropped, writes the tab back through `storage.writeTabRows('#GCal', header,
+rows)` with a row `| error | <message>` directly above each offending row
+(`gcalRowsWithErrors`; several errors on one row keep their order, a preset
+without `id` gets its row above the preset row), everything else unchanged.
+`where` names the offending row where it sits after the write-back, below
+the error rows inserted at or above it (`row` is its position before), so
+the `#Status` entry matches the tab the user sees. A second run reproduces
+the same tab; fixing a row removes its error row on the next run.
+This happens on every read, dry runs included, wherever the storage can
+write: the Sheets adapter always, the CSV directory unless it was opened
+read-only (the CLI without `--write`), the memory storage in tests; a storage
+without `writeTabRows` only reads.
 
 ### 13.2 Templates
 
@@ -1338,13 +1360,18 @@ its values and default, a `TEMPLATES` line with the variables and the
 `{start:%fmt}` directives, a `USE` line with `set cal=<preset> [<preset>
 ...]`), then the preset block `preset-1` (note `First Google Calendar
 preset`) with `id` = `FILL IN WITH CALENDAR ID`, `title` and `body` at their
-defaults, `allday` `auto`, `free` `true`, `invite` `true` and `reminders`
-empty, so a run with `cal=preset-1` reports the placeholder id as not found
+defaults, `allday` `auto`, `color` `default`, `free` `true`, `invite`
+`true` and `reminders` empty, one empty row between the cheat sheet and the
+block, so a run with `cal=preset-1` reports the placeholder id as not found
 until it is filled in. It then formats the tab like an editable system tab:
 script font, wrap text and top-left alignment on the whole sheet, plain text,
 bold grey frozen header, widths 140, 120, 700, spare columns removed, grey
-tab colour. `gcal_setupTab(sheet)` gives `Set Up Tab` the same template on an
-empty `#GCal` (and refuses a filled one), returning `true` for that tab only.
+tab colour, and conditional row colours consistent with the ledgers (10.1),
+replacing the tab's rules: error rows (`=$B1="error"`) light red, preset
+rows (column A non-empty, below the header) light blue like `set`, comment
+rows (A and B empty, C non-empty) light yellow. `gcal_setupTab(sheet)` gives
+`Set Up Tab` the same template on an empty `#GCal` (and refuses a filled
+one), returning `true` for that tab only.
 `gcal_help` returns the `CALENDAR` lines appended to `#Help` (8,
 Extensions): the same cheat sheet plus the export rule and the menu items.
 The `#GCal` tab is a known system tab of the core, read through

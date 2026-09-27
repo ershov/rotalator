@@ -54,7 +54,7 @@ test('presets: fixture parses into two presets with defaults filled', () => {
   assert.deepEqual(presets[1], {
     name: 'personal', note: 'Timed events on the on-call calendar; members with an email id are invited', row: 8, errors: [],
     id: 'oncall@example.com', title: 'On call: {who} ({start:%a %e %b} to {end:%a %e %b})', body: '{note}',
-    allday: false, color: null, free: false, invite: true, reminders: [],
+    allday: false, color: 'default', free: false, invite: true, reminders: [],
   });
   assert.equal(U.gcalPreset({ presets }, 'personal').id, 'oncall@example.com');
   assert.equal(U.gcalPreset({ presets }, 'nope'), null);
@@ -88,20 +88,20 @@ test('presets: every error, presets with errors are kept but unusable', () => {
   ];
   const out = plain(U.parseGCalPresets(rows));
   assert.deepEqual(out.errors, [
-    { where: '#GCal row 2', message: 'setting "id" before any preset' },
-    { where: '#GCal row 3', message: 'bad preset name "bad name"; use letters, digits, - and _ without spaces' },
-    { where: '#GCal row 7', message: 'unknown setting "colour"' },
-    { where: '#GCal row 8', message: 'duplicate setting "id"' },
-    { where: '#GCal row 9', message: 'bad value for allday: "maybe"; use auto, true or false' },
-    { where: '#GCal row 10', message: 'bad value for color: "12"; use a Calendar colour name like pale blue, its number 1 to 11, or #RRGGBB (the nearest colour is used)' },
-    { where: '#GCal row 11', message: 'bad value for free: "sometimes"; use true or false' },
-    { where: '#GCal row 12', message: 'bad value for invite: ""; use true or false' },
-    { where: '#GCal row 13', message: 'bad value for reminders: "1d, 2sl"; use comma-separated clock intervals like 1d, 2h, 30m, or empty for the calendar defaults' },
-    { where: '#GCal row 14', message: 'unknown placeholder {what} in title' },
-    { where: '#GCal row 14', message: 'unknown directive %Q in title' },
-    { where: '#GCal row 14', message: 'unknown directive %q in title' },
-    { where: '#GCal row 15', message: 'duplicate preset "team"' },
-    { where: '#GCal row 17', message: 'preset "noid" has no id' },
+    { row: 2, where: '#GCal row 3', message: 'setting "id" before any preset' },
+    { row: 3, where: '#GCal row 5', message: 'bad preset name "bad name"; use letters, digits, - and _ without spaces' },
+    { row: 7, where: '#GCal row 10', message: 'unknown setting "colour"' },
+    { row: 8, where: '#GCal row 12', message: 'duplicate setting "id"' },
+    { row: 9, where: '#GCal row 14', message: 'bad value for allday: "maybe"; use auto, true or false' },
+    { row: 10, where: '#GCal row 16', message: 'bad value for color: "12"; use default (the calendar\'s own colour), a Calendar colour name like pale blue, its number 1 to 11, or #RRGGBB (the nearest colour is used)' },
+    { row: 11, where: '#GCal row 18', message: 'bad value for free: "sometimes"; use true or false' },
+    { row: 12, where: '#GCal row 20', message: 'bad value for invite: ""; use true or false' },
+    { row: 13, where: '#GCal row 22', message: 'bad value for reminders: "1d, 2sl"; use comma-separated clock intervals like 1d, 2h, 30m, or empty for the calendar defaults' },
+    { row: 14, where: '#GCal row 26', message: 'unknown placeholder {what} in title' },
+    { row: 14, where: '#GCal row 26', message: 'unknown directive %Q in title' },
+    { row: 14, where: '#GCal row 26', message: 'unknown directive %q in title' },
+    { row: 15, where: '#GCal row 28', message: 'duplicate preset "team"' },
+    { row: 17, where: '#GCal row 31', message: 'preset "noid" has no id' },
   ]);
   // The duplicate is charged to the second team preset; the first collects its ten setting errors.
   assert.deepEqual(out.presets.map((p) => [p.name, p.errors.length]), [['bad name', 1], ['team', 10], ['team', 1], ['noid', 1], ['ok', 0]]);
@@ -116,6 +116,10 @@ test('presets: every error, presets with errors are kept but unusable', () => {
   assert.equal(U.gcalParseColor('11'), 11);
   assert.equal(U.gcalParseColor('0'), null);
   assert.equal(U.gcalParseColor('purple'), null);
+  // default (or none) is the calendar's own colour, left alone on the events.
+  assert.equal(U.gcalParseColor('default'), 'default');
+  assert.equal(U.gcalParseColor('NONE'), 'default');
+  assert.equal(U.GCAL_SETTINGS.color.def, 'default');
   // #RRGGBB maps to the nearest palette colour by RGB distance.
   assert.equal(U.gcalParseColor('#a4bdfc'), 1);
   assert.equal(U.gcalParseColor('#A4BDFC'), 1);
@@ -191,7 +195,7 @@ test('plan: first run window, timed shifts, unknown and broken presets, no statu
   assert.deepEqual(result.errors, []);
   const plan = plain(U.gcalPlan(result, result.ext.gcal));
   assert.deepEqual(plan.errors, [
-    { where: '#GCal row 7', message: 'bad value for free: "nah"; use true or false' },
+    { row: 7, where: '#GCal row 8', message: 'bad value for free: "nah"; use true or false' },
     { where: 'primary', message: 'preset "broken" skipped: bad value for free: "nah"; use true or false' },
     { where: 'primary', message: 'unknown preset "nope" in cal; add it to #GCal' },
   ]);
@@ -204,10 +208,10 @@ test('plan: first run window, timed shifts, unknown and broken presets, no statu
   assert.equal(result.status.rotations[0].previousAt, null);
   // A rotation without cal plans nothing; input errors are still reported.
   const none = runStorage(new MemoryStorage({ ledgers: ledger(BASE), tabs: { '#GCal': rows } }), NOW);
-  assert.deepEqual(plain(U.gcalPlan(none, none.ext.gcal)), { rotations: [], events: [], errors: [{ where: '#GCal row 7', message: 'bad value for free: "nah"; use true or false' }] });
+  assert.deepEqual(plain(U.gcalPlan(none, none.ext.gcal)), { rotations: [], events: [], errors: [{ row: 7, where: '#GCal row 8', message: 'bad value for free: "nah"; use true or false' }] });
   // Without a status (bad now) or a validation error the plan is empty.
   const bad = runStorage(new MemoryStorage({ ledgers: ledger(BASE), tabs: { '#GCal': gcal } }), 'someday');
-  assert.deepEqual(plain(U.gcalPlan(bad, bad.ext.gcal)), { rotations: [], events: [], errors: [{ where: '#GCal row 2', message: 'setting "id" before any preset' }] });
+  assert.deepEqual(plain(U.gcalPlan(bad, bad.ext.gcal)), { rotations: [], events: [], errors: [{ row: 2, where: '#GCal row 3', message: 'setting "id" before any preset' }] });
   assert.deepEqual(plain(U.gcalPlan(null, null)), { rotations: [], events: [], errors: [] });
   // Two presets on one calendar: the second is skipped, its events would share the first one's keys.
   const shared = [G('a', '', ''), G('', 'id', 'same@example.com'), G('b', '', ''), G('', 'id', 'same@example.com')];
@@ -548,20 +552,24 @@ test('menu, help and summary', () => {
   const comments = rows.slice(1, 1 + U.GCAL_CHEAT_SHEET.length);
   assert.ok(comments.every((r) => r[0] === '' && r[1] === '' && r[2] !== ''));
   assert.deepEqual(comments.map((r) => r[2]), plain(U.GCAL_CHEAT_SHEET));
+  // One empty row separates the cheat sheet from the preset block.
   assert.deepEqual(rows.slice(1 + U.GCAL_CHEAT_SHEET.length), [
+    ['', '', ''],
     ['preset-1', '', 'First Google Calendar preset'],
     ['', 'id', 'FILL IN WITH CALENDAR ID'],
     ['', 'title', '{rotation}: {who}'],
     ['', 'body', 'Rotalator shift {rotation} {start} to {end}. {note}'],
     ['', 'allday', 'auto'],
+    ['', 'color', 'default'],
     ['', 'free', 'true'],
     ['', 'invite', 'true'],
     ['', 'reminders', ''],
   ]);
   const parsed = plain(U.parseGCalPresets(rows.slice(1)));
   assert.deepEqual(parsed.errors, []);
+  assert.deepEqual(plain(U.gcalRowsWithErrors(rows.slice(1), [])), rows.slice(1), 'no error rows to add');
   assert.equal(parsed.presets.length, 1);
-  assert.deepEqual(parsed.presets[0], { name: 'preset-1', note: 'First Google Calendar preset', row: 2 + U.GCAL_CHEAT_SHEET.length, errors: [], id: 'FILL IN WITH CALENDAR ID', title: '{rotation}: {who}', body: 'Rotalator shift {rotation} {start} to {end}. {note}', allday: 'auto', color: null, free: true, invite: true, reminders: [] });
+  assert.deepEqual(parsed.presets[0], { name: 'preset-1', note: 'First Google Calendar preset', row: 3 + U.GCAL_CHEAT_SHEET.length, errors: [], id: 'FILL IN WITH CALENDAR ID', title: '{rotation}: {who}', body: 'Rotalator shift {rotation} {start} to {end}. {note}', allday: 'auto', color: 'default', free: true, invite: true, reminders: [] });
   assert.equal(typeof U.gcal_setupTab, 'function');
   assert.equal(U.gcal_setupTab({ getName: () => 'primary' }), false, 'other tabs are left to the core');
   assert.deepEqual(plain(U.GCAL_COLUMN_WIDTHS), [140, 120, 700]);
@@ -621,4 +629,75 @@ test('reconcile and clean stop between events on abort or budget, recording the 
     assert.equal(calendars[PERSONAL_CAL].live().length, 3);
     assert.equal(U.gcalSummary({ lines: [], errors: [], elapsed: 7, note: 'aborted after 3 event(s)' }), 'create 0, update 0, delete 0, unchanged 0, skipped 0 in 7 s; aborted after 3 event(s)');
   } finally { removeMocks(); }
+});
+
+test('error rows: placed above the offending row, dropped on read, written back once, gone when fixed', () => {
+  const rows = [
+    G('', 'id', 'early@example.com'),
+    G('team', '', 'ok'),
+    G('', 'id', 'team@example.com'),
+    G('', 'colour', 'red'),
+    G('', 'title', '{what}'),
+    G('noid', '', ''),
+    G('', 'free', 'true'),
+  ];
+  const parsed = U.parseGCalPresets(rows);
+  const two = U.parseGCalPresets([G('t', '', ''), G('', 'id', 'x'), ['', 'title', '{a} {start:%q}']]);
+  assert.deepEqual(plain(parsed.errors).map((e) => e.row), [2, 5, 6, 7]);
+  // where names the offending row as it sits once the error rows are written above it.
+  assert.deepEqual(plain(parsed.errors).map((e) => e.where), ['#GCal row 3', '#GCal row 7', '#GCal row 9', '#GCal row 11']);
+  assert.deepEqual(plain(two.errors).map((e) => e.where), ['#GCal row 6', '#GCal row 6'], 'two errors on one row: both name the row below both error rows');
+  const withErrors = plain(U.gcalRowsWithErrors(rows, parsed.errors));
+  assert.deepEqual(withErrors, [
+    ['', 'error', 'setting "id" before any preset'],
+    ['', 'id', 'early@example.com'],
+    ['team', '', 'ok'],
+    ['', 'id', 'team@example.com'],
+    ['', 'error', 'unknown setting "colour"'],
+    ['', 'colour', 'red'],
+    ['', 'error', 'unknown placeholder {what} in title'],
+    ['', 'title', '{what}'],
+    ['', 'error', 'preset "noid" has no id'],
+    ['noid', '', ''],
+    ['', 'free', 'true'],
+  ]);
+  // Several errors on one row keep their order; short rows are padded.
+  assert.deepEqual(plain(U.gcalRowsWithErrors([['t'], ['', 'id', 'x'], ['', 'title', '{a} {start:%q}']], two.errors)), [
+    ['t', '', ''], ['', 'id', 'x'],
+    ['', 'error', 'unknown placeholder {a} in title'], ['', 'error', 'unknown directive %q in title'],
+    ['', 'title', '{a} {start:%q}'],
+  ]);
+  // Error rows are the script's: dropped on read, never parsed.
+  assert.deepEqual(plain(U.gcalDropErrorRows(withErrors)), rows);
+  assert.equal(U.gcalIsErrorRow(['', 'Error', 'x']), true);
+  assert.equal(U.gcalIsErrorRow(['p', 'error', 'x']), false, 'a preset named error is not an error row');
+  assert.deepEqual(plain(U.parseGCalPresets(U.gcalDropErrorRows(withErrors)).errors), plain(parsed.errors));
+  // Through the storage: readInputs writes the tab back with the error rows; a second read is identical.
+  const storage = new MemoryStorage({ tabs: { '#GCal': rows } });
+  const inputs = plain(U.gcal_readInputs(storage));
+  assert.equal(inputs.errors.length, 4);
+  assert.deepEqual(storage.tabs['#GCal'], withErrors);
+  const again = plain(U.gcal_readInputs(storage));
+  assert.deepEqual(again, inputs);
+  assert.deepEqual(storage.tabs['#GCal'], withErrors, 'second run identical');
+  // Fixed rows: the error rows disappear on the next run; a clean tab is not rewritten.
+  const fixed = withErrors.filter((r) => r[1] !== 'error' && r[1] !== 'colour' && r[0] !== 'noid' && r[1] !== 'free' && r[2] !== 'early@example.com').map((r) => (r[1] === 'title' ? ['', 'title', '{who}'] : r));
+  storage.tabs['#GCal'] = [['', 'error', 'stale'], ...fixed];
+  assert.deepEqual(plain(U.gcal_readInputs(storage)).errors, []);
+  assert.deepEqual(storage.tabs['#GCal'], fixed);
+  storage.writeTabRows = () => { throw new Error('must not write'); };
+  assert.deepEqual(plain(U.gcal_readInputs(storage)).errors, []);
+  // A storage without writeTabRows only reads.
+  assert.equal(plain(U.gcal_readInputs({ readTabRows: () => rows })).errors.length, 4);
+  // CSV: read-only storage writes nothing; a writable one rewrites gcal.csv with the error rows.
+  const dir = path.join(__dirname, '..', '.tmp', 'gcal-errors');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'gcal.csv'), U.formatCsv([['preset', 'setting', 'value'], ...rows]));
+  U.gcal_readInputs(new CsvDirStorage(dir, { readOnly: true }));
+  assert.equal(fs.readFileSync(path.join(dir, 'gcal.csv'), 'utf8'), U.formatCsv([['preset', 'setting', 'value'], ...rows]));
+  U.gcal_readInputs(new CsvDirStorage(dir));
+  assert.equal(fs.readFileSync(path.join(dir, 'gcal.csv'), 'utf8'), U.formatCsv([['preset', 'setting', 'value'], ...withErrors]));
+  assert.deepEqual(plain(new CsvDirStorage(dir).readTabRows(U.GCAL_TAB, U.GCAL_HEADER)), withErrors);
+  fs.rmSync(dir, { recursive: true, force: true });
 });

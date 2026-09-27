@@ -12,7 +12,9 @@ var GCAL_COLOR_RGB = {
   PALE_BLUE: 'a4bdfc', PALE_GREEN: '7ae7bf', MAUVE: 'dbadff', PALE_RED: 'ff887c', YELLOW: 'fbd75b', ORANGE: 'ffb878',
   CYAN: '46d6db', GRAY: 'e1e1e1', BLUE: '5484ed', GREEN: '51b749', RED: 'dc2127',
 };
-var GCAL_COLOR_HINT = 'a Calendar colour name like pale blue, its number 1 to 11, or #RRGGBB (the nearest colour is used)';
+var GCAL_COLOR_DEFAULT = 'default';
+var GCAL_COLOR_HINT = 'default (the calendar\'s own colour), a Calendar colour name like pale blue, its number 1 to 11, or #RRGGBB (the nearest colour is used)';
+var GCAL_ERROR_TYPE = 'error';
 
 function gcalParseText(text) {
   return text === '' ? null : text;
@@ -34,8 +36,11 @@ function gcalNearestColor(hex) {
   return best;
 }
 
-// A colour name (spaces, dashes or underscores), a number 1 to 11, or #RRGGBB mapped to the nearest colour.
+// default (or none): the calendar's own colour, left alone on the events; else a colour name (spaces, dashes
+// or underscores), a number 1 to 11, or #RRGGBB mapped to the nearest colour.
 function gcalParseColor(text) {
+  var lower = text.toLowerCase();
+  if (lower === GCAL_COLOR_DEFAULT || lower === 'none') return GCAL_COLOR_DEFAULT;
   var n = parseInteger(text);
   if (n !== null) return n >= 1 && n <= 11 ? n : null;
   if (/^#[0-9a-f]{6}$/i.test(text)) return gcalNearestColor(text.slice(1).toLowerCase());
@@ -67,7 +72,7 @@ var GCAL_SETTINGS = {
   title:     { parse: gcalParseText,      def: GCAL_DEFAULT_TITLE, template: true },
   body:      { parse: gcalParseText,      def: GCAL_DEFAULT_BODY,  template: true },
   allday:    { parse: gcalParseAllday,    def: 'auto',             hint: 'auto, true or false' },
-  color:     { parse: gcalParseColor,     def: null,               hint: GCAL_COLOR_HINT },
+  color:     { parse: gcalParseColor,     def: GCAL_COLOR_DEFAULT, hint: GCAL_COLOR_HINT },
   free:      { parse: parseBoolean,       def: true,               hint: 'true or false' },
   invite:    { parse: parseBoolean,       def: true,               hint: 'true or false' },
   reminders: { parse: gcalParseReminders, def: [],                 hint: 'comma-separated clock intervals like 1d, 2h, 30m, or empty for the calendar defaults' },
@@ -83,17 +88,18 @@ function gcalNewPreset(name, note, row) {
   return preset;
 }
 
-// rows: cell rows below the header. Returns { presets, errors }: every preset in tab order with its own
-// errors list (a preset with errors is unusable), and the flat errors as { where, message } with where
-// '#GCal row N'. The same name rule as the cal setting applies, so every preset can be named there.
+// rows: cell rows below the header, error rows already dropped. Returns { presets, errors }: every preset in
+// tab order with its own errors list (a preset with errors is unusable), and the flat errors as { row, where,
+// message }: row the 1-based row of the tab as given (header 1), where '#GCal row N' with N the offending
+// row's position once the error rows are written above it (gcalRowsWithErrors), so it matches the tab the
+// user sees. The same name rule as the cal setting applies, so every preset can be named there.
 function parseGCalPresets(rows) {
   var presets = [];
   var errors = [];
   var current = null;
   var seen = {};
-  var where = function (i) { return GCAL_TAB + ' row ' + (i + 2); };
   var fail = function (i, preset, message) {
-    errors.push({ where: where(i), message: message });
+    errors.push({ row: i + 2, where: null, message: message });
     if (preset) preset.errors.push(message);
   };
   (rows || []).forEach(function (cells, i) {
@@ -123,20 +129,59 @@ function parseGCalPresets(rows) {
   presets.forEach(function (preset) {
     delete preset.set;
     if (preset.id === null) {
-      errors.push({ where: where(preset.row - 2), message: 'preset "' + preset.name + '" has no id' });
+      errors.push({ row: preset.row, where: null, message: 'preset "' + preset.name + '" has no id' });
       preset.errors.push('no id');
     }
   });
+  errors.sort(function (a, b) { return a.row - b.row; });
+  // The offending row moves down by one per error row written at or above it: all errors up to the last one
+  // on the same row.
+  var above = 0, seen = null;
+  errors.forEach(function (e, k) {
+    if (e.row !== seen) { seen = e.row; above = k + errors.filter(function (x) { return x.row === e.row; }).length; }
+    e.where = GCAL_TAB + ' row ' + (e.row + above);
+  });
   return { presets: presets, errors: errors };
+}
+
+function gcalIsErrorRow(cells) {
+  return cellText(cells[0]) === '' && cellText(cells[1]).toLowerCase() === GCAL_ERROR_TYPE;
+}
+
+// The tab without the script's error rows (DESIGN 1: error rows are removed and recomputed on every run).
+function gcalDropErrorRows(rows) {
+  return rows.filter(function (cells) { return !gcalIsErrorRow(cells); });
+}
+
+// The tab with an error row (| error | message) directly above each row an error names, in message order;
+// rows are the cleaned rows the errors were computed on. Rows are padded to the header width.
+function gcalRowsWithErrors(rows, errors) {
+  var out = rows.map(function (cells) {
+    return GCAL_HEADER.map(function (_, i) { return cells[i] === undefined || cells[i] === null ? '' : cells[i]; });
+  });
+  for (var k = errors.length - 1; k >= 0; k--) {
+    out.splice(errors[k].row - 2, 0, ['', GCAL_ERROR_TYPE, errors[k].message]);
+  }
+  return out;
 }
 
 function gcalPreset(inputs, name) {
   return (inputs && inputs.presets || []).find(function (p) { return p.name === name; }) || null;
 }
 
-// Hook: the extension's inputs, read through the storage before the run (DESIGN 8, Extensions).
+// Hook: the extension's inputs, read through the storage before the run (DESIGN 8, Extensions). Error rows
+// of the previous run are dropped first; when the presets have errors, or error rows were dropped, the tab
+// is written back with an error row above each offending row (13.1), through writeTabRows when the storage
+// has it. A storage that only reads gets no write.
 function gcal_readInputs(storage) {
-  return parseGCalPresets(typeof storage.readTabRows === 'function' ? storage.readTabRows(GCAL_TAB, GCAL_HEADER) : []);
+  var read = typeof storage.readTabRows === 'function' ? storage.readTabRows(GCAL_TAB, GCAL_HEADER) : [];
+  var rows = gcalDropErrorRows(read);
+  var inputs = parseGCalPresets(rows);
+  if (typeof storage.writeTabRows === 'function') {
+    var written = gcalRowsWithErrors(rows, inputs.errors);
+    if (JSON.stringify(written) !== JSON.stringify(gcalRowsWithErrors(read, []))) storage.writeTabRows(GCAL_TAB, GCAL_HEADER, written);
+  }
+  return inputs;
 }
 
 // ---- 20_format.js ----
@@ -275,7 +320,7 @@ function gcalEvent(rotation, preset, shift) {
     start: formatDateTime(shift.start),
     end: formatDateTime(shift.end),
     allDay: preset.allday === 'auto' ? midnight : preset.allday,
-    color: preset.color,
+    color: preset.color === GCAL_COLOR_DEFAULT ? null : preset.color,
     free: preset.free,
     guests: preset.invite && shift.who.indexOf('@') >= 0 ? [shift.who] : [],
     reminders: preset.reminders.slice(),
@@ -674,7 +719,7 @@ var GCAL_CHEAT_SHEET = [
   'title: event title template, default ' + GCAL_DEFAULT_TITLE,
   'body: event description template, default ' + GCAL_DEFAULT_BODY,
   'allday: auto | true | false, default auto (all-day when the shift starts and ends at midnight)',
-  'color: pale blue | pale green | mauve | pale red | yellow | orange | cyan | gray | blue | green | red, 1-11 or #RRGGBB (nearest), default none',
+  'color: default (the calendar\'s own colour) | pale blue | pale green | mauve | pale red | yellow | orange | cyan | gray | blue | green | red | 1-11 | #RRGGBB (nearest), default default',
   'free: true | false, default true (the time shows as free)',
   'invite: true | false, default true (the assignee is invited when the id contains @)',
   'reminders: intervals before the start, 1d, 1h; default empty (the calendar defaults)',
@@ -692,20 +737,34 @@ var GCAL_HELP_LINES = [
   'Clean calendar: current rotation | selected preset: delete the events Rotalator created for the rotation, or every Rotalator event of the preset\'s calendar',
 ]);
 
-// Header, cheat sheet as comment rows, then a first preset to fill in (reminders empty: calendar defaults).
+// Header, cheat sheet as comment rows, an empty row, then a first preset to fill in (reminders empty:
+// calendar defaults; color default: the calendar's own colour).
 function gcalTemplateRows() {
   var comment = function (text) { return ['', '', text]; };
   var setting = function (key, value) { return ['', key, value]; };
   return [GCAL_HEADER.slice()].concat(GCAL_CHEAT_SHEET.map(comment), [
+    ['', '', ''],
     [GCAL_TEMPLATE_PRESET, '', GCAL_TEMPLATE_NOTE],
     setting('id', GCAL_TEMPLATE_ID),
     setting('title', GCAL_DEFAULT_TITLE),
     setting('body', GCAL_DEFAULT_BODY),
     setting('allday', 'auto'),
+    setting('color', GCAL_COLOR_DEFAULT),
     setting('free', 'true'),
     setting('invite', 'true'),
     setting('reminders', ''),
   ]);
+}
+
+// Conditional row colours like the ledgers' (DESIGN 10.1): error rows light red, preset rows light blue like
+// set rows, comment rows light yellow; the header row is excluded. Built here because the palette constants
+// belong to the core's Apps Script file.
+function gcalFormatRules() {
+  return [
+    { formula: '=$B1="' + GCAL_ERROR_TYPE + '"', color: COLOR_ERROR },
+    { formula: '=AND($A1<>"", ROW()>1)', color: COLOR_SETTINGS },
+    { formula: '=AND($A1="", $B1="", $C1<>"")', color: COLOR_COMMENT },
+  ];
 }
 
 function gcal_menu(menu) {
@@ -733,6 +792,7 @@ function gcalFormatTab(sheet) {
   sheet.setFrozenRows(1);
   GCAL_COLUMN_WIDTHS.forEach(function (w, i) { sheet.setColumnWidth(i + 1, w); });
   trimColumns(sheet, width);
+  setConditionalRules(sheet, gcalFormatRules(), width);
   sheet.setTabColor(TAB_COLOR_EDITABLE);
 }
 

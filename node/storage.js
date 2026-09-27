@@ -23,6 +23,10 @@ class MemoryStorage {
     return structuredClone(this.tabs[name] || []);
   }
 
+  writeTabRows(name, header, rows) {
+    this.tabs[name] = structuredClone(rows);
+  }
+
   ignoredTabs() {
     return this.ignored.slice();
   }
@@ -57,11 +61,14 @@ class MemoryStorage {
 // and #All shifts data, now.txt is the run instant. A file named #<anything>.csv is never a rotation, like a
 // '#' tab.
 // Blank lines are kept as all-empty rows so row numbers match the file; callers drop them.
+// readOnly: the writers are no-ops, for a run that only prints (the runner itself writes only when asked, but
+// an extension may write its own tab from readInputs).
 class CsvDirStorage {
-  constructor(dir) {
+  constructor(dir, { readOnly = false } = {}) {
     this.dir = dir;
     this.U = load();
     this.tabs = null;
+    this.readOnly = readOnly;
   }
 
   file(name) {
@@ -113,6 +120,12 @@ class CsvDirStorage {
     const rows = this.readCsv(TAB_FILES[name] ?? `${name}.csv`) || [];
     const first = rows.length ? rows[0].map((c) => String(c ?? '').trim().toLowerCase()) : [];
     return header.every((h, i) => first[i] === h) ? rows.slice(1) : [];
+  }
+
+  // The mirror of readTabRows: header plus rows into the tab's file.
+  writeTabRows(name, header, rows) {
+    if (this.readOnly) return;
+    fs.writeFileSync(this.file(TAB_FILES[name] ?? `${name}.csv`), this.U.formatCsv([header, ...rows]));
   }
 
   readNow() {

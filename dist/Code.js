@@ -2859,6 +2859,17 @@ class SheetsStorage {
     return matches ? rows.slice(1).map(function (row) { return row.slice(0, header.length); }) : [];
   }
 
+  // Rows below the header of any tab, written back in full, for extensions: the mirror of readTabRows. A
+  // missing tab is left alone; rows are cut or padded to the header width.
+  writeTabRows(name, header, rows) {
+    var sheet = this.ss.getSheetByName(name);
+    if (!sheet) return;
+    var last = sheet.getLastRow();
+    if (last > 1) sheet.getRange(2, 1, last - 1, header.length).clearContent();
+    var cells = rows.map(function (row) { return header.map(function (_, i) { return row[i] === undefined || row[i] === null ? '' : row[i]; }); });
+    this.writeTextRows(sheet, 2, cells);
+  }
+
   sheetNamed(name) {
     return this.ss.getSheetByName(name) || this.ss.insertSheet(name);
   }

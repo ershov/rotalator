@@ -14,7 +14,7 @@ var GCAL_CHEAT_SHEET = [
   'title: event title template, default ' + GCAL_DEFAULT_TITLE,
   'body: event description template, default ' + GCAL_DEFAULT_BODY,
   'allday: auto | true | false, default auto (all-day when the shift starts and ends at midnight)',
-  'color: pale blue | pale green | mauve | pale red | yellow | orange | cyan | gray | blue | green | red, 1-11 or #RRGGBB (nearest), default none',
+  'color: default (the calendar\'s own colour) | pale blue | pale green | mauve | pale red | yellow | orange | cyan | gray | blue | green | red | 1-11 | #RRGGBB (nearest), default default',
   'free: true | false, default true (the time shows as free)',
   'invite: true | false, default true (the assignee is invited when the id contains @)',
   'reminders: intervals before the start, 1d, 1h; default empty (the calendar defaults)',
@@ -32,20 +32,34 @@ var GCAL_HELP_LINES = [
   'Clean calendar: current rotation | selected preset: delete the events Rotalator created for the rotation, or every Rotalator event of the preset\'s calendar',
 ]);
 
-// Header, cheat sheet as comment rows, then a first preset to fill in (reminders empty: calendar defaults).
+// Header, cheat sheet as comment rows, an empty row, then a first preset to fill in (reminders empty:
+// calendar defaults; color default: the calendar's own colour).
 function gcalTemplateRows() {
   var comment = function (text) { return ['', '', text]; };
   var setting = function (key, value) { return ['', key, value]; };
   return [GCAL_HEADER.slice()].concat(GCAL_CHEAT_SHEET.map(comment), [
+    ['', '', ''],
     [GCAL_TEMPLATE_PRESET, '', GCAL_TEMPLATE_NOTE],
     setting('id', GCAL_TEMPLATE_ID),
     setting('title', GCAL_DEFAULT_TITLE),
     setting('body', GCAL_DEFAULT_BODY),
     setting('allday', 'auto'),
+    setting('color', GCAL_COLOR_DEFAULT),
     setting('free', 'true'),
     setting('invite', 'true'),
     setting('reminders', ''),
   ]);
+}
+
+// Conditional row colours like the ledgers' (DESIGN 10.1): error rows light red, preset rows light blue like
+// set rows, comment rows light yellow; the header row is excluded. Built here because the palette constants
+// belong to the core's Apps Script file.
+function gcalFormatRules() {
+  return [
+    { formula: '=$B1="' + GCAL_ERROR_TYPE + '"', color: COLOR_ERROR },
+    { formula: '=AND($A1<>"", ROW()>1)', color: COLOR_SETTINGS },
+    { formula: '=AND($A1="", $B1="", $C1<>"")', color: COLOR_COMMENT },
+  ];
 }
 
 function gcal_menu(menu) {
@@ -73,6 +87,7 @@ function gcalFormatTab(sheet) {
   sheet.setFrozenRows(1);
   GCAL_COLUMN_WIDTHS.forEach(function (w, i) { sheet.setColumnWidth(i + 1, w); });
   trimColumns(sheet, width);
+  setConditionalRules(sheet, gcalFormatRules(), width);
   sheet.setTabColor(TAB_COLOR_EDITABLE);
 }
 
