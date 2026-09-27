@@ -147,7 +147,7 @@ function gcalExportWith(rotations) {
   if (!result) return null;
   var plan = gcalPlan(result, result.ext.gcal, { repair: true, rotations: rotations || undefined });
   if (plan.events.length) gcalAnnounce(plan);
-  var data = gcalReconcile(plan, gcalStatusData(plan), { tz: storage.tz, dry: false, progress: gcalProgress });
+  var data = gcalReconcile(plan, gcalStatusData(plan), { tz: storage.tz, dry: false, progress: gcalProgress, ticker: gcalTicker('re-exporting') });
   gcalWriteCalendarErrors(storage, result.ext.gcal, data);
   data.errors.forEach(function (e) { console.log(e.where + ': ' + e.message); });
   toast(gcalSummary(data), GCAL_TOAST_TITLE);
@@ -176,7 +176,7 @@ function gcalCleanCurrent() {
     var result = gcalRunForExport(storage, null);
     if (!result) return null;
     var clean = gcalCleanPlan(result, result.ext.gcal, { rotation: name });
-    var out = gcalClean(clean, { tz: storage.tz });
+    var out = gcalClean(clean, { tz: storage.tz, ticker: gcalTicker('cleaning') });
     clean.errors.concat(out.errors).forEach(function (e) { console.log(e.where + ': ' + e.message); });
     toast(out.deleted + ' event(s) of ' + name + ' deleted in ' + clean.calendars.length + ' calendar(s) in ' + out.elapsed + ' s' + gcalCleanNote(out), GCAL_TOAST_TITLE);
     return out;
@@ -202,7 +202,7 @@ function gcalCleanPreset() {
     var clean = gcalCleanPlan(null, gcal_readInputs(storage), { preset: name });
     if (clean.error) { toast(clean.error, GCAL_TOAST_TITLE); return null; }
     var window = gcalCleanWindow(parseDateTime(storage.nowText));
-    var out = gcalClean(clean, { tz: storage.tz, from: window.from, to: window.to });
+    var out = gcalClean(clean, { tz: storage.tz, from: window.from, to: window.to, ticker: gcalTicker('cleaning') });
     out.errors.forEach(function (e) { console.log(e.where + ': ' + e.message); });
     toast(out.deleted + ' Rotalator event(s) deleted in ' + clean.calendar + ' between ' + window.from + ' and ' + window.to + ' in ' + out.elapsed + ' s' + gcalCleanNote(out), GCAL_TOAST_TITLE);
     return out;

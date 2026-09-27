@@ -2725,6 +2725,19 @@ function throttledFlag(read, intervalMs, clock) {
   };
 }
 
+// Progress reported through report(...) at most once per intervalMs (clock in milliseconds): the first call
+// reports, later calls only once the interval has passed since the last report. Returns whether it reported.
+function throttledProgress(report, intervalMs, clock) {
+  var last = -Infinity;
+  return function () {
+    var now = clock();
+    if (now - last < intervalMs) return false;
+    last = now;
+    report.apply(null, arguments);
+    return true;
+  };
+}
+
 // The guard of the run in progress, set by the adapter; outside a guarded run (Node, a call without the lock)
 // a guard that never stops and reports no elapsed time.
 var activeRunGuard = null;

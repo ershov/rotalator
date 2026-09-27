@@ -1153,7 +1153,12 @@ a guarded run (Node, a call without the lock), one that never stops and
 reports zero seconds. The Calendar block shows the elapsed seconds of each
 run (13.4). Progress is visible as toasts: `withLock` itself is silent, the
 calendar export announces its size, flushes pending spreadsheet writes
-(`SpreadsheetApp.flush()`) before its loop and toasts per finished calendar.
+(`SpreadsheetApp.flush()`) before its loop, toasts `<action> <calendar>: X /
+Y events done, N s` at most every ten seconds per calendar loop (the first
+at loop start with `0 / Y`; `throttledProgress(report, intervalMs, clock)`
+in `80_runner.js` is the pure cadence, tested with an injected clock) and
+toasts the counts per finished calendar. On the trigger toasts are harmless
+no-ops; in Node they are skipped.
 
 ## 11. Stages
 
@@ -1357,8 +1362,14 @@ status block shows it on a `note` row. `data.elapsed` is the run's elapsed
 seconds, shown on the block's title row (0 in Node). `options.progress(line)`
 is called when a calendar is done; the hook and the menu actions use it to
 toast the counts per calendar after the opening toast `exporting N event(s)
-to M calendar(s)` and a `SpreadsheetApp.flush()`. `gcalClean` checks the
-guard between deletions the same way.
+to M calendar(s)` and a `SpreadsheetApp.flush()`. `options.ticker()` gives a
+step function per calendar loop, called at loop start and after each event
+with `{ calendar, done, total, what, elapsed }` (`total` the wanted plus
+stale events of that calendar); `gcalTicker(action)` supplies one that
+toasts `<action> <calendar>: X / Y events done, N s` at most every ten
+seconds (10.4), with `exporting` from the run, `re-exporting` from the menu
+and `cleaning` in `gcalClean`, which steps per deletion with `what`
+`deletions`. `gcalClean` checks the guard between deletions the same way.
 Datetimes travel as the sheet's text: `Utilities.parseDate(text, tz,
 "yyyy-MM-dd'T'HH:mm")` into the calendar and `Utilities.formatDate` back,
 canonicalised, timed instants in the spreadsheet time zone and all-day dates

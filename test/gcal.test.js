@@ -813,3 +813,46 @@ test('status metadata: errors and warnings rows are marked for the adapter', () 
   assert.equal(U.finishedText(2, 1), 'finished with 2 error(s) and 1 warning(s)');
   assert.equal(U.finishedText(0, 3), 'finished with 0 error(s) and 3 warning(s)');
 });
+
+test('progress ticker: a step per event at loop start and after each event, throttled toasts at 0, 10, 20 s', () => {
+  const calendars = installMocks([TEAM_CAL, PERSONAL_CAL]);
+  try {
+    const result = runDir(FIXTURE, null, { export: false });
+    const plan = U.gcalPlan(result, result.ext.gcal, {});
+    // A raw ticker sees every step: 0 / Y first, then each event; stale events count in the total.
+    calendars[TEAM_CAL].add('stale', '2026-10-12', '2026-10-19', true, 'primary|2026-10-12');
+    const steps = [];
+    U.gcalReconcile(plan, U.gcalStatusData(plan), { tz: 'UTC', ticker: () => (info) => steps.push([info.calendar, info.done, info.total, info.what]) });
+    assert.deepEqual(steps, [
+      [TEAM_CAL, 0, 4, 'events'], [TEAM_CAL, 1, 4, 'events'], [TEAM_CAL, 2, 4, 'events'], [TEAM_CAL, 3, 4, 'events'], [TEAM_CAL, 4, 4, 'events'],
+      [PERSONAL_CAL, 0, 3, 'events'], [PERSONAL_CAL, 1, 3, 'events'], [PERSONAL_CAL, 2, 3, 'events'], [PERSONAL_CAL, 3, 3, 'events'],
+    ]);
+    // Thirty events on one calendar with a clock stepping one second per step: reports at 0, 10, 20 and 30.
+    const big = { rotations: [{ rotation: 'primary', presets: ['team'], calendars: [TEAM_CAL], from: '2026-01-05', to: '2026-08-03', until: '2029-10-04T10:00', shifts: 30, skipped: 0 }], events: [], errors: [] };
+    for (let i = 0; i < 30; i++) {
+      const start = U.formatDateTime(U.parseDateTime('2026-01-05') + i * 7 * 1440);
+      const end = U.formatDateTime(U.parseDateTime('2026-01-05') + (i + 1) * 7 * 1440);
+      big.events.push({ key: `primary|${start}`, rotation: 'primary', preset: 'team', calendar: TEAM_CAL, title: `t${i}`, body: '', start, end, allDay: true, color: null, free: true, guests: [], reminders: [] });
+    }
+    calendars[TEAM_CAL] = new MockCalendar(TEAM_CAL);
+    const toasts = [];
+    let now = 0, at = 0;
+    const ticker = () => U.throttledProgress((info) => toasts.push(`exporting ${info.calendar}: ${info.done} / ${info.total} ${info.what} done, ${at / 1000} s`), 10000, () => { at = now; now += 1000; return at; });
+    U.gcalReconcile(big, U.gcalStatusData(big), { tz: 'UTC', ticker });
+    assert.deepEqual(toasts, [
+      `exporting ${TEAM_CAL}: 0 / 30 events done, 0 s`,
+      `exporting ${TEAM_CAL}: 10 / 30 events done, 10 s`,
+      `exporting ${TEAM_CAL}: 20 / 30 events done, 20 s`,
+      `exporting ${TEAM_CAL}: 30 / 30 events done, 30 s`,
+    ]);
+    // Clean steps per deletion with the tagged count as the total.
+    const clean = U.gcalCleanPlan(result, result.ext.gcal, { rotation: 'primary' });
+    const deletions = [];
+    U.gcalClean(clean, { tz: 'UTC', ticker: () => (info) => deletions.push([info.calendar, info.done, info.total, info.what]) });
+    // The fresh team calendar has nothing in the clean window; personal still holds its three events.
+    assert.deepEqual(deletions, [[TEAM_CAL, 0, 0, 'deletions'], [PERSONAL_CAL, 0, 3, 'deletions'], [PERSONAL_CAL, 1, 3, 'deletions'], [PERSONAL_CAL, 2, 3, 'deletions'], [PERSONAL_CAL, 3, 3, 'deletions']]);
+    // Without a spreadsheet UI there is no ticker; reconcile runs without one.
+    assert.equal(U.gcalTicker('exporting'), undefined);
+    assert.equal(U.gcalReconcile(plan, U.gcalStatusData(plan), { tz: 'UTC' }).errors.length, 0);
+  } finally { removeMocks(); }
+});

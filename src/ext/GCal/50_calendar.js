@@ -144,7 +144,9 @@ function gcalFinish(out, stopper, done, what, guard) {
 // Reconciles every calendar of the plan and fills the counts of data (gcalStatusData). options: tz; dry to
 // compute the counts without writing; guard (default the run's, DESIGN 10.4), asked between events whether
 // to stop, in which case the remaining events and calendars are left for the next run and data.note says
-// why; progress(line), called when a calendar is done. Creates and updates stay inside [from, to); the
+// why; progress(line), called when a calendar is done; ticker(), called per calendar for a step function
+// that receives { calendar, done, total, what, elapsed } at loop start and after each event (the adapter's
+// throttled toast, 10.4). Creates and updates stay inside [from, to); the
 // rotation's tagged events are fetched up to `until` (the clean bound after now), so events left beyond a
 // shortened horizon are deleted too. A missing calendar or an API failure is recorded in data.errors and the
 // other calendars proceed. Duplicate events with one key are deleted down to one.
@@ -153,6 +155,7 @@ function gcalReconcile(plan, data, options) {
   var dry = Boolean(options.dry);
   var guard = options.guard || currentRunGuard();
   var progress = options.progress || function () {};
+  var ticker = options.ticker || function () { return function () {}; };
   var done = 0;
   var stopper = gcalStopper(guard);
   var stop = stopper.stop;
@@ -170,23 +173,32 @@ function gcalReconcile(plan, data, options) {
         gcalTaggedEvents(calendar, rot.rotation, rot.from, rot.until || rot.to, tz).forEach(function (t) {
           if (existing[t.key]) duplicates.push(t.event); else existing[t.key] = t.event;
         });
+        var wantedKeys = {};
+        wanted.forEach(function (want) { wantedKeys[want.key] = true; });
+        var staleCount = Object.keys(existing).filter(function (key) { return !wantedKeys[key]; }).length + duplicates.length;
+        var step = ticker();
+        var here = 0;
+        var tick = function () { step({ calendar: id, done: here, total: wanted.length + staleCount, what: 'events', elapsed: guard.elapsedSeconds() }); };
+        tick();
         for (var w = 0; w < wanted.length && !stop(); w++) {
           var want = wanted[w];
           var ev = existing[want.key];
           delete existing[want.key];
           done++;
-          if (!ev) { if (!dry) gcalCreate(calendar, want, tz); line.create++; continue; }
+          here++;
+          if (!ev) { if (!dry) gcalCreate(calendar, want, tz); line.create++; tick(); continue; }
           var state = gcalEventState(ev, tz);
           var diff = gcalDiff(state, want);
-          if (!diff.length) { line.unchanged++; continue; }
-          if (!dry) gcalUpdate(ev, state, want, diff, tz);
-          line.update++;
+          if (diff.length) { if (!dry) gcalUpdate(ev, state, want, diff, tz); line.update++; } else line.unchanged++;
+          tick();
         }
         var stale = Object.keys(existing).map(function (key) { return existing[key]; }).concat(duplicates);
         for (var s = 0; s < stale.length && !stop(); s++) {
           done++;
+          here++;
           if (!dry) stale[s].deleteEvent();
           line.delete++;
+          tick();
         }
         if (stopper.reason() === null) progress(line);
       } catch (e) {
@@ -235,10 +247,12 @@ function gcalWriteCalendarErrors(storage, inputs, data) {
 
 // Deletes tagged events per a clean plan (gcalCleanPlan): a rotation's events (tag prefix rotation|) in its
 // window in each of its calendars, or every tagged event of one calendar between options.from and options.to.
-// options.guard (default the run's) is asked between deletions. Returns { deleted, errors, note, elapsed }.
+// options.guard (default the run's) is asked between deletions; options.ticker as in gcalReconcile, with
+// what 'deletions'. Returns { deleted, errors, note, elapsed }.
 function gcalClean(clean, options) {
   var out = { deleted: 0, errors: [] };
   var guard = options.guard || currentRunGuard();
+  var ticker = options.ticker || function () { return function () {}; };
   var stopper = gcalStopper(guard);
   var stop = stopper.stop;
   var targets = clean.all
@@ -249,12 +263,19 @@ function gcalClean(clean, options) {
     try {
       var calendar = CalendarApp.getCalendarById(t.calendar);
       if (!calendar) throw new Error('calendar "' + t.calendar + '" not found or not shared with this account');
-      var events = calendar.getEvents(gcalToDate(t.from, options.tz), gcalToDate(t.to, options.tz));
+      var events = calendar.getEvents(gcalToDate(t.from, options.tz), gcalToDate(t.to, options.tz)).filter(function (ev) {
+        var key = ev.getTag(GCAL_TAG);
+        return key && key.indexOf(t.prefix) === 0;
+      });
+      var step = ticker();
+      var here = 0;
+      var tick = function () { step({ calendar: t.calendar, done: here, total: events.length, what: 'deletions', elapsed: guard.elapsedSeconds() }); };
+      tick();
       for (var i = 0; i < events.length && !stop(); i++) {
-        var key = events[i].getTag(GCAL_TAG);
-        if (!key || key.indexOf(t.prefix) !== 0) continue;
         if (!options.dry) events[i].deleteEvent();
         out.deleted++;
+        here++;
+        tick();
       }
     } catch (e) {
       out.errors.push({ where: t.calendar, message: e && e.message ? e.message : String(e) });
@@ -278,6 +299,19 @@ function gcalProgress(line) {
   toast(line.rotation + ' / ' + line.preset + ': ' + GCAL_COUNTS.map(function (c) { return c + ' ' + line[c]; }).join(', '), GCAL_TOAST_TITLE);
 }
 
+var GCAL_PROGRESS_MS = 10000;
+
+// Ticker for the loops (10.4): per calendar a step function that toasts "<action> <calendar>: X / Y events
+// done, N s" at most every ten seconds, the first at loop start; nothing without a spreadsheet UI.
+function gcalTicker(action) {
+  if (typeof SpreadsheetApp === 'undefined') return undefined;
+  return function () {
+    return throttledProgress(function (info) {
+      toast(action + ' ' + info.calendar + ': ' + info.done + ' / ' + info.total + ' ' + info.what + ' done, ' + info.elapsed + ' s', GCAL_TOAST_TITLE);
+    }, GCAL_PROGRESS_MS, Date.now);
+  };
+}
+
 // Hook (DESIGN 8, Extensions): after a run without errors, export the regenerated rotations. A dry run, or a
 // run that does not write, computes the counts only; without CalendarApp (Node) the plan is recorded as is.
 // The status gets a Calendar block when a rotation uses cal or the presets have errors. options.export ===
@@ -291,7 +325,7 @@ function gcal_afterRun(result, storage, options) {
   else {
     if (dry) data.mode = 'dry run';
     if (plan.events.length) gcalAnnounce(plan);
-    gcalReconcile(plan, data, { tz: storage.tz, dry: dry, progress: gcalProgress });
+    gcalReconcile(plan, data, { tz: storage.tz, dry: dry, progress: gcalProgress, ticker: gcalTicker('exporting') });
   }
   gcalWriteCalErrors(result, storage, plan, options);
   gcalWriteCalendarErrors(storage, result.ext.gcal, data);

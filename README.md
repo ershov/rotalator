@@ -311,9 +311,11 @@ the toast `another Rotalator run is in progress` and changes nothing. A run
 also has a time budget of five minutes: a long calendar export stops between
 events when it is reached and the next run continues where it left off, so
 the Apps Script six-minute limit never interrupts a write. Progress shows as
-toasts: how many events go to how many calendars, then the counts per
-calendar; the `Calendar` block of `#Status` shows the elapsed seconds and,
-when a run stopped early, why.
+toasts: how many events go to how many calendars, then during each calendar
+loop `exporting <calendar>: X / Y events done, N s` at most every ten seconds
+(re-exports and cleans say so), then the counts per calendar; the `Calendar`
+block of `#Status` shows the elapsed seconds and, when a run stopped early,
+why.
 
 INSTALL.md has the step by step.
 

@@ -54,3 +54,19 @@ test('throttledFlag: reads at most once per interval, caches in between', () => 
   assert.equal(check(), true);
   assert.equal(reads, 2);
 });
+
+test('throttledProgress: first call reports, calls within the interval do not, the next after it does', () => {
+  const reports = [];
+  let now = 0;
+  const step = U.throttledProgress((a, b) => reports.push([a, b]), 10000, () => now);
+  assert.equal(step('a', 1), true);
+  now = 9999;
+  assert.equal(step('b', 2), false);
+  now = 10000;
+  assert.equal(step('c', 3), true);
+  now = 15000;
+  assert.equal(step('d', 4), false);
+  now = 20000;
+  assert.equal(step('e', 5), true);
+  assert.deepEqual(reports, [['a', 1], ['c', 3], ['e', 5]]);
+});
