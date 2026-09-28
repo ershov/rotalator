@@ -149,12 +149,27 @@ are kept sorted by `start`; the script re-sorts on every write.
 | error | message | | script |
 | (empty) | free text | | users |
 
-Epoch rows: a `set`, `team`, `repel`, `repel!` or `attract` row with an empty
-`start`
+Undated rows: a `set`, `team`, `repel`, `repel!` or `attract` row with an
+empty `start` takes the `start` of the nearest dated row above it in the tab
+as read, in document order; error rows (dropped on read), comments and other
+undated rows are skipped while scanning upward. This is the first step on
+read (`inheritStarts`), before validation, the prune and the sort (3.6), and
+the inherited `start` is materialised: the next write puts it into the
+`start` cell in canonical form, like any `start`, so from then on it is an
+ordinary dated row and never drifts. It sorts at that instant by type order
+(3.6), before the `shift` starting there, so a `team` row typed under the
+shift of 3 March applies to that shift when the shift is unpinned and after
+the snapshot. Several undated rows of one type are allowed, in `#Global`
+too, and keep their document order through the stable sort: `set` values
+merge in order, a later `team` row replaces the roster, relation rows
+follow "latest row wins". The trap: an undated row typed at the very bottom
+of a tab inherits the start of the last generated shift near the horizon,
+not "now"; place it under the current shift.
+
+Epoch rows: an undated row of those types with no dated row above it
 applies from the beginning of the timeline. Internally its start is
 `-Infinity`, so it sorts before every dated row (type order among epoch rows,
-3.6) and compares as earlier than any instant. At most one epoch row per type
-per tab; a second one gets an `error` row. Epoch rows take no `end` or
+3.6) and compares as earlier than any instant. Epoch rows take no `end` or
 `duration`. An epoch `set` row may carry every key but `anchor` (bare
 `anchor` there is the error `anchor needs a dated set row`), and a `period`
 in it does not imply an anchor: the grid starts where a dated `set` row of
@@ -313,10 +328,11 @@ Rows with equal `start` sort as: comment, `error`, `set`, `attract`, `repel`,
 `repel!`, `detach`, `snapshot`, `team`, `score`, `join`, `leave`, `exclude`,
 `include`, `shift`. State changes at an instant therefore apply before the shift
 starting at it, and a `score` correction applies right after the `team` row
-of the same instant. Sorting is stable, so user order is kept otherwise.
-Epoch rows (3.4) sort before every dated row, in the same type order among
-themselves, and an undated comment above an epoch row attaches to it and stays
-on top of the tab.
+of the same instant. Sorting is stable, so user order is kept otherwise, so
+several undated rows that inherited one instant (3.4) keep their document
+order. Epoch rows (3.4) sort before every dated row, in the same type order
+among themselves, and an undated comment above an epoch row attaches to it
+and stays on top of the tab.
 
 An undated comment attaches to the next dated row below it in the ledger as
 read: its sort key becomes that row's `start` with an order just before that
@@ -377,8 +393,8 @@ Parse every ledger row. Drop `error` rows. Collect validation errors with row
 references: unknown type, bad datetime, bad duration, both `end` and
 `duration` set, `what` missing where required, an item form the type does not
 accept (a `shift` with two names, `leave` with `name=1`, `anchor=value`, a
-bare `period`), unknown setting key, a second epoch row of the same type, an
-epoch row with `end` or `duration` or a bare `anchor`, `join` of a current
+bare `period`), unknown setting key, an epoch row with `end` or `duration`
+or a bare `anchor`, `join` of a current
 member, `leave` or `exclude` of an unknown member. Comments are skipped.
 Before the sweep the grid of each rotation must be in force before its first
 dated row: a `period` from any `set` row of either layer and an anchor from a
@@ -1079,8 +1095,12 @@ not a comment is dated; a dated row with nothing but its `start` (and `pin`)
 gets `type` = `shift`. `what`, `end` and `duration` are never written; the
 other cells of existing rows travel with their rows. An undated row is either
 an empty grid position (blank, or `type` = `shift` and nothing else), a
-comment (empty `type` with other content), an epoch row (3.4), which stays in
-place before everything, or an error: an undated row with another
+comment (empty `type` with other content), an undated `set`, `team` or
+relation row, which takes the date of the nearest dated `set`, `shift` or
+other typed row above it, in the selection or in the tab above the selection
+(3.4, so the tool and the next run agree), or stays in place before
+everything when there is none, or an
+error: an undated row with another
 `type` stops the command with a toast naming it. Dated comments are kept in
 place like other non-shift rows; undated comments travel with the next dated
 row below them, and trailing ones stay at the end. The grid comes from the

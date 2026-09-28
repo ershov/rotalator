@@ -1,0 +1,47 @@
+Rotalator  dry run  2026-06-29T10:00
+
+Tabs
+rotations    primary
+regenerated  primary
+holidays     1
+global       2
+ignored
+
+rotation  primary
+snapshot  2026-06-29T09:00
+horizon   2026-07-27T09:00
+current   alice             until 2026-07-06T09:00
+next      bob               from 2026-07-06T09:00
+
+  member  current  score  projected  last shift        next shift        exclusions
+  alice   x        7      14         2026-06-29T09:00
+  bob              7      14         2026-06-08T09:00  2026-07-06T09:00
+  carol            7      14         2026-06-15T09:00  2026-07-13T09:00
+  dave             7      14         2026-06-22T09:00  2026-07-20T09:00
+
+  settings       as of 2026-06-29T10:00  source
+  period         1w                      rotation
+  anchor         2026-06-01T09:00        rotation
+  grid           calendar                default
+  horizon        4w                      rotation
+  skip_weekends  false                   rotation
+  skip_holidays  false                   rotation
+  tolerance      1                       rotation
+  min_distance   0                       rotation
+  tiebreak       order                   default
+  seed           3                       rotation
+  baseline       min                     global
+  precredit      0                       global
+  autopin        a:0                     rotation
+  cal                                    default
+
+start             primary
+2026-06-01T09:00  alice
+2026-06-08T09:00  bob
+2026-06-15T09:00  carol
+2026-06-22T09:00  dave
+2026-06-29T09:00  alice
+2026-06-29T10:00  --now--
+2026-07-06T09:00  bob
+2026-07-13T09:00  carol
+2026-07-20T09:00  dave

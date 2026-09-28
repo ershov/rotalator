@@ -179,12 +179,12 @@ test('epoch rows: undated set, team, repel and attract parse to EPOCH, write bac
   assert.deepEqual(sorted.map((r) => r.what), ['above epoch set', 'period=1w', 'other', 'a, b', 'anchor', 'a', 'trailing']);
 });
 
-test('epoch rows: validation of duplicates, bare anchor, extent and the first-row rule', () => {
+test('epoch rows: several per type allowed, bare anchor, extent and the first-row rule', () => {
   const epochSet = R('', '', 'set', 'period=1w, tolerance=0');
   const anchorRow = R('', '2026-10-05T09:00', 'set', 'anchor');
   assert.deepEqual(messagesOf([epochSet, R('', '', 'team', 'alice'), anchorRow]), []);
-  assert.deepEqual(messagesOf([epochSet, R('', '', 'set', 'seed=2'), anchorRow]), ['more than one undated set row']);
-  assert.deepEqual(messagesOf([epochSet, R('', '', 'team', 'alice'), R('', '', 'team', 'bob'), anchorRow]), ['more than one undated team row']);
+  assert.deepEqual(messagesOf([epochSet, R('', '', 'set', 'seed=2'), anchorRow]), []);
+  assert.deepEqual(messagesOf([epochSet, R('', '', 'team', 'alice'), R('', '', 'team', 'bob'), anchorRow]), []);
   assert.deepEqual(messagesOf([R('', '', 'set', 'period=1w, anchor'), anchorRow]), ['anchor needs a dated set row']);
   assert.deepEqual(messagesOf([epochSet, R('', '', 'repel', 'other', '', '2w'), anchorRow]), ['undated repel rows take no end or duration']);
   assert.deepEqual(messagesOf([epochSet, R('', '', 'shift', 'alice'), anchorRow]), ['missing start']);
@@ -358,4 +358,50 @@ test('validateLedger rotation-level rules', () => {
   assert.deepEqual(twoSnapshots, ['more than one snapshot row']);
   const unsortedOk = messagesOf([TEAM, R('', '2026-10-05T09:00', 'shift', 'alice'), SET]);
   assert.deepEqual(unsortedOk, []);
+});
+
+test('inheritStarts: undated rows take the nearest dated row above, skipping errors, comments and undated rows', () => {
+  const cells = [
+    R('', '', 'set', 'period=1w'),
+    R('', '', 'team', 'alice, bob'),
+    R('', '2026-10-05T09:00', 'set', 'anchor'),
+    R('', '2026-10-05T09:00', 'shift', 'alice'),
+    R('', '2026-10-12T09:00', 'shift', 'bob'),
+    R('', '', '', 'a comment in between'),
+    R('', '2026-10-12T09:00', 'error', 'old error row'),
+    R('', '', 'team', 'alice, bob, carol', '', '', 'joins with the 12 Oct shift'),
+    R('', '', 'set', 'tolerance=1'),
+    R('', '', 'repel', 'other', '', '2w'),
+    R('', 'someday', '', 'undated comment'),
+    R('', '2026-10-19T09:00', 'shift', 'alice'),
+    R('', '', 'shift', 'x'),
+  ];
+  const rows = U.rowsFromCells(cells);
+  const starts = rows.map((r) => [r.type, r.start === -Infinity ? 'epoch' : r.start === null ? null : U.formatDateTime(r.start)]);
+  assert.deepEqual(starts, [
+    ['set', 'epoch'], ['team', 'epoch'], ['set', '2026-10-05T09:00'], ['shift', '2026-10-05T09:00'], ['shift', '2026-10-12T09:00'],
+    ['comment', null], ['error', '2026-10-12T09:00'],
+    ['team', '2026-10-12T09:00'], ['set', '2026-10-12T09:00'], ['repel', '2026-10-12T09:00'],
+    ['comment', null], ['shift', '2026-10-19T09:00'], ['shift', null],
+  ]);
+  const team = rows[7];
+  assert.equal(U.isEpochRow(team), false);
+  assert.equal(team.startText, '2026-10-12T09:00');
+  assert.deepEqual(plain(U.rowToArray(team)), R('', '2026-10-12T09:00', 'team', 'alice, bob, carol', '', '', 'joins with the 12 Oct shift'), 'materialised on write');
+  const repel = rows[9];
+  assert.equal(U.formatDateTime(repel.end), '2026-10-26T09:00', 'a clock duration gives an end once the start is known');
+  assert.ok(U.isEpochRow(rows[0]) && rows[0].startText === '');
+  // Validation accepts the inherited rows (a repel with a duration is fine once dated); the undated shift is not.
+  const { rows: sorted, errors } = U.validateLedger(rows, 'r');
+  assert.deepEqual(plain(errors.map((e) => e.message)), ['missing start']);
+  // Sorted at the inherited instant by type order: set, repel, team before the shift of 12 Oct, document order kept.
+  const at = plain(sorted.filter((r) => r.start === U.parseDateTime('2026-10-12T09:00')).map((r) => r.type));
+  assert.deepEqual(at, ['set', 'repel', 'team', 'shift']);
+  // Chained: the second undated row inherits the same instant, not the first one's position.
+  const chained = U.rowsFromCells([R('', '2026-10-05', 'set', 'period=1w, anchor'), R('', '', 'set', 'seed=1'), R('', '', 'set', 'seed=2')]);
+  assert.deepEqual(chained.map((r) => U.formatDateTime(r.start)), ['2026-10-05', '2026-10-05', '2026-10-05']);
+  // Nothing dated above: still an epoch row, written back undated.
+  const epoch = U.rowsFromCells([R('', '', '', 'help'), R('', '2026-10-05T09:00', 'error', 'x'), R('', '', 'set', 'period=1w')]);
+  assert.ok(U.isEpochRow(epoch[2]));
+  assert.deepEqual(plain(U.rowToArray(epoch[2])), R('', '', 'set', 'period=1w'));
 });

@@ -45,13 +45,34 @@ var ROW_TYPES = {
   shift:    { order: 13, what: 'shift',  required: false, extent: true },
 };
 
-// Epoch rows (DESIGN 3.4): set, team, repel, repel! and attract rows without a start apply from the beginning
-// of the timeline. Their start is -Infinity internally so they sort and compare before every dated row.
+// Undated set, team, repel, repel! and attract rows (DESIGN 3.4) take the start of the nearest dated row above
+// them as read (inheritStarts); with none above they are epoch rows that apply from the beginning of the
+// timeline, start -Infinity internally so they sort and compare before every dated row.
 var EPOCH = -Infinity;
 var EPOCH_TYPES = ['set', 'team', 'repel', 'repel!', 'attract'];
 
 function isEpochRow(row) {
   return row.start === EPOCH;
+}
+
+// First step on read: every undated row of an EPOCH_TYPE takes the start of the nearest row above it, in
+// document order, that has a finite start and is neither an error row nor a comment. The start is
+// materialised (startText in canonical form, end from a clock duration), so the row is written back dated and
+// never drifts; rows with no dated row above stay epoch rows. Returns rows.
+function inheritStarts(rows) {
+  var above = null;
+  rows.forEach(function (row) {
+    if (row.type === 'error' || row.type === 'comment') return;
+    if (isEpochRow(row)) {
+      if (above === null) return;
+      row.start = above;
+      row.startText = formatDateTime(above);
+      if (row.end === null && row.duration !== null) row.end = row.start + row.duration;
+      return;
+    }
+    if (row.start !== null && isFinite(row.start)) above = row.start;
+  });
+  return rows;
 }
 
 var BASELINE_KEYWORDS = ['median', 'mean', 'min', 'max'];
@@ -422,13 +443,13 @@ function rowError(row, message) {
   return { rowIndex: row.rowIndex, start: row.start, startText: row.startText, message: message };
 }
 
-// Stateless checks of DESIGN 5.1. Drops error rows; returns remaining rows sorted. Whether the grid is in
-// force (period and anchor) is checked by the scheduler, where the settings timeline exists.
+// Stateless checks of DESIGN 5.1 on rows as read (undated starts already inherited). Drops error rows; returns
+// remaining rows sorted. Whether the grid is in force (period and anchor) is checked by the scheduler, where
+// the settings timeline exists.
 function validateLedger(rows, rotationName) {
   var errors = [];
   var kept = [];
   var snapshots = 0;
-  var epochs = {};
   for (var i = 0; i < rows.length; i++) {
     var row = rows[i];
     if (row.type === 'error') continue;
@@ -436,10 +457,6 @@ function validateLedger(rows, rotationName) {
     if (row.type === 'comment') continue;
     var message = validateRow(row);
     if (message === null && row.type === 'snapshot' && ++snapshots > 1) message = 'more than one snapshot row';
-    if (message === null && isEpochRow(row)) {
-      if (epochs[row.type]) message = 'more than one undated ' + row.type + ' row';
-      epochs[row.type] = true;
-    }
     if (message !== null) errors.push(rowError(row, message));
   }
   var sorted = sortRows(attachComments(kept));

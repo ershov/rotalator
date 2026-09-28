@@ -86,14 +86,18 @@ row it corrects.
 | `error` | message | | script | Diagnostic. Removed on every read. |
 | (empty) | free text | | users | Comment. Ignored by the script, kept in place. |
 
-A `set`, `team`, `repel`, `repel!` or `attract` row without a `start` is an
-epoch row:
-it applies from the beginning of the timeline and sorts before every dated
-row. At most one per type per tab, no `end` or `duration`, and no bare
-`anchor` in an epoch `set` row: the grid is anchored by a dated `set anchor`
-row (in the rotation or in `#Global`), and no dated row may come before it.
-The templates start every rotation this way: an epoch `set` with the
-defaults, an epoch `team`, then `set anchor` dated at the first shift.
+A `set`, `team`, `repel`, `repel!` or `attract` row without a `start` takes
+the date of the nearest dated row above it: type `team` with the new roster
+right under the current shift and it applies from that shift on; the script
+fills the `start` in on the next run. Several such rows may follow one
+another and keep their order. Do not type one at the very bottom of the tab:
+it would take the date of the last generated shift, months ahead. With no
+dated row above it, the row is an epoch row: it applies from the beginning
+of the timeline and sorts before every dated row, takes no `end` or
+`duration`, and no bare `anchor`: the grid is anchored by a dated `set
+anchor` row (in the rotation or in `#Global`), and no dated row may come
+before it. The templates start every rotation this way: an epoch `set` with
+the defaults, an epoch `team`, then `set anchor` dated at the first shift.
 
 Example rows, one per item form:
 

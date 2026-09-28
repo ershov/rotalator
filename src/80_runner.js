@@ -8,10 +8,11 @@ function describeError(e) {
   return e.rotation + ' ' + where + ': ' + e.message;
 }
 
+// Rows of a tab as read: blank rows dropped, undated rows dated from the row above (DESIGN 3.4).
 function rowsFromCells(cells) {
-  return cells
+  return inheritStarts(cells
     .map(function (row, i) { return isBlankRow(row) ? null : rowFromArray(row, i + 2); })
-    .filter(Boolean);
+    .filter(Boolean));
 }
 
 // Warning per rotation whose cal setting at the status instant names presets while no calendar extension is

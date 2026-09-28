@@ -40,13 +40,13 @@ var ROTATION_HELP = [
   'leave: name [, name ...]',
   'exclude / include: name [, name ...]',
   'set: key, key=value',
-  'set / team without start: apply from the beginning; the dated set anchor row fixes where shifts start',
+  'set / team without start: take the date of the nearest dated row above, or apply from the beginning at the top; the dated set anchor row fixes where shifts start',
 ];
 var GLOBAL_HELP = [
   'ROWS:',
   'repel / repel! / attract / detach: Rotation1, Rotation2',
   'set: key, key=value',
-  'set / repel / repel! / attract without start: apply from the beginning',
+  'set / repel / repel! / attract without start: take the date of the nearest dated row above, or apply from the beginning at the top',
 ];
 var HOLIDAYS_SAMPLE_NOTE = 'New Year';
 
@@ -70,7 +70,8 @@ var HELP_TEXT = [
   'leave: name [, name ...]',
   'exclude / include: name [, name ...]; exclude takes end or duration, otherwise it lasts until an include',
   'set: key, key=value',
-  'undated set / team / repel / repel! / attract: epoch rows that apply from the beginning of the timeline and sort first; at most one per type per tab; anchor needs a dated set row',
+  'undated set / team / repel / repel! / attract: take the date of the nearest dated row above them, or apply from the beginning of the timeline when nothing dated is above; anchor needs a dated set row',
+  'undated row at the bottom of the tab: it takes the date of the last generated shift near the horizon, not today; type it under the current shift instead',
   'repel / repel! / attract / detach: Rotation1, Rotation2 (mutual in #Global; in a rotation tab one-sided, naming the other rotation)',
   'snapshot: written by the script at the start of the current shift with the roster and scores; delete it to replay the whole history',
   'error: written by the script above the row it describes; removed on the next run',
@@ -212,7 +213,8 @@ function gridRows(rows, nPre, nPost, timeline) {
 }
 
 // An undated selection row counts as an empty grid position when it is blank or carries type=shift and
-// nothing else; any other undated row is a comment that travels with the next dated row.
+// nothing else; an undated comment travels with the next dated row; an undated set/team/relation row takes
+// the date of the nearest dated selected row above it (3.4), or stays in front when there is none.
 function isTemplateShiftRow(cells) {
   return cells.every(function (c, i) { return i === 2 ? cellText(c).toLowerCase() === 'shift' : cellText(c) === ''; });
 }
@@ -224,9 +226,11 @@ function hasOnlyStart(cells) {
 
 // Fill Shifts Grid over a selection. selectedCells: the ledger columns of the selected rows; tabCells: every
 // row of the tab below the header, for the settings timeline; holidayTexts: #Holidays column A; globalCells:
-// #Global rows below the header, for global set rows. Returns { rows: cell arrays } or { error: message }.
-// Dated comments stay in place; undated comments attach to the next dated row, trailing ones stay at the end.
-function fillShiftsGridCells(selectedCells, tabCells, holidayTexts, globalCells) {
+// #Global rows below the header, for global set rows; topIndex: index in tabCells of the first selected row,
+// so an undated set/team/relation row at the top of the selection takes its date from the tab rows above it,
+// as the run would (3.4). Returns { rows: cell arrays } or { error: message }. Dated comments stay in place;
+// undated comments attach to the next dated row, trailing ones stay at the end.
+function fillShiftsGridCells(selectedCells, tabCells, holidayTexts, globalCells, topIndex) {
   var holidays = new Set();
   (holidayTexts || []).forEach(function (text) { var day = parseDay(text ?? ''); if (day !== null) holidays.add(day); });
   var localSets = sortRows(rowsOfType(rowsFromCells(tabCells), 'set'));
@@ -240,6 +244,11 @@ function fillShiftsGridCells(selectedCells, tabCells, holidayTexts, globalCells)
   var rows = [];
   var comments = [];
   var pre = 0, post = 0, datedCount = 0;
+  var above = null;
+  for (var k = (topIndex || 0) - 1; k >= 0 && above === null; k--) {
+    var earlier = rowFromArray(tabCells[k], k + 2);
+    if (earlier.type !== 'comment' && earlier.type !== 'error' && earlier.start !== null && isFinite(earlier.start)) above = earlier.start;
+  }
   for (var i = 0; i < selectedCells.length; i++) {
     var cells = selectedCells[i];
     var startText = cellText(cells[1]);
@@ -249,10 +258,12 @@ function fillShiftsGridCells(selectedCells, tabCells, holidayTexts, globalCells)
       if (isBlankRow(cells) || isTemplateShiftRow(cells)) { if (datedCount) post++; else pre++; continue; }
       if (row.type === 'comment') { comments.push(row); continue; }
       if (!isEpochRow(row)) return { error: 'selected row ' + (i + 1) + ' has content but no start' };
+      if (above !== null) { row.start = above; row.cells[1] = formatDateTime(above); }
     } else {
       if (row.start === null) return { error: 'selected row ' + (i + 1) + ': bad start "' + startText + '"' };
       if (row.start < firstStart) return { error: 'selected row ' + (i + 1) + ' is dated before the first set row' };
       if (row.type === 'comment' && hasOnlyStart(cells)) row.type = 'shift';
+      if (row.type !== 'comment') above = row.start;
       datedCount++;
       post = 0;
     }

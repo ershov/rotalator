@@ -30,7 +30,7 @@ test('templateRows: header, help comments, epoch set and team rows, dated set an
     'leave: name [, name ...]',
     'exclude / include: name [, name ...]',
     'set: key, key=value',
-    'set / team without start: apply from the beginning; the dated set anchor row fixes where shifts start',
+    'set / team without start: take the date of the nearest dated row above, or apply from the beginning at the top; the dated set anchor row fixes where shifts start',
   ]);
   assert.ok(rows.slice(1, 9).every((r) => r.slice(0, 6).every((c) => c === '')), 'help rows are undated comments');
   assert.deepEqual(rows[9], R('', '', 'set', SET_DEFAULTS));
@@ -73,7 +73,7 @@ test('HELP_TEXT covers every row type, setting, interval unit and menu item', ()
 test('globalTemplateRows and holidaysTemplateRows', () => {
   const rows = plain(U.globalTemplateRows());
   assert.deepEqual(rows[0], plain(U.LEDGER_HEADER));
-  assert.deepEqual(rows.slice(1, 5).map((r) => r[6]), ['ROWS:', 'repel / repel! / attract / detach: Rotation1, Rotation2', 'set: key, key=value', 'set / repel / repel! / attract without start: apply from the beginning']);
+  assert.deepEqual(rows.slice(1, 5).map((r) => r[6]), ['ROWS:', 'repel / repel! / attract / detach: Rotation1, Rotation2', 'set: key, key=value', 'set / repel / repel! / attract without start: take the date of the nearest dated row above, or apply from the beginning at the top']);
   assert.deepEqual(rows[5], R('', '', 'set', SET_DEFAULTS));
   assert.equal(rows.length, 6);
   const parsed = U.parseGlobal(U.rowsFromCells(rows.slice(1)), ['r']);
@@ -214,4 +214,26 @@ test('fillShiftsGridCells: counted grid runs through skipped days using holidays
   const selected = [R('', '2026-10-08T09:00', 'shift', 'alice'), R('', '', '', ''), R('', '', '', ''), R('', '', '', '')];
   const out = plain(U.fillShiftsGridCells(selected, tab, ['2026-10-09']));
   assert.deepEqual(out.rows.map((r) => r[1]), ['2026-10-08T09:00', '2026-10-12T09:00', '2026-10-13T09:00', '2026-10-14T09:00']);
+});
+
+test('fillShiftsGridCells: an undated set or team row takes the date of the row above, inside or above the selection', () => {
+  const tab = [
+    R('', '', 'set', 'period=1w, horizon=4w'), R('', '', 'team', 'alice, bob'), R('', '2026-10-05T09:00', 'set', 'anchor'),
+    R('', '2026-10-05T09:00', 'shift', 'alice'), R('', '', '', 'a comment'), R('', '2026-10-12T09:00', 'error', 'old'),
+    R('', '', 'team', 'alice, bob, carol'), R('', '2026-10-12T09:00', 'shift', 'bob'), R('', '', 'set', 'tolerance=1'),
+  ];
+  // Selection from the undated team row on: the row above the selection (the 5 Oct shift, past the comment and
+  // the error row) gives its date; the set row under the 12 Oct shift takes that shift's date.
+  // The dated team row opens the region at 5 Oct, so the gap before the 12 Oct shift gets an empty shift row.
+  const out = plain(U.fillShiftsGridCells(tab.slice(6), tab, [], [], 6));
+  assert.deepEqual(out.rows.map((r) => [r[1], r[2], r[3]]), [
+    ['2026-10-05T09:00', 'team', 'alice, bob, carol'],
+    ['2026-10-05T09:00', 'shift', ''],
+    ['2026-10-12T09:00', 'set', 'tolerance=1'],
+    ['2026-10-12T09:00', 'shift', 'bob'],
+  ]);
+  // Without a topIndex (or nothing dated above) the leading undated row stays in front, undated.
+  const front = plain(U.fillShiftsGridCells(tab.slice(6), tab, []));
+  assert.deepEqual(front.rows.map((r) => [r[1], r[2]]), [['', 'team'], ['2026-10-12T09:00', 'set'], ['2026-10-12T09:00', 'shift']]);
+  assert.deepEqual(plain(U.fillShiftsGridCells(tab.slice(0, 3), tab, [], [], 0)).rows.map((r) => r[1]), ['', '', '2026-10-05T09:00']);
 });

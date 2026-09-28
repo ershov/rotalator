@@ -1,0 +1,3 @@
+pin,start,type,what,end,duration,note
+,2026-06-01T09:00,set,precredit=0,,,
+,2026-06-01T09:00,set,baseline=min,,,undated in #Global: takes 2026-06-01T09:00 from the row above

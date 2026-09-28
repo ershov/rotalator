@@ -581,7 +581,7 @@ function fillShiftsGridUnlocked() {
     return row.map(function (cell) { return storage.formatCell(cell, CELL_DATETIME_FORMAT); });
   });
   var tab = storage.readValues(sheet, CELL_DATETIME_FORMAT).slice(1);
-  var result = fillShiftsGridCells(selected, tab, storage.readHolidays(), storage.readGlobal());
+  var result = fillShiftsGridCells(selected, tab, storage.readHolidays(), storage.readGlobal(), top - 2);
   if (result.error) { toast(result.error); return; }
   var rows = result.rows;
   if (rows.length > count) sheet.insertRowsAfter(top + count - 1, rows.length - count);

@@ -340,8 +340,10 @@ test('epoch relation rows: an undated repel in #Global equals a dated one from t
   assert.deepEqual(whoOf(epoch, 'secondary'), whoOf(dated, 'secondary'));
   assert.notDeepEqual(whoOf(epoch, 'secondary'), whoOf(epoch, 'primary'));
   assert.deepEqual(cellsOf(epoch.global.rows).map((c) => [c[1], c[2]]), [['', 'repel']]);
-  const twice = regen([rotation('primary', 'alice'), rotation('secondary', 'alice')], [R('', '', 'repel', 'primary, secondary'), R('', '', 'repel', 'secondary, primary')]);
-  assert.deepEqual(plain(twice.errors.map((e) => e.message)), ['more than one undated repel row']);
+  // Two undated relation rows are allowed; the later one wins per pair, here the same pair, so no difference.
+  const twice = regen([rotation('primary', 'alice, bob, carol'), rotation('secondary', 'alice, bob, carol')], [R('', '', 'repel', 'primary, secondary'), R('', '', 'repel', 'secondary, primary')]);
+  assert.deepEqual(plain(twice.errors), []);
+  assert.deepEqual(whoOf(twice, 'secondary'), whoOf(epoch, 'secondary'));
   const oneSided = regen([rotation('secondary', 'alice, bob, carol', [R('', '', 'attract', 'primary')]), rotation('primary', 'alice, bob, carol')], []);
   assert.deepEqual(plain(oneSided.errors), []);
   assert.deepEqual(whoOf(oneSided, 'secondary'), whoOf(oneSided, 'primary'));

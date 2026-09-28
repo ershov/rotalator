@@ -320,13 +320,34 @@ var ROW_TYPES = {
   shift:    { order: 13, what: 'shift',  required: false, extent: true },
 };
 
-// Epoch rows (DESIGN 3.4): set, team, repel, repel! and attract rows without a start apply from the beginning
-// of the timeline. Their start is -Infinity internally so they sort and compare before every dated row.
+// Undated set, team, repel, repel! and attract rows (DESIGN 3.4) take the start of the nearest dated row above
+// them as read (inheritStarts); with none above they are epoch rows that apply from the beginning of the
+// timeline, start -Infinity internally so they sort and compare before every dated row.
 var EPOCH = -Infinity;
 var EPOCH_TYPES = ['set', 'team', 'repel', 'repel!', 'attract'];
 
 function isEpochRow(row) {
   return row.start === EPOCH;
+}
+
+// First step on read: every undated row of an EPOCH_TYPE takes the start of the nearest row above it, in
+// document order, that has a finite start and is neither an error row nor a comment. The start is
+// materialised (startText in canonical form, end from a clock duration), so the row is written back dated and
+// never drifts; rows with no dated row above stay epoch rows. Returns rows.
+function inheritStarts(rows) {
+  var above = null;
+  rows.forEach(function (row) {
+    if (row.type === 'error' || row.type === 'comment') return;
+    if (isEpochRow(row)) {
+      if (above === null) return;
+      row.start = above;
+      row.startText = formatDateTime(above);
+      if (row.end === null && row.duration !== null) row.end = row.start + row.duration;
+      return;
+    }
+    if (row.start !== null && isFinite(row.start)) above = row.start;
+  });
+  return rows;
 }
 
 var BASELINE_KEYWORDS = ['median', 'mean', 'min', 'max'];
@@ -697,13 +718,13 @@ function rowError(row, message) {
   return { rowIndex: row.rowIndex, start: row.start, startText: row.startText, message: message };
 }
 
-// Stateless checks of DESIGN 5.1. Drops error rows; returns remaining rows sorted. Whether the grid is in
-// force (period and anchor) is checked by the scheduler, where the settings timeline exists.
+// Stateless checks of DESIGN 5.1 on rows as read (undated starts already inherited). Drops error rows; returns
+// remaining rows sorted. Whether the grid is in force (period and anchor) is checked by the scheduler, where
+// the settings timeline exists.
 function validateLedger(rows, rotationName) {
   var errors = [];
   var kept = [];
   var snapshots = 0;
-  var epochs = {};
   for (var i = 0; i < rows.length; i++) {
     var row = rows[i];
     if (row.type === 'error') continue;
@@ -711,10 +732,6 @@ function validateLedger(rows, rotationName) {
     if (row.type === 'comment') continue;
     var message = validateRow(row);
     if (message === null && row.type === 'snapshot' && ++snapshots > 1) message = 'more than one snapshot row';
-    if (message === null && isEpochRow(row)) {
-      if (epochs[row.type]) message = 'more than one undated ' + row.type + ' row';
-      epochs[row.type] = true;
-    }
     if (message !== null) errors.push(rowError(row, message));
   }
   var sorted = sortRows(attachComments(kept));
@@ -2046,22 +2063,15 @@ function parseGlobal(rows, rotationNames) {
   var setRows = [];
   var relationRows = [];
   var kept = sortRows(attachComments(rows.filter(function (r) { return r.type !== 'error'; })));
-  var epochs = {};
-  var duplicateEpoch = function (row) {
-    if (!isEpochRow(row)) return null;
-    if (epochs[row.type]) return 'more than one undated ' + row.type + ' row';
-    epochs[row.type] = true;
-    return null;
-  };
   kept.forEach(function (row) {
     if (row.type === 'comment') return;
     if (row.type === 'set') {
-      var problem = validateRow(row) || duplicateEpoch(row);
+      var problem = validateRow(row);
       if (problem === null) setRows.push(row); else setErrors.push(rowError(row, problem));
       return;
     }
     var message = !isRelationRow(row) ? (row.type === '' ? 'missing type' : 'type "' + row.type + '" is not allowed in ' + GLOBAL_TAB)
-      : validateRow(row) || validateRelationRow(row, rotationNames, null) || duplicateEpoch(row);
+      : validateRow(row) || validateRelationRow(row, rotationNames, null);
     if (message === null && row.durationInterval && row.durationInterval.unit !== 'clock') message = 'duration in ' + GLOBAL_TAB + ' takes clock units only';
     if (message === null) relationRows.push(row); else errors.push(rowError(row, message));
   });
@@ -2298,13 +2308,13 @@ var ROTATION_HELP = [
   'leave: name [, name ...]',
   'exclude / include: name [, name ...]',
   'set: key, key=value',
-  'set / team without start: apply from the beginning; the dated set anchor row fixes where shifts start',
+  'set / team without start: take the date of the nearest dated row above, or apply from the beginning at the top; the dated set anchor row fixes where shifts start',
 ];
 var GLOBAL_HELP = [
   'ROWS:',
   'repel / repel! / attract / detach: Rotation1, Rotation2',
   'set: key, key=value',
-  'set / repel / repel! / attract without start: apply from the beginning',
+  'set / repel / repel! / attract without start: take the date of the nearest dated row above, or apply from the beginning at the top',
 ];
 var HOLIDAYS_SAMPLE_NOTE = 'New Year';
 
@@ -2328,7 +2338,8 @@ var HELP_TEXT = [
   'leave: name [, name ...]',
   'exclude / include: name [, name ...]; exclude takes end or duration, otherwise it lasts until an include',
   'set: key, key=value',
-  'undated set / team / repel / repel! / attract: epoch rows that apply from the beginning of the timeline and sort first; at most one per type per tab; anchor needs a dated set row',
+  'undated set / team / repel / repel! / attract: take the date of the nearest dated row above them, or apply from the beginning of the timeline when nothing dated is above; anchor needs a dated set row',
+  'undated row at the bottom of the tab: it takes the date of the last generated shift near the horizon, not today; type it under the current shift instead',
   'repel / repel! / attract / detach: Rotation1, Rotation2 (mutual in #Global; in a rotation tab one-sided, naming the other rotation)',
   'snapshot: written by the script at the start of the current shift with the roster and scores; delete it to replay the whole history',
   'error: written by the script above the row it describes; removed on the next run',
@@ -2470,7 +2481,8 @@ function gridRows(rows, nPre, nPost, timeline) {
 }
 
 // An undated selection row counts as an empty grid position when it is blank or carries type=shift and
-// nothing else; any other undated row is a comment that travels with the next dated row.
+// nothing else; an undated comment travels with the next dated row; an undated set/team/relation row takes
+// the date of the nearest dated selected row above it (3.4), or stays in front when there is none.
 function isTemplateShiftRow(cells) {
   return cells.every(function (c, i) { return i === 2 ? cellText(c).toLowerCase() === 'shift' : cellText(c) === ''; });
 }
@@ -2482,9 +2494,11 @@ function hasOnlyStart(cells) {
 
 // Fill Shifts Grid over a selection. selectedCells: the ledger columns of the selected rows; tabCells: every
 // row of the tab below the header, for the settings timeline; holidayTexts: #Holidays column A; globalCells:
-// #Global rows below the header, for global set rows. Returns { rows: cell arrays } or { error: message }.
-// Dated comments stay in place; undated comments attach to the next dated row, trailing ones stay at the end.
-function fillShiftsGridCells(selectedCells, tabCells, holidayTexts, globalCells) {
+// #Global rows below the header, for global set rows; topIndex: index in tabCells of the first selected row,
+// so an undated set/team/relation row at the top of the selection takes its date from the tab rows above it,
+// as the run would (3.4). Returns { rows: cell arrays } or { error: message }. Dated comments stay in place;
+// undated comments attach to the next dated row, trailing ones stay at the end.
+function fillShiftsGridCells(selectedCells, tabCells, holidayTexts, globalCells, topIndex) {
   var holidays = new Set();
   (holidayTexts || []).forEach(function (text) { var day = parseDay(text ?? ''); if (day !== null) holidays.add(day); });
   var localSets = sortRows(rowsOfType(rowsFromCells(tabCells), 'set'));
@@ -2498,6 +2512,11 @@ function fillShiftsGridCells(selectedCells, tabCells, holidayTexts, globalCells)
   var rows = [];
   var comments = [];
   var pre = 0, post = 0, datedCount = 0;
+  var above = null;
+  for (var k = (topIndex || 0) - 1; k >= 0 && above === null; k--) {
+    var earlier = rowFromArray(tabCells[k], k + 2);
+    if (earlier.type !== 'comment' && earlier.type !== 'error' && earlier.start !== null && isFinite(earlier.start)) above = earlier.start;
+  }
   for (var i = 0; i < selectedCells.length; i++) {
     var cells = selectedCells[i];
     var startText = cellText(cells[1]);
@@ -2507,10 +2526,12 @@ function fillShiftsGridCells(selectedCells, tabCells, holidayTexts, globalCells)
       if (isBlankRow(cells) || isTemplateShiftRow(cells)) { if (datedCount) post++; else pre++; continue; }
       if (row.type === 'comment') { comments.push(row); continue; }
       if (!isEpochRow(row)) return { error: 'selected row ' + (i + 1) + ' has content but no start' };
+      if (above !== null) { row.start = above; row.cells[1] = formatDateTime(above); }
     } else {
       if (row.start === null) return { error: 'selected row ' + (i + 1) + ': bad start "' + startText + '"' };
       if (row.start < firstStart) return { error: 'selected row ' + (i + 1) + ' is dated before the first set row' };
       if (row.type === 'comment' && hasOnlyStart(cells)) row.type = 'shift';
+      if (row.type !== 'comment') above = row.start;
       datedCount++;
       post = 0;
     }
@@ -2602,10 +2623,11 @@ function describeError(e) {
   return e.rotation + ' ' + where + ': ' + e.message;
 }
 
+// Rows of a tab as read: blank rows dropped, undated rows dated from the row above (DESIGN 3.4).
 function rowsFromCells(cells) {
-  return cells
+  return inheritStarts(cells
     .map(function (row, i) { return isBlankRow(row) ? null : rowFromArray(row, i + 2); })
-    .filter(Boolean);
+    .filter(Boolean));
 }
 
 // Warning per rotation whose cal setting at the status instant names presets while no calendar extension is
@@ -3330,7 +3352,7 @@ function fillShiftsGridUnlocked() {
     return row.map(function (cell) { return storage.formatCell(cell, CELL_DATETIME_FORMAT); });
   });
   var tab = storage.readValues(sheet, CELL_DATETIME_FORMAT).slice(1);
-  var result = fillShiftsGridCells(selected, tab, storage.readHolidays(), storage.readGlobal());
+  var result = fillShiftsGridCells(selected, tab, storage.readHolidays(), storage.readGlobal(), top - 2);
   if (result.error) { toast(result.error); return; }
   var rows = result.rows;
   if (rows.length > count) sheet.insertRowsAfter(top + count - 1, rows.length - count);
