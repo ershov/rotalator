@@ -24,14 +24,16 @@ and an extension is installed by adding its file next to `Code.js` (sections
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/script.container.ui",
     "https://www.googleapis.com/auth/script.scriptapp",
-    "https://www.googleapis.com/auth/calendar"
+    "https://www.googleapis.com/auth/calendar",
+    "https://www.googleapis.com/auth/script.external_request"
   ]
 }
 ```
 
 The scopes are listed explicitly so that one authorisation covers the
-spreadsheet, the menu, the nightly trigger and the calendars of the GCal
-extension, whether or not `GCal.js` is installed yet. When the scopes of an
+spreadsheet, the menu, the nightly trigger, the calendars of the GCal
+extension and the outbound requests of the Slack extension, whether or not
+`GCal.js` or `Slack.js` is installed yet. When the scopes of an
 already deployed project change, the script asks for authorisation again on
 the next menu action, and a trigger fails until someone has granted it: run
 `Setup` once after such an update.
@@ -83,12 +85,14 @@ clasp push -f
 ```
 
 `clasp push` uploads every file in `dist/`, extension bundles included, so
-the Google Calendar extension (`GCal.js`) is installed by default. To leave
+the Google Calendar extension (`GCal.js`) and the Slack extension
+(`Slack.js`) are installed by default. To leave
 an extension out, list its file in a `.claspignore` in `dist/` (one
 `<Name>.js` per line) before pushing; to add one later, remove the line and
 push again. After the first push with `GCal.js`, run **Set Up Spreadsheet**
 so the `#GCal` tab and the `CALENDAR` help section appear, and share every
-calendar you will export to (section 4a).
+calendar you will export to (section 4a); with `Slack.js`, the same command
+creates `#Slack` and the `SLACK` help section (section 4b).
 
 `dist/.clasp.json` is ignored by git and stays in place between builds
 because `build.sh` only rewrites the bundles and the manifest.
@@ -109,9 +113,9 @@ script, then reload.
    `timeZone` set to the spreadsheet's zone. Save.
    Optional: for each extension you want, add a script file (**+ > Script**)
    named after the bundle, `<Name>.gs`, and paste `dist/<Name>.js` into it.
-   For the Google Calendar export that is `GCal.gs` with `dist/GCal.js`.
-   The core finds the extension by its functions; leaving the file out
-   leaves the extension out.
+   For the Google Calendar export that is `GCal.gs` with `dist/GCal.js`,
+   for Slack `Slack.gs` with `dist/Slack.js`. The core finds the extension
+   by its functions; leaving the file out leaves the extension out.
 4. In the function dropdown of the toolbar select `Setup` (the first function
    in the list) and click **Run** once. It installs the menu and triggers the
    authorisation prompt; grant the permissions (spreadsheet access and
@@ -129,7 +133,7 @@ script, then reload.
    - creates a first rotation tab `Rotation 1 Primary` from the template when
      the spreadsheet has no rotation yet;
    - lets each installed extension create its own tabs (`#GCal` for the
-     calendar extension);
+     calendar extension, `#Slack` for the Slack extension);
    - rewrites the `#Help` tab (plain text: columns, row types, settings,
      intervals, relations, menu) and keeps it as the last tab;
    - on every rotation, `#Holidays`, `#Global` and `#All shifts` tab: Roboto
@@ -202,6 +206,75 @@ menu gains the re-export and clean items. Then:
 The first calendar action asks for the calendar permission if the manifest
 scopes were not granted yet (section 1).
 
+## 4b. Slack extension
+
+With `Slack.js` installed, **Set Up Spreadsheet** creates the `#Slack` tab
+(`preset | setting | value`) right after `#GCal` (or `#Global`), with a
+cheat sheet of the settings and two presets to fill in, `team` (a channel
+message and the `@oncall` group) and `heads-up` (a reminder to the person
+three days before), and the **Rotalator** menu gains the Slack items. The
+script only calls Slack; Slack never calls the script, so no URL has to be
+exposed. Then:
+
+1. Create the Slack app at https://api.slack.com/apps with **Create New App
+   > From a manifest**, pick the workspace and paste this manifest (YAML):
+
+   ```yaml
+   display_information:
+     name: Rotalator
+     description: On-call handover messages and user groups from the Rotalator spreadsheet
+   features:
+     bot_user:
+       display_name: Rotalator
+       always_online: false
+   oauth_config:
+     scopes:
+       bot:
+         - chat:write
+         - chat:write.public
+         - users:read
+         - users:read.email
+         - channels:read
+         - groups:read
+         - usergroups:read
+         - usergroups:write
+   settings:
+     org_deploy_enabled: false
+     socket_mode_enabled: false
+     token_rotation_enabled: false
+   ```
+
+   `chat:write` posts to channels the bot is in and to people,
+   `chat:write.public` to public channels without joining, `users:read` and
+   `users:read.email` look members up by email, `channels:read` and
+   `groups:read` resolve `#channel` names, `usergroups:read` and
+   `usergroups:write` read and set the user groups.
+2. **Install to Workspace** and copy the **Bot User OAuth Token**
+   (`xoxb-…`). A corporate workspace may require an admin to approve the
+   app, and a separate admin setting to let apps edit user groups.
+3. In the spreadsheet choose **Rotalator > Set Slack token…** and paste the
+   token. It goes into a script property shared by every user of the script
+   and the triggers; it is never written to a cell. **Check Slack
+   connection** shows the workspace and the bot name. The first Slack action
+   asks for the external request permission if the manifest scopes were not
+   granted yet (section 1).
+4. Invite the bot to every private channel it should post to (`/invite
+   @Rotalator`); public channels need no invitation with
+   `chat:write.public`. A channel named by `#name` must be visible to the
+   bot to be found; a channel id (`C…`, from the channel's details) always
+   works. Create the user group (`@oncall`) in Slack if it does not exist;
+   the bot only changes its members.
+5. Replace `#FILL-IN-WITH-CHANNEL` in `team` with the channel, add
+   `slack=<preset names>` to a `set` row of each rotation or to `#Global`,
+   and **Run**; or select a preset row in `#Slack` and choose **Send test
+   message: selected preset** to see the rendered text in Slack first.
+6. Optional: **Install hourly Slack trigger** delivers within the hour of a
+   handover instead of at the nightly run. It belongs to the account that
+   installed it, like the nightly trigger.
+
+Enterprise Grid: a user group synced from the identity provider cannot be
+changed through the API. Use a workspace group Rotalator owns.
+
 ## 5. Fill Shifts Grid
 
 **Rotalator > Fill Shifts Grid** fills the `start` column of a selection so
@@ -262,11 +335,21 @@ prompt and choose the menu item again.
 
 **A run ends with "finished with N error(s)".** Look for red `error` rows:
 directly above the offending row in the rotation tab or `#Global`, above the
-`set` row carrying `cal` when a preset is unknown, above a preset's `id` row
-in `#GCal` when its calendar cannot be opened (not shared with the running
-account, or a placeholder id such as `FILL IN WITH CALENDAR ID`). `#Status`
-lists them all with the row numbers; fix the cause and run again, the rows
+`set` row carrying `cal` or `slack` when a preset is unknown, above a
+preset's `id` row in `#GCal` when its calendar cannot be opened (not shared
+with the running account, or a placeholder id such as `FILL IN WITH CALENDAR
+ID`), above a preset's `to` or `group` row in `#Slack` when a destination
+does not resolve, a post fails or a group cannot be updated. `#Status` lists
+them all with the row numbers; fix the cause and run again, the rows
 disappear.
+
+**Slack errors `not_in_channel`, `channel_not_found`, `no Slack token`,
+`invalid_auth`.** Invite the bot to the channel or grant `chat:write.public`;
+check the channel name or use its id; set the token with **Set Slack
+token…** (it is per script, not per user); a revoked or rotated token needs
+setting again. `member "x" has no Slack id` means a member id that is not
+an email: add a row `x | id | U…` to `#Slack` with the person's Slack id
+(profile > three dots > Copy member ID).
 
 **Times are off by some hours, or the script writes a different time than
 you typed.** Date cells are converted using the spreadsheet's time zone in

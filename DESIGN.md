@@ -902,7 +902,10 @@ Core helpers for extension actions (10.4): `withLock(fn)` runs a menu action
 under the script lock with the abort flag cleared and the run guard armed;
 `currentRunGuard()` gives `stopReason()` and `elapsedSeconds()` for loops that
 may run long; `stopNote(reason, done, what)` is the standard text. In Node
-the guard never stops.
+the guard never stops. For their tabs, `placeTabAfter(ss, sheet, anchor)`
+moves a tab directly after another once and `formatPresetTab(sheet, widths,
+rules)` formats a preset tab like an editable system tab (13.5); each
+extension passes only its constants.
 
 The core carries the pieces of the grammar an extension needs regardless of
 whether it is installed, so a ledger validates the same way with and without
@@ -1179,7 +1182,8 @@ that harmless; they live in `90_gas.js` and `80_runner.js` and are reused by
 extensions.
 
 - Lock: every user-triggered run (`Run`, the dry runs, the current-rotation
-  runs, the trigger handler and the calendar re-export and clean actions)
+  runs, the trigger handler, the calendar re-export and clean actions, the
+  Slack connection check, test message and hourly tick)
   and the two actions that rewrite cells a run may be sorting (`Fill Shifts
   Grid`, `Set Up Spreadsheet`) go through `withLock(fn)`, which takes the
   script lock (`LockService.getScriptLock().tryLock(5000)`), shared by all
@@ -1187,7 +1191,8 @@ extensions.
   action is skipped with the toast `another Rotalator run is in progress`,
   also written to the execution log so a skipped night is visible, and
   nothing changes. The lock is always released in `finally`. `Set Up Tab`,
-  `Abort run` and the trigger installers take no lock.
+  `Abort run`, the token items and the trigger installers of the core and
+  of the Slack extension take no lock.
 - Cooperative abort: the menu item `Abort run` sets the script property
   `rotalator.abort` when a run holds the lock (`tryLock(0)` fails); when the
   lock is free it only toasts `no run in progress`. `withLock` clears the
@@ -1482,7 +1487,7 @@ shifts up when the tab leaves), so on a fresh spreadsheet the editable tabs
 read `#Global`, `#GCal`, `#Holidays` (on an existing one `#Holidays` follows
 only when it already followed `#Global`, 10.1) and `#Help` stays last. An
 empty tab gets the template
-(`gcalTemplateRows`): the header, the cheat sheet `GCAL_CHEAT_SHEET` as
+(`gcalTemplateRows`): the header, the cheat sheet `gcalCheatSheet()` as
 comment rows in column C (a `SETTINGS` heading, one line per setting with
 its values and default, a `TEMPLATES` line with the variables and the
 `{start:%fmt}` directives, a `USE` line with `set cal=<preset> [<preset>
@@ -1491,7 +1496,9 @@ preset`) with `id` = `FILL IN WITH CALENDAR ID`, `title` and `body` at their
 defaults, `allday` `auto`, `color` `default`, `free` `true`, `invite`
 `true` and `reminders` empty, one empty row between the cheat sheet and the
 block, so a run with `cal=preset-1` reports the placeholder id as not found
-until it is filled in. It then formats the tab like an editable system tab:
+until it is filled in. It then formats the tab like an editable system tab
+(the core's `formatPresetTab` with the extension's widths and rules; the
+placement is the core's `placeTabAfter`):
 script font, wrap text and top-left alignment on the whole sheet, plain text,
 bold grey frozen header, widths 140, 120, 700, spare columns removed, grey
 tab colour, and conditional row colours consistent with the ledgers (10.1),
@@ -1573,7 +1580,7 @@ errors, rows, ids }` as `result.ext.slack`.
 Rotations opt in with `set slack=<preset> [<preset> ...]` (3.5), the mirror
 of `cal`: two presets on one rotation, `team` with `to=#team` and `heads-up`
 with `to={who}` and `when=-3d`, give the channel a handover message and the
-person a reminder; a third with `to=@manager, {prev}` and a longer offset is
+person a reminder; a third with `to=manager@example.com, {prev}` and a longer offset is
 an early warning to fixed and moving recipients alike.
 
 ### 14.2 Templates and destinations
@@ -1742,41 +1749,60 @@ menu actions that run the scheduler for another purpose.
 
 ### 14.5 Menu, trigger and Set Up
 
-`slack_menu` adds a separator and four items. `Set Slack token…` prompts for
-the bot token and stores it in the script property `rotalator.slack.token`,
-never in a cell; `Remove Slack token` deletes it. `Check Slack connection`
-calls `auth.test` and toasts the workspace and bot name or the error. `Send
-test message: selected preset` takes the preset from the active cell's row in
-`#Slack`, renders its text for the shift in force in the active or first
-rotation that names it, prefixes `[test]` and posts it to the preset's
-destinations without touching the state, so templates can be checked at
-once. `Install hourly Slack trigger` and `Remove hourly Slack trigger` manage
-a time-based trigger on `slackTick`, which runs `runStorage` for all
-rotations with `write: false` and `slack: true`: the ledgers and status tabs
-stay as they are, and the hook posts and updates groups from the plan of
-that read (14.4), under `withLock`; `Remove trigger` of the core leaves it alone. Menu actions and
-`slackTick` run through `withLock` like the calendar actions.
+`slack_menu` adds a separator and six items. `Set Slack token…` prompts for
+the bot token (`ui.prompt`) and stores it in the script property
+`rotalator.slack.token`, never in a cell and never echoed; an empty answer
+or Cancel changes nothing. `Remove Slack token` deletes it. `Check Slack
+connection` calls `auth.test` and toasts the workspace and bot name or the
+error. `Send test message: selected preset` takes the preset from the
+active cell's row in `#Slack` (`slackSelectedPreset`, walking up from a
+setting or id row to its preset row), runs the scheduler without writing
+and with both extension hooks off, plans with `slackTestPlan(run, inputs,
+name)` (pure: the preset's destinations rendered for the shift in force at
+`now` in the first rotation whose `slack` names it; an unknown preset, one
+with errors or without `to`, no rotation naming it, or nobody on call is
+the error toasted) and posts through `slackDeliver` (the candidates come from
+`slackShiftMessages`, shared with the plan) with the text prefix
+`[test] `, so the id rows and the error rows reach `#Slack` as after a run
+while `#Slack state` is left alone; the toast counts sent and failed and
+names the first failure. `Install hourly Slack trigger` and `Remove hourly
+Slack trigger` manage a time-based trigger on `slackTick`, which runs
+`runStorage` for all rotations with `SLACK_TICK_OPTIONS`, `{ write: false,
+export: false, slack: true }`: the ledgers and status tabs stay as they
+are, the calendar export is skipped, and the hook posts and updates groups
+from the plan of that read (14.4); the core's `Remove trigger` leaves it
+alone and `Install nightly trigger` does not replace it. `Check Slack
+connection`, `Send test message` and `slackTick` run through `withLock`
+like the calendar actions; the token items and the trigger installers take
+no lock, like the core's.
 
 `slack_setup(ss)` creates `#Slack` directly after `#GCal` when that tab
 exists, else after `#Global`, and moves an existing one there once, following
-the `#GCal` rules (13.5). An empty tab gets the template
-(`slackTemplateRows`): the header, the cheat sheet `SLACK_CHEAT_SHEET` as
+the `#GCal` rules (13.5); the hooks run in `EXTENSIONS` order, so `#GCal`
+is in place first. An empty tab gets the template
+(`slackTemplateRows`): the header, the cheat sheet `slackCheatSheet()` as
 comment rows in column C (a `SETTINGS` heading with the settings, their
 forms and defaults, a `TEMPLATES` line with the placeholders and the
 `{start:%fmt}` directives, an `IDS` line explaining the `| id |` rows, a
-`USE` line with `set slack=<preset> [<preset> ...]`), then two preset
-blocks: `team` (note `Channel handover message and the @oncall group`) with
-`to` = `#FILL IN WITH CHANNEL`, `when` `0`, `text` at its default and
-`group` `@oncall`; `heads-up` (note `Reminder to the person three days
-before`) with `to` `{who}`, `when` `-3d` and `text` `Reminder: you are on
-call for {rotation} from {start:%a %e %b} to {end:%a %e %b}`. Formatting
-follows `#GCal`: script font, wrap, frozen bold grey header, widths 140,
-120, 700, grey tab colour, error rows light red, preset rows light blue,
-comment rows light yellow, and `| id |` rows light grey. `slack_setupTab`
-fills an empty `#Slack` the same way and refuses a filled one. `#Slack
-state` is created by the adapter, not by Set Up: header, frozen, grey,
-script-owned. `slack_help` appends the `SLACK` lines to `#Help`: the cheat
-sheet, the timing rule, the group rule and the menu items.
+`USE` line with `set slack=<preset> [<preset> ...]`), one empty row, then
+two preset blocks: `team` (note `Channel handover message and the @oncall
+group`) with `to` = `#FILL-IN-WITH-CHANNEL` (a valid channel name, so the
+preset parses and a run reports the channel as not found above the `to`
+row until it is filled in, like the placeholder id of `#GCal`), `when` `0`,
+`text` at its default and `group` `@oncall`; `heads-up` (note `Reminder to
+the person three days before`) with `to` `{who}`, `when` `-3d` and `text`
+`Reminder: you are on call for {rotation} from {start:%a %e %b} to {end:%a
+%e %b}`. Formatting follows `#GCal` through the core's `formatPresetTab`
+and `placeTabAfter`: script font, wrap, frozen bold grey
+header, widths 140, 120, 700, grey tab colour, error rows light red, `| id
+|` rows light grey (this rule before the preset rule, since both match a
+non-empty column A), preset rows light blue, comment rows light yellow.
+`slack_setupTab` fills an empty `#Slack` the same way and refuses a filled
+one. `#Slack state` is created by the adapter through `writeTabRows`, not
+by Set Up: bold grey header, frozen, script-owned; Set Up only colours an
+existing one blue like the other script-written tabs. `slack_help` appends
+the `SLACK` lines to `#Help`: the cheat sheet, the timing rule, the group
+rule and the menu items.
 
 ### 14.6 Credentials and scopes
 

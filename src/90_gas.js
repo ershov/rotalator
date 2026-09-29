@@ -467,6 +467,31 @@ function moveTab(ss, sheet, position) {
   ss.setActiveSheet(active);
 }
 
+// A tab directly after its anchor: moved there once when it sits elsewhere; nothing without an anchor. A tab
+// coming from before the anchor lands at the anchor's current index, since the anchor shifts up when it leaves.
+function placeTabAfter(ss, sheet, anchor) {
+  if (!anchor || sheet.getIndex() === anchor.getIndex() + 1) return;
+  moveTab(ss, sheet, sheet.getIndex() < anchor.getIndex() ? anchor.getIndex() : anchor.getIndex() + 1);
+}
+
+// Formats an extension's preset tab like an editable system tab: script font, wrapped and top-left aligned,
+// plain text, bold grey frozen header, the widths given, spare columns removed, the row colour rules given
+// ({ formula, color }) replacing the tab's, grey tab colour.
+function formatPresetTab(sheet, widths, rules) {
+  var width = PRESET_HEADER.length;
+  var all = sheet.getRange(1, 1, sheet.getMaxRows(), sheet.getMaxColumns());
+  all.setFontFamily(FONT_FAMILY);
+  all.setWrap(true);
+  alignTopLeft(all);
+  sheet.getRange('A:' + String.fromCharCode(64 + width)).setNumberFormat('@');
+  sheet.getRange(1, 1, 1, width).setFontWeight('bold').setBackground(COLOR_HEADER);
+  sheet.setFrozenRows(1);
+  widths.forEach(function (w, i) { sheet.setColumnWidth(i + 1, w); });
+  trimColumns(sheet, width);
+  setConditionalRules(sheet, rules, width);
+  sheet.setTabColor(TAB_COLOR_EDITABLE);
+}
+
 // #Global directly before #Holidays; only moves when both exist and #Holidays comes first.
 function orderGlobalBeforeHolidays(ss) {
   var global = ss.getSheetByName(GLOBAL_TAB);

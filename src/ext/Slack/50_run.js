@@ -17,8 +17,8 @@ function slackMention(resolver) {
 }
 
 // Delivers the plan and fills data; returns { posted, errors: [{ row, message }] (row the #Slack row to write
-// each above), idRows }.
-function slackDeliver(plan, data, inputs, now) {
+// each above), idRows }. textPrefix goes before every message (the menu's [test]).
+function slackDeliver(plan, data, inputs, now, textPrefix) {
   var resolver = slackResolver(inputs.ids);
   var mention = slackMention(resolver);
   var guard = currentRunGuard();
@@ -39,7 +39,7 @@ function slackDeliver(plan, data, inputs, now) {
     try {
       var channel = resolver.resolve(m.to);
       if (!channel) throw new Error(slackUnresolvedMessage(m.to));
-      slackApi('chat.postMessage', { channel: channel, text: slackRenderText(preset.text, m.values, mention) });
+      slackApi('chat.postMessage', { channel: channel, text: (textPrefix || '') + slackRenderText(preset.text, m.values, mention) });
       posted.push({ rotation: m.rotation, preset: m.preset, to: m.to, start: m.start, who: m.who, sentAt: now });
       line.posted++;
     } catch (e) {
@@ -75,9 +75,8 @@ function slackDeliver(plan, data, inputs, now) {
   return { posted: posted, errors: errors, idRows: resolver.rows() };
 }
 
-// Writes #Slack state when a post succeeded and #Slack when there are new id rows or delivery errors.
-function slackWriteDelivery(storage, inputs, state, result, delivery) {
-  if (delivery.posted.length) storage.writeTabRows(SLACK_STATE_TAB, SLACK_STATE_HEADER, slackStateRows(state, delivery.posted, result, inputs));
+// Writes #Slack when a delivery brought new id rows or errors.
+function slackWriteDelivery(storage, inputs, delivery) {
   if (!delivery.idRows.length && !delivery.errors.length) return;
   storage.writeTabRows(SLACK_TAB, PRESET_HEADER, presetRowsWithErrors(inputs.rows.concat(delivery.idRows), inputs.errors.concat(delivery.errors)));
 }
@@ -90,8 +89,11 @@ function slack_afterRun(result, storage, options) {
   var plan = slackPlan(result, inputs, state);
   var data = slackStatusData(plan);
   var live = typeof UrlFetchApp !== 'undefined' && options.mode !== 'dry run' && (options.write || options.slack === true);
-  if (live) slackWriteDelivery(storage, inputs, state, result, slackDeliver(plan, data, inputs, result.status.now));
-  else data.mode = typeof UrlFetchApp === 'undefined' ? 'no slack' : 'dry run';
+  if (live) {
+    var delivery = slackDeliver(plan, data, inputs, result.status.now);
+    if (delivery.posted.length) storage.writeTabRows(SLACK_STATE_TAB, SLACK_STATE_HEADER, slackStateRows(state, delivery.posted, result, inputs));
+    slackWriteDelivery(storage, inputs, delivery);
+  } else data.mode = typeof UrlFetchApp === 'undefined' ? 'no slack' : 'dry run';
   data.elapsed = currentRunGuard().elapsedSeconds();
   if (options.write) writeSettingErrors(result, storage, plan.errors, 'slack');
   // The extension's errors count as errors of the run, its warnings and a stop note as warnings (DESIGN 6, 10.4).

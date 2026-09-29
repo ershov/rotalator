@@ -7,37 +7,42 @@ var GCAL_TEMPLATE_NOTE = 'First Google Calendar preset';
 var GCAL_TEMPLATE_ID = 'FILL IN WITH CALENDAR ID';
 
 // Cheat sheet shared by the #GCal template (comment rows in column C) and #Help: one line per setting with
-// its values and default, the template variables, and how a rotation names presets.
-var GCAL_CHEAT_SHEET = [
-  'SETTINGS (one per row under a preset row: setting in B, value in C):',
-  'id: calendar id, required (xxx@group.calendar.google.com, an address, primary)',
-  'title: event title template, default ' + GCAL_DEFAULT_TITLE,
-  'body: event description template, default ' + GCAL_DEFAULT_BODY,
-  'allday: auto | true | false, default auto (all-day when the shift starts and ends at midnight)',
-  'color: default (the calendar\'s own colour) | pale blue | pale green | mauve | pale red | yellow | orange | cyan | gray | blue | green | red | 1-11 | #RRGGBB (nearest), default default',
-  'free: true | false, default true (the time shows as free)',
-  'invite: true | false, default true (the assignee is invited when the id contains @)',
-  'reminders: intervals before the start, 1d, 1h; default empty (the calendar defaults)',
-  'TEMPLATES: {who} {rotation} {note} {pin} {start} {end}; {start:%a %e %b} with %Y %m %d %e %H %M %a %A %b %B %j %u',
-  'USE: set cal=<preset> [<preset> ...] in a rotation or in #Global, then Run',
-];
+// its values and default, the template variables, and how a rotation names presets. Built on call: the
+// defaults live in another file.
+function gcalCheatSheet() {
+  return [
+    'SETTINGS (one per row under a preset row: setting in B, value in C):',
+    'id: calendar id, required (xxx@group.calendar.google.com, an address, primary)',
+    'title: event title template, default ' + GCAL_DEFAULT_TITLE,
+    'body: event description template, default ' + GCAL_DEFAULT_BODY,
+    'allday: auto | true | false, default auto (all-day when the shift starts and ends at midnight)',
+    'color: default (the calendar\'s own colour) | pale blue | pale green | mauve | pale red | yellow | orange | cyan | gray | blue | green | red | 1-11 | #RRGGBB (nearest), default default',
+    'free: true | false, default true (the time shows as free)',
+    'invite: true | false, default true (the assignee is invited when the id contains @)',
+    'reminders: intervals before the start, 1d, 1h; default empty (the calendar defaults)',
+    'TEMPLATES: {who} {rotation} {note} {pin} {start} {end}; {start:%a %e %b} with %Y %m %d %e %H %M %a %A %b %B %j %u',
+    'USE: set cal=<preset> [<preset> ...] in a rotation or in #Global, then Run',
+  ];
+}
 
-var GCAL_HELP_LINES = [
-  '',
-  'CALENDAR (GCal extension, #GCal tab: preset | setting | value):',
-  'preset row: name in A (letters, digits, - _), note in C; setting rows below it: setting in B, value in C',
-].concat(GCAL_CHEAT_SHEET.slice(1), [
-  'export: after each run, one event per shift and preset from the stored snapshot to the horizon; tagged rotalator=<rotation>|<start>; untagged events never touched; nobody shifts skipped',
-  'Re-export calendar [: current rotation]: every shift from the first one (repairs a cleaned or edited calendar)',
-  'Clean calendar: current rotation | selected preset: delete the events Rotalator created for the rotation, or every Rotalator event of the preset\'s calendar',
-]);
+function gcalHelpLines() {
+  return [
+    '',
+    'CALENDAR (GCal extension, #GCal tab: preset | setting | value):',
+    'preset row: name in A (letters, digits, - _), note in C; setting rows below it: setting in B, value in C',
+  ].concat(gcalCheatSheet().slice(1), [
+    'export: after each run, one event per shift and preset from the stored snapshot to the horizon; tagged rotalator=<rotation>|<start>; untagged events never touched; nobody shifts skipped',
+    'Re-export calendar [: current rotation]: every shift from the first one (repairs a cleaned or edited calendar)',
+    'Clean calendar: current rotation | selected preset: delete the events Rotalator created for the rotation, or every Rotalator event of the preset\'s calendar',
+  ]);
+}
 
 // Header, cheat sheet as comment rows, an empty row, then a first preset to fill in (reminders empty:
 // calendar defaults; color default: the calendar's own colour).
 function gcalTemplateRows() {
   var comment = function (text) { return ['', '', text]; };
   var setting = function (key, value) { return ['', key, value]; };
-  return [PRESET_HEADER.slice()].concat(GCAL_CHEAT_SHEET.map(comment), [
+  return [PRESET_HEADER.slice()].concat(gcalCheatSheet().map(comment), [
     ['', '', ''],
     [GCAL_TEMPLATE_PRESET, '', GCAL_TEMPLATE_NOTE],
     setting('id', GCAL_TEMPLATE_ID),
@@ -71,32 +76,12 @@ function gcal_menu(menu) {
 }
 
 function gcal_help(lines) {
-  return GCAL_HELP_LINES.slice();
+  return gcalHelpLines();
 }
 
-// Formats #GCal like an editable system tab: script font, wrapped and top-left aligned everywhere, plain
-// text, bold grey frozen header, widths, spare columns removed, grey tab colour.
+// #GCal is formatted as a preset tab (core formatPresetTab) with its widths and row colours.
 function gcalFormatTab(sheet) {
-  var width = PRESET_HEADER.length;
-  var all = sheet.getRange(1, 1, sheet.getMaxRows(), sheet.getMaxColumns());
-  all.setFontFamily(FONT_FAMILY);
-  all.setWrap(true);
-  alignTopLeft(all);
-  sheet.getRange('A:' + String.fromCharCode(64 + width)).setNumberFormat('@');
-  sheet.getRange(1, 1, 1, width).setFontWeight('bold').setBackground(COLOR_HEADER);
-  sheet.setFrozenRows(1);
-  GCAL_COLUMN_WIDTHS.forEach(function (w, i) { sheet.setColumnWidth(i + 1, w); });
-  trimColumns(sheet, width);
-  setConditionalRules(sheet, gcalFormatRules(), width);
-  sheet.setTabColor(TAB_COLOR_EDITABLE);
-}
-
-// #GCal directly after #Global: created there, or moved there once when it sits elsewhere. A tab moving from
-// before #Global lands at #Global's current index, since #Global shifts up by one when it leaves.
-function gcalPlaceTab(ss, sheet) {
-  var global = ss.getSheetByName(GLOBAL_TAB);
-  if (!global || sheet.getIndex() === global.getIndex() + 1) return;
-  moveTab(ss, sheet, sheet.getIndex() < global.getIndex() ? global.getIndex() : global.getIndex() + 1);
+  formatPresetTab(sheet, GCAL_COLUMN_WIDTHS, gcalFormatRules());
 }
 
 // Hook: creates #GCal after #Global with the template when missing or empty, places and formats it.
@@ -107,7 +92,7 @@ function gcal_setup(ss) {
     sheet = ss.insertSheet(GCAL_TAB, global ? global.getIndex() : ss.getNumSheets());
   }
   if (isEmptySheet(sheet)) writeTextCells(sheet, 1, gcalTemplateRows());
-  gcalPlaceTab(ss, sheet);
+  placeTabAfter(ss, sheet, ss.getSheetByName(GLOBAL_TAB));
   gcalFormatTab(sheet);
   return sheet;
 }

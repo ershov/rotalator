@@ -734,3 +734,93 @@ test('in-place errors: the slack value errors go above the set row that carries 
   const dry = liveRun(BASE + ', slack=nope', TEAM, [], { run: { write: false } });
   assert.ok(!dry.storage.ledgers.primary.some((r) => r[2] === 'error'));
 });
+
+test('menu, help, template rows, selected preset, tick options', () => {
+  const items = [];
+  const menu = { addSeparator() { items.push('---'); return this; }, addItem(label, fn) { items.push(`${label} -> ${fn}`); return this; } };
+  U.slack_menu(menu);
+  assert.deepEqual(items, ['---', 'Set Slack token… -> slackSetToken', 'Remove Slack token -> slackRemoveToken', 'Check Slack connection -> slackCheckConnection', 'Send test message: selected preset -> slackSendTest', 'Install hourly Slack trigger -> slackInstallTrigger', 'Remove hourly Slack trigger -> slackRemoveTrigger']);
+  for (const fn of ['slackSetToken', 'slackRemoveToken', 'slackCheckConnection', 'slackSendTest', 'slackInstallTrigger', 'slackRemoveTrigger', 'slackTick', 'slack_setup', 'slack_setupTab']) assert.equal(typeof U[fn], 'function', fn);
+  assert.equal(U.SLACK_TICK_HANDLER, 'slackTick');
+  assert.deepEqual(plain(U.SLACK_TICK_OPTIONS), { write: false, export: false, slack: true });
+  // Help: the SLACK lines follow the core text with a heading; every setting, the placeholders and the menu items are in.
+  const lines = plain(U.helpText());
+  assert.equal(lines.length, U.HELP_TEXT.length + U.slackHelpLines().length);
+  assert.ok(plain(U.helpHeadingRows(lines)).includes(U.HELP_TEXT.length + 1));
+  const help = plain(U.slackHelpLines());
+  for (const key of Object.keys(U.SLACK_SETTINGS)) assert.ok(help.some((l) => l.startsWith(`${key}: `)), key);
+  assert.ok(help.some((l) => l.startsWith('TEMPLATES: {who} {prev} {next} {rotation} {start} {end} {note} {pin} {group}')));
+  assert.ok(help.some((l) => l.startsWith('IDS: ')));
+  assert.ok(help.some((l) => l.startsWith('USE: set slack=<preset> [<preset> ...]')));
+  for (const item of ['timing:', 'groups:', 'Set Slack token...', 'Check Slack connection:', 'Send test message: selected preset:', 'Install hourly Slack trigger']) assert.ok(help.some((l) => l.startsWith(item)), item);
+  // The template: header, cheat sheet as comment rows, an empty row, team and heads-up; it parses clean.
+  const rows = plain(U.slackTemplateRows());
+  assert.deepEqual(rows[0], ['preset', 'setting', 'value']);
+  const comments = rows.slice(1, 1 + U.slackCheatSheet().length);
+  assert.ok(comments.every((r) => r[0] === '' && r[1] === '' && r[2] !== ''));
+  assert.deepEqual(comments.map((r) => r[2]), plain(U.slackCheatSheet()));
+  assert.deepEqual(rows.slice(1 + U.slackCheatSheet().length), [
+    ['', '', ''],
+    ['team', '', 'Channel handover message and the @oncall group'],
+    ['', 'to', '#FILL-IN-WITH-CHANNEL'],
+    ['', 'when', '0'],
+    ['', 'text', '{who} is on call for {rotation} from {start} to {end}'],
+    ['', 'group', '@oncall'],
+    ['heads-up', '', 'Reminder to the person three days before'],
+    ['', 'to', '{who}'],
+    ['', 'when', '-3d'],
+    ['', 'text', 'Reminder: you are on call for {rotation} from {start:%a %e %b} to {end:%a %e %b}'],
+  ]);
+  const parsed = plain(U.parseSlackPresets(rows.slice(1)));
+  assert.deepEqual(parsed.errors, []);
+  assert.deepEqual(parsed.presets.map((p) => [p.name, p.to, p.when, p.group]), [['team', ['#FILL-IN-WITH-CHANNEL'], 0, '@oncall'], ['heads-up', ['{who}'], -3 * 1440, null]]);
+  assert.deepEqual(plain(U.SLACK_COLUMN_WIDTHS), [140, 120, 700]);
+  assert.equal(U.slack_setupTab({ getName: () => 'primary' }), false, 'other tabs are left to the core');
+  assert.equal(U.slack_setupTab({ getName: () => '#GCal' }), false);
+  // The selected preset: a setting row or an id row counts for the preset above it.
+  const sheet = (name, row, cells) => ({ getName: () => name, getActiveRange: () => ({ getRow: () => row }), getRange: (r, c, n) => ({ getValues: () => cells.slice(0, n) }) });
+  const cells = [['preset', 'setting'], ['team', ''], ['', 'to'], ['alice', 'id'], ['', 'group'], ['heads', ''], ['bob', 'id']];
+  assert.equal(U.slackSelectedPreset(sheet('#Slack', 3, cells)), 'team');
+  assert.equal(U.slackSelectedPreset(sheet('#Slack', 4, cells)), 'team', 'an id row is not a preset');
+  assert.equal(U.slackSelectedPreset(sheet('#Slack', 5, cells)), 'team');
+  assert.equal(U.slackSelectedPreset(sheet('#Slack', 6, cells)), 'heads');
+  assert.equal(U.slackSelectedPreset(sheet('#Slack', 7, cells)), 'heads');
+  assert.equal(U.slackSelectedPreset(sheet('#Slack', 1, cells)), null);
+  assert.equal(U.slackSelectedPreset(sheet('primary', 3, cells)), null);
+});
+
+test('test message: plan for the first rotation naming the preset, posted with the [test] prefix, state untouched', () => {
+  const tabs = [...TEAM, ...HEADS, G('grp', '', ''), G('', 'group', '@x'), G('broken', '', ''), G('', 'to', 'x'), ...IDS];
+  const two = { primary: ledger(BASE + ', slack=heads').primary, secondary: [R('', '2026-10-05T09:00', 'set', BASE + ', slack=team heads'), R('', '2026-10-05T09:00', 'team', 'erin, frank')] };
+  const { result } = planFor(null, tabs, [], { ledgers: two, run: { slack: false } });
+  const inputs = result.ext.slack;
+  assert.deepEqual(plain(U.slackTestPlan(result, inputs, 'nope')), { rotation: null, messages: [], error: 'unknown preset "nope"' });
+  assert.deepEqual(plain(U.slackTestPlan(result, inputs, 'grp')), { rotation: null, messages: [], error: 'preset "grp" has no to' });
+  assert.match(U.slackTestPlan(result, inputs, 'broken').error, /^preset "broken" has errors: bad value for to/);
+  assert.deepEqual(plain(U.slackTestPlan(result, inputs, 'team')).messages.map((m) => [m.rotation, m.to, m.text]), [['secondary', '#chan', 'erin is on call for secondary from 2026-10-05T09:00 to 2026-10-12T09:00']]);
+  const heads = plain(U.slackTestPlan(result, inputs, 'heads'));
+  assert.equal(heads.rotation, 'primary');
+  assert.deepEqual(heads.messages.map((m) => [m.to, m.who, m.text]), [['alice', 'alice', 'Soon: alice after , then bob ()']], 'the shift in force, the empty {prev} destination skipped');
+  const { result: none } = planFor(BASE, TEAM, [], { run: { slack: false } });
+  assert.deepEqual(plain(U.slackTestPlan(none, none.ext.slack, 'team')), { rotation: null, messages: [], error: 'no rotation names preset "team" in slack' });
+  const gap = ledger(BASE + ', slack=team');
+  gap.primary.push(R('x', '2026-10-05T09:00', 'shift', '-'));
+  const { result: nobody } = planFor(null, TEAM, [], { ledgers: gap, run: { slack: false } });
+  assert.deepEqual(plain(U.slackTestPlan(nobody, nobody.ext.slack, 'team')), { rotation: 'primary', messages: [], error: 'nobody on call in primary now' });
+  // Delivery with the prefix, as slackSendTest does it: id rows reach #Slack, the state is not written.
+  const { calls } = installSlack(DIRECTORY);
+  try {
+    const plan = { lines: [{ rotation: 'secondary', preset: 'team', due: 1, skipped: 0 }], messages: U.slackTestPlan(result, inputs, 'team').messages, groups: [], errors: [], warnings: [] };
+    const data = U.slackStatusData(plan);
+    const delivery = U.slackDeliver(plan, data, inputs, NOW, U.SLACK_TEST_PREFIX);
+    assert.deepEqual(calls.filter((c) => c.method === 'chat.postMessage').map((c) => c.params), [{ channel: 'C0CHAN', text: '[test] erin is on call for secondary from 2026-10-05T09:00 to 2026-10-12T09:00' }]);
+    assert.equal(delivery.posted.length, 1);
+    assert.deepEqual(plain(data.lines), [{ rotation: 'secondary', preset: 'team', due: 1, posted: 1, skipped: 0, failed: 0 }]);
+    const storage = new MemoryStorage({ tabs: { '#Slack': tabs } });
+    U.slackWriteDelivery(storage, inputs, delivery);
+    assert.deepEqual(storage.tabs['#Slack'], [...plain(U.presetRowsWithErrors(tabs, inputs.errors)), G('#chan', 'id', 'C0CHAN'), G('@oncall', 'id', 'S0ON')], 'parse error rows stay, id rows appended');
+    assert.equal(storage.tabs['#Slack state'], undefined);
+    U.slackWriteDelivery(storage, inputs, { posted: [], errors: [], idRows: [] });
+    assert.equal(storage.tabs['#Slack'].length, tabs.length + 3, 'nothing new, nothing written');
+  } finally { removeSlack(); }
+});

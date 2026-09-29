@@ -308,10 +308,14 @@ INSTALL.md).
 - **Install nightly trigger** schedules Run daily; **Remove trigger**
   deletes it.
 - Installed extensions append their own items below these; the Google
-  Calendar extension adds its re-export and clean items (see below).
+  Calendar extension adds its re-export and clean items, the Slack extension
+  its token, connection check, test message and hourly trigger items (see
+  below).
 
 One run at a time: every run, dry run, re-export and clean, the nightly
-trigger, **Fill Shifts Grid** and **Set Up Spreadsheet** take a script lock.
+trigger, the Slack connection check, test message and hourly trigger,
+**Fill Shifts Grid** and **Set Up Spreadsheet** take a script lock. The
+token items and the trigger installers take none.
 If another run holds it, the action waits five seconds, then gives up with
 the toast `another Rotalator run is in progress` and changes nothing. A run
 also has a time budget of five minutes: a long calendar export stops between
@@ -647,6 +651,33 @@ the counts per rotation and preset (`due`, `posted`, `skipped`, `failed`),
 the groups with their members, and any Slack errors, which never stop the
 ledger run. Without the extension the `slack` setting is accepted and
 `#Status` warns that the slack extension is not installed.
+
+Setting up:
+
+1. Install `Slack.js` next to the core, create the Slack app from the
+   manifest in INSTALL.md and install it to the workspace.
+2. **Set Up Spreadsheet** creates `#Slack` right after `#GCal` (or
+   `#Global`) with a cheat sheet of the settings and the two presets above,
+   `team` with `to` reading `#FILL-IN-WITH-CHANNEL`; `#Help` gains a `SLACK`
+   section. **Set Up Tab** on an empty `#Slack` writes the same template.
+3. **Set Slack token…** stores the bot token (`xoxb-…`) in a script
+   property, never in a cell; **Check Slack connection** shows the workspace
+   and the bot name. Invite the bot to private channels it should post to.
+4. Replace the channel placeholder, put `slack=<presets>` in a `set` row of
+   each rotation or in `#Global`, and **Run**. **Send test message: selected
+   preset** posts the preset on the selected row of `#Slack` for the shift
+   in force, prefixed `[test]`, without recording it, so a template can be
+   checked at once.
+
+Menu items of the extension, below the calendar ones: **Set Slack token…**,
+**Remove Slack token**, **Check Slack connection**, **Send test message:
+selected preset**, **Install hourly Slack trigger** and **Remove hourly
+Slack trigger**. The nightly run delivers messages between 02:00 and 03:00
+after the fact; the hourly trigger runs a tick that reads the ledgers
+without rewriting them and posts what is due, so a message with `when=0`
+goes out within the hour of the handover. The core's **Remove trigger**
+leaves the Slack trigger alone. The `#Slack state` tab is written by the
+script when it posts; delete a row there to announce that shift again.
 
 ## Command line
 

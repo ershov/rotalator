@@ -70,6 +70,25 @@ function slackShiftValues(rotation, shifts, i, group) {
   };
 }
 
+// The candidate messages of a preset for shift i of a rotation, one per distinct rendered destination, and
+// the count of destinations that rendered empty or like an earlier one; the state is not consulted here.
+function slackShiftMessages(rotation, preset, shifts, i) {
+  var values = slackShiftValues(rotation, shifts, i, preset.group);
+  var seen = {};
+  var out = { messages: [], skipped: 0 };
+  preset.to.forEach(function (dest) {
+    var to = slackRenderTo(dest, values);
+    if (to === '' || seen[to]) { out.skipped++; return; }
+    seen[to] = true;
+    out.messages.push({
+      rotation: rotation, preset: preset.name, to: to,
+      start: formatDateTime(values.start), end: formatDateTime(values.end), who: values.who,
+      text: slackRenderText(preset.text, values, null), values: values,
+    });
+  });
+  return out;
+}
+
 function slackStateEntry(state, rotation, preset, to) {
   return (state || []).find(function (r) { return r.rotation === rotation && r.preset === preset && r.to === to; }) || null;
 }
@@ -107,20 +126,14 @@ function slackPlan(run, inputs, state) {
       plan.lines.push(line);
       var i = shifts.findIndex(function (s) { return s.start + preset.when <= now && now < s.end + preset.when; });
       if (i < 0 || shifts[i].who === '') return;
-      var values = slackShiftValues(rot.name, shifts, i, preset.group);
-      var seen = {};
-      preset.to.forEach(function (dest) {
-        var to = slackRenderTo(dest, values);
-        if (to === '' || seen[to]) { line.skipped++; plan.skipped++; return; }
-        seen[to] = true;
-        var recorded = slackStateEntry(state, rot.name, preset.name, to);
-        if (recorded && recorded.start === formatDateTime(values.start) && recorded.who === values.who) return;
+      var candidates = slackShiftMessages(rot.name, preset, shifts, i);
+      line.skipped += candidates.skipped;
+      plan.skipped += candidates.skipped;
+      candidates.messages.forEach(function (m) {
+        var recorded = slackStateEntry(state, rot.name, preset.name, m.to);
+        if (recorded && recorded.start === m.start && recorded.who === m.who) return;
         line.due++;
-        plan.messages.push({
-          rotation: rot.name, preset: preset.name, to: to,
-          start: formatDateTime(values.start), end: formatDateTime(values.end), who: values.who,
-          text: slackRenderText(preset.text, values, null), values: values,
-        });
+        plan.messages.push(m);
       });
     });
   });

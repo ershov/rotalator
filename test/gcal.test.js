@@ -540,20 +540,20 @@ test('menu, help and summary', () => {
   assert.deepEqual(items, ['---', 'Re-export calendar -> gcalReexport', 'Re-export calendar: current rotation -> gcalReexportCurrent', 'Clean calendar: current rotation -> gcalCleanCurrent', 'Clean calendar: selected preset -> gcalCleanPreset']);
   for (const fn of ['gcalReexport', 'gcalReexportCurrent', 'gcalCleanCurrent', 'gcalCleanPreset', 'gcal_setup']) assert.equal(typeof U[fn], 'function', fn);
   const lines = plain(U.helpText());
-  assert.equal(lines.length, U.HELP_TEXT.length + U.GCAL_HELP_LINES.length);
+  assert.equal(lines.length, U.HELP_TEXT.length + U.gcalHelpLines().length);
   assert.ok(plain(U.helpHeadingRows(lines)).includes(U.HELP_TEXT.length + 1));
-  const help = plain(U.GCAL_HELP_LINES);
+  const help = plain(U.gcalHelpLines());
   for (const key of Object.keys(U.GCAL_SETTINGS)) assert.ok(help.some((l) => l.startsWith(`${key}: `)), key);
   assert.ok(help.some((l) => l.startsWith('TEMPLATES: {who} {rotation} {note} {pin} {start} {end}')));
   assert.ok(help.some((l) => l.startsWith('USE: set cal=<preset> [<preset> ...]')));
   // The #GCal template: header, the cheat sheet as comment rows, then preset-1 to fill in; it parses clean.
   const rows = plain(U.gcalTemplateRows());
   assert.deepEqual(rows[0], ['preset', 'setting', 'value']);
-  const comments = rows.slice(1, 1 + U.GCAL_CHEAT_SHEET.length);
+  const comments = rows.slice(1, 1 + U.gcalCheatSheet().length);
   assert.ok(comments.every((r) => r[0] === '' && r[1] === '' && r[2] !== ''));
-  assert.deepEqual(comments.map((r) => r[2]), plain(U.GCAL_CHEAT_SHEET));
+  assert.deepEqual(comments.map((r) => r[2]), plain(U.gcalCheatSheet()));
   // One empty row separates the cheat sheet from the preset block.
-  assert.deepEqual(rows.slice(1 + U.GCAL_CHEAT_SHEET.length), [
+  assert.deepEqual(rows.slice(1 + U.gcalCheatSheet().length), [
     ['', '', ''],
     ['preset-1', '', 'First Google Calendar preset'],
     ['', 'id', 'FILL IN WITH CALENDAR ID'],
@@ -569,8 +569,8 @@ test('menu, help and summary', () => {
   assert.deepEqual(parsed.errors, []);
   assert.deepEqual(plain(U.gcalRowsWithErrors(rows.slice(1), [])), rows.slice(1), 'no error rows to add');
   assert.equal(parsed.presets.length, 1);
-  const first = 4 + U.GCAL_CHEAT_SHEET.length;
-  assert.deepEqual(parsed.presets[0], { name: 'preset-1', note: 'First Google Calendar preset', row: 3 + U.GCAL_CHEAT_SHEET.length, setRows: { id: first, title: first + 1, body: first + 2, allday: first + 3, color: first + 4, free: first + 5, invite: first + 6, reminders: first + 7 }, errors: [], id: 'FILL IN WITH CALENDAR ID', title: '{rotation}: {who}', body: 'Rotalator shift {rotation} {start} to {end}. {note}', allday: 'auto', color: 'default', free: true, invite: true, reminders: [] });
+  const first = 4 + U.gcalCheatSheet().length;
+  assert.deepEqual(parsed.presets[0], { name: 'preset-1', note: 'First Google Calendar preset', row: 3 + U.gcalCheatSheet().length, setRows: { id: first, title: first + 1, body: first + 2, allday: first + 3, color: first + 4, free: first + 5, invite: first + 6, reminders: first + 7 }, errors: [], id: 'FILL IN WITH CALENDAR ID', title: '{rotation}: {who}', body: 'Rotalator shift {rotation} {start} to {end}. {note}', allday: 'auto', color: 'default', free: true, invite: true, reminders: [] });
   assert.equal(typeof U.gcal_setupTab, 'function');
   assert.equal(U.gcal_setupTab({ getName: () => 'primary' }), false, 'other tabs are left to the core');
   assert.deepEqual(plain(U.GCAL_COLUMN_WIDTHS), [140, 120, 700]);
