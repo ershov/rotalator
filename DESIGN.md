@@ -29,10 +29,11 @@ owner explicitly approves one. Errors are reported in place: as script-owned
 rows next to what they describe, removed and recomputed on every run, in
 every tab the script reads (the ledgers, `#Global`, `#GCal`), and listed in
 `#Status` as well. The core is complete on its own; optional
-features (calendar export first) ship as extensions, separate bundles that
-the core probes for at call time and works without (8, Extensions). The core
-only carries what the ledger grammar needs regardless of which extensions are
-installed, such as the `cal` setting and the reserved `#GCal` tab.
+features (calendar export, Slack messages) ship as extensions, separate
+bundles that the core probes for at call time and works without (8,
+Extensions). The core only carries what the ledger grammar needs regardless
+of which extensions are installed, such as the `cal` and `slack` settings and
+the reserved `#GCal` and `#Slack` tabs.
 
 ## 2. Concepts
 
@@ -66,6 +67,8 @@ installed, such as the `cal` setting and the reserved `#GCal` tab.
 | `#Preview <rotation>`, `#Preview Global` | script | Dry run output. |
 | `#Help` | script | Plain-text help, rewritten by Set Up Spreadsheet, kept as the last tab. |
 | `#GCal` | users | Calendar presets, reserved for the GCal extension (8, Extensions). The core neither reads nor shapes it. |
+| `#Slack` | users and script | Slack presets and cached Slack ids, reserved for the Slack extension (14). The core neither reads nor shapes it. |
+| `#Slack state` | script | What the Slack extension has posted (14.3). Created by the extension. |
 
 Every tab whose name starts with `#` is a system tab and is never a rotation.
 Any other tab whose first row is the ledger header is a rotation; anything else
@@ -287,6 +290,7 @@ removed on read, so they are purely diagnostic and never accumulate. See 6.
 | precredit | 1ts | Interval after the snapshot within which pinned shifts are pre-credited: one full cycle by default. `0` disables. |
 | autopin | a:2sl | `false`, or a signed interval relative to `now` (`0`, `2w`, `-2w`, `1sl`, `0.5ts`), optionally `marker:interval` (`a:2w`; the marker is everything before the last colon, default `a`, so the default is spelled `a:2sl`). After the schedule step, every `shift` row starting at or before `now + autopin` whose pin cell is empty gets the marker (5.8). |
 | cal | (empty) | Space-separated names of calendar presets from `#GCal` (`cal=team backup`); a name is letters, digits, `-` and `_`, anything else is an error; single spaces on read, case kept. The core only validates and reports it: the GCal extension exports the shifts, and without it a rotation with a non-empty `cal` in force at `now` gets the `#Status` warning `calendar extension not installed`. The templates do not spell it. |
+| slack | (empty) | Space-separated names of Slack presets from `#Slack` (`slack=team heads-up`), same grammar as `cal`. The core only validates and reports it: the Slack extension posts and keeps the user groups, and without it a rotation with a non-empty `slack` in force at `now` gets the `#Status` warning `slack extension not installed`. The templates do not spell it. |
 
 A bare key restores the default in this table (`tolerance`, `tiebreak`,
 `precredit`, ...); a bare `anchor` re-anchors the grid at the row's `start`
@@ -812,18 +816,26 @@ src/
   50_status.js        status data, #Status and #All shifts rows
   60_relations.js     #Global rows, pair states, sweep order, repel, attract
   70_tools.js         template rows, Fill Shifts Grid rows, header notes
+  72_presets.js       preset tab grammar and message templates shared by extensions
   75_extensions.js    extension names and hook probing
   80_runner.js        storage-agnostic run: read, advance, regenerate, write
   90_gas.js           Apps Script entry points and Sheets adapter
   appsscript.json     V8 runtime, time zone
   ext/<Name>/*.js     one optional extension per directory (below)
   ext/GCal/
-    10_presets.js     #GCal rows to presets, gcal_readInputs
+    10_presets.js     #GCal settings and presets, gcal_readInputs
     20_format.js      strftime subset, title and body templates
     30_plan.js        export, repair and clean plans
     40_status.js      status block data, gcal_status
     50_calendar.js    CalendarApp reconcile and clean, gcal_afterRun
     60_menu.js        menu actions, gcal_menu, gcal_setup, gcal_help
+  ext/Slack/
+    10_presets.js     #Slack settings, destinations and offsets, slack_readInputs
+    20_plan.js        due messages and group membership
+    30_status.js      status block data, slack_status
+    40_api.js         Slack Web API over UrlFetchApp, id resolution
+    50_run.js         post, update groups, write state, slack_afterRun
+    60_menu.js        token, test message, slack_menu, slack_setup, slack_help
 node/
   load.js             evaluates src/*.js except 90_gas.js into one vm context,
                       plus the extensions asked for
@@ -853,7 +865,7 @@ The core is complete on its own. An optional feature is an extension: a
 directory `src/ext/<Name>/*.js` that `build.sh` concatenates, with the same
 separator lines as the core and without the `Setup` prelude, into
 `dist/<Name>.js`, a second file to install next to `Code.js`. The core keeps
-the fixed list `EXTENSIONS` (`GCal`) in `75_extensions.js` and knows an
+the fixed list `EXTENSIONS` (`GCal`, `Slack`) in `75_extensions.js` and knows an
 extension only by the global functions it may define, `<prefix>_<hook>`, where
 the prefix is the lower-case name (`gcal_menu`). Nothing registers at load
 time: at each call site the core asks `extensionHooks(hook)` for the
@@ -888,11 +900,19 @@ the guard never stops.
 
 The core carries the pieces of the grammar an extension needs regardless of
 whether it is installed, so a ledger validates the same way with and without
-it: the `cal` setting (3.5), the `#GCal` tab as a known system tab (not a
-rotation, not listed under ignored, not shaped by Set Up: `tabLayout` leaves it
-to the extension), and the warning `calendar extension not installed` that
-`runStorage` adds to the status when a rotation has a non-empty `cal` in force
-at `now` while `extensionInstalled('GCal')` is false. `node/load.js` takes an
+it: the `cal` and `slack` settings (3.5), the `#GCal`, `#Slack` and `#Slack
+state` tabs as known system tabs (not rotations, not listed under ignored, not
+shaped by Set Up: `tabLayout` leaves them to the extension), and the warnings
+`calendar extension not installed` and `slack extension not installed` that
+`runStorage` adds to the status when a rotation has a non-empty `cal` or
+`slack` in force at `now` while `extensionInstalled` says no for that
+extension. Extensions never call each other: either may be absent. What two
+extensions share lives in the core, in `72_presets.js`: the preset tab
+grammar `parsePresetTab(rows, settings)` and its error write-back
+`presetRowsWithErrors(rows, errors)` (13.1), and the template formatter
+`formatTemplate(template, values)` with `templateErrors(template, field,
+names)` (13.2). GCal and Slack call them with their own settings tables and
+placeholder lists. `node/load.js` takes an
 optional list of extension names: `load(['GCal'])` evaluates
 `src/ext/GCal/*.js` into the same context after the core, once per process,
 so a test that loads an extension shares it with the CLI in that process; the
@@ -906,7 +926,7 @@ readHolidays()  -> dates[]
 readGlobal()    -> rows[]
 ignoredTabs()   -> names[]
 readTabRows(name, header) -> rows[]   (extension tabs; [] without tab or header)
-writeTabRows(name, header, rows)      (mirror; no-op when read-only)
+writeTabRows(name, header, rows)      (mirror; creates a missing tab; no-op when read-only)
 writeLedger(rotation, rows)
 writeGlobal(rows)
 writeStatus(status)
@@ -915,7 +935,8 @@ writeStatus(status)
 `90_gas.js` implements it on `SpreadsheetApp`, `node/storage.js` on memory and
 CSV files. In the CSV directory `<rotation>.csv` is a rotation tab,
 `holidays.csv` is `#Holidays`, `global.csv` is `#Global`, `gcal.csv` is
-`#GCal`, `status.json` holds
+`#GCal`, `slack.csv` is `#Slack`, `slack-state.csv` is `#Slack state`,
+`status.json` holds
 the `#Status` and `#All shifts` data and `now.txt` the run instant; a file
 named `#<anything>.csv` is never a rotation, like a `#` tab. `writeStatus`
 receives
@@ -1236,7 +1257,8 @@ Palette of the event colours, as the Calendar UI shows them: 1 pale blue
 5 yellow `#fbd75b`, 6 orange `#ffb878`, 7 cyan `#46d6db`, 8 gray `#e1e1e1`,
 9 blue `#5484ed`, 10 green `#51b749`, 11 red `#dc2127`.
 
-`parseGCalPresets(rows)` returns every preset in tab order with its own error
+The grammar is the core's `parsePresetTab` (8, Extensions) with GCal's
+settings table. `parseGCalPresets(rows)` returns every preset in tab order with its own error
 list (and `setRows`, the tab row of each setting given) and the flat errors
 as `{ row, where: '#GCal row N', message }`, sorted by row (`N` as below): a
 setting before any preset, an unknown or duplicate setting, a bad value (with
@@ -1267,8 +1289,9 @@ without `writeTabRows` only reads. The inputs keep the cleaned rows
 
 ### 13.2 Templates
 
-`gcalFormat(template, values)` substitutes `{who}`, `{rotation}`, `{note}`,
-`{pin}`, `{start}` and `{end}`, names case-insensitive; the two instants take
+`gcalFormat(template, values)` is the core's `formatTemplate` (8,
+Extensions) with GCal's placeholders. It substitutes `{who}`, `{rotation}`,
+`{note}`, `{pin}`, `{start}` and `{end}`, names case-insensitive; the two instants take
 an optional strftime format after a colon, `{start:%a %e %b}`, and without
 one give the sheet's datetime form (`2026-10-05`, `2026-10-05T09:00`). The
 directives are `%Y %m %d %e %H %M %a %A %b %B %j %u` and `%%`, with English
@@ -1466,11 +1489,12 @@ The `#GCal` tab is a known system tab of the core, read through
 ### 13.6 Credentials and time zone
 
 `appsscript.json` lists the OAuth scopes explicitly: spreadsheets, the
-container UI (menu and toasts), `script.scriptapp` (the trigger) and
-`calendar`. With automatic scope detection the calendar scope would only be
-requested once `GCal.js` is present, and a trigger installed before that
-would then fail nightly until someone re-authorised; listing it up front
-means one authorisation covers the extension whenever it is added. Changing
+container UI (menu and toasts), `script.scriptapp` (the trigger), `calendar`
+and `script.external_request` (the Slack extension, 14.5). With automatic
+scope detection an extension's scope would only be requested once its bundle
+is present, and a trigger installed before that would then fail nightly until
+someone re-authorised; listing them up front means one authorisation covers
+every extension whenever it is added. Changing
 the manifest scopes requires re-authorising the script once (INSTALL). Menu
 actions run as the user who clicks, the nightly trigger as the account that
 installed it: every calendar named by a preset must be shared with write
@@ -1483,12 +1507,258 @@ spreadsheet time zone; all-day dates in the script time zone
 still gets its all-day events on the right day and a second run changes
 nothing.
 
-## 14. Future extensions
+## 14. Slack extension
+
+The second extension (8, Extensions): `src/ext/Slack/`, bundle
+`dist/Slack.js`, prefix `slack`. It posts messages about shifts to Slack
+channels and people and keeps Slack user groups such as `@oncall` pointing at
+the people on call. Everything is outbound: the extension calls the Slack Web
+API from the run; Slack never calls the script. 14.1 to 14.3 are the pure
+part: presets, the plan and the state, tested directly; 14.4 to 14.6 the
+adapter, the menu and the credentials, tested against a mock `UrlFetchApp`.
+
+Timing is the run's: a message goes out in the first run that finds it due,
+and a group changes when a run finds it stale, so with the nightly trigger
+both happen between 02:00 and 03:00 after the fact. Exact-time delivery (a
+one-off trigger per handover, Slack's scheduled posts) is left for later
+(15); a user who wants finer granularity installs the hourly Slack trigger
+(14.5).
+
+### 14.1 Presets: the `#Slack` tab
+
+`#Slack` (CSV: `slack.csv`) has the header `preset | setting | value` and the
+grammar of `#GCal` (13.1) through the core's `parsePresetTab`: a non-empty
+column A starts a preset, an empty A with a non-empty B is a setting, A and
+B empty is a comment, `| error | <message>` rows are the script's own and
+are dropped on read and rewritten above the offending rows. One more kind of
+script-owned row is specific to this tab: `<name> | id | <Slack id>` caches
+a resolved id (14.4) and is kept, never parsed as a preset. A preset is one
+kind of message, or one group to keep, or both. Settings:
+
+| setting | default | meaning |
+|---|---|---|
+| to | (empty) | Comma-separated destinations, each a template (14.2): a channel by id (`C…`, `G…`) or by name (`#oncall-team`), a person by email or by Slack id (`U…`, `W…`), or a member placeholder `{who}`, `{prev}` or `{next}`. |
+| when | `0` | Signed clock interval relative to the shift start: `0` at the handover, `-3d` three days before, `2h` two hours after. Units `d`, `h`, `m`. |
+| text | `{who} is on call for {rotation} from {start} to {end}` | Message template (14.2). |
+| group | (empty) | A user group by handle (`@oncall`) or id (`S…`). The people on call in every rotation whose `slack` names a preset with this group are its members (14.3). |
+
+A preset with neither `to` nor `group` is an error on the preset row; `text`
+without `to` is allowed and unused. Errors follow 13.1: setting before any
+preset, unknown or duplicate setting, bad value with the accepted forms
+(`when` not an interval, a destination that is none of the forms above, a
+group not `@handle` or `S…`), bad or duplicate preset name, unknown
+placeholder in `to` or `text`. `slack_readInputs(storage)` reads the tab,
+drops and rewrites error rows, keeps the id rows, and stores `{ presets,
+errors, rows, ids }` as `result.ext.slack`.
+
+Rotations opt in with `set slack=<preset> [<preset> ...]` (3.5), the mirror
+of `cal`: two presets on one rotation, `team` with `to=#team` and `heads-up`
+with `to={who}` and `when=-3d`, give the channel a handover message and the
+person a reminder; a third with `to=@manager, {prev}` and a longer offset is
+an early warning to fixed and moving recipients alike.
+
+### 14.2 Templates and destinations
+
+`text` and each destination in `to` go through the core's `formatTemplate`
+(13.2) with the Slack placeholders: `{who}` the shift's assignee, `{prev}` the
+assignee of the rotation's previous shift, `{next}` of the following one,
+`{rotation}`, `{start}` and `{end}` (with the strftime directives), `{note}`,
+`{pin}`, and `{group}` (the preset's group, empty without one). `{prev}` on
+the first shift and `{next}` beyond the last are empty; a nobody shift makes
+`{who}` empty and is never a message's own shift (14.3).
+
+In `text` a member placeholder renders as a mention `<@U…>` when the member
+resolves to a Slack id (14.4) and as the verbatim member id otherwise;
+`{group}` renders as `<!subteam^S…>`; the other values are escaped for
+Slack's markup (`&`, `<`, `>`). Text is trimmed. In `to` a member placeholder
+renders as the member id, which is then resolved like a literal email or
+id: a destination that renders empty is skipped and counted, one that does
+not resolve is an error (14.4).
+
+### 14.3 Plan and state
+
+`slackPlan(run, inputs, state)` is pure. `run` is the runner's result, `inputs`
+the parsed presets and `state` the rows of `#Slack state`. It considers every
+rotation the run read, frozen ones included (run scope, 8): a message is
+about the ledger as it stands, and a group is a union over rotations, so
+`Run for current rotation` must not drop the other rotations' people from
+`@oncall`. Shifts come from `status.shifts` (start, end, assignee) joined
+with the rotation's rows for `pin` and `note`, in start order, so `{prev}`
+and `{next}` are neighbours in that order.
+
+Messages: for each rotation, each preset named by its effective `slack` at
+`now` that has `to`, and each shift with an assignee, the message window is
+`[start + when, end + when)`. The shift whose window contains `now` is the
+preset's shift of the moment; there is at most one per rotation and preset,
+since shifts do not overlap. Its message is due for a destination when
+`#Slack state` has no row for that rotation, preset and rendered destination,
+or the row names a different shift start or assignee. A shift already
+recorded with the same start and assignee is not sent again, whatever
+happened to `{prev}` or `{next}`; a reassigned shift is announced again with
+the new person. A run that comes more than one shift length late therefore
+skips the shifts whose windows have passed: with the nightly trigger alone a
+period shorter than a day loses messages, and the hourly Slack trigger
+(14.5) is the remedy. Deleting a state row, or the whole `#Slack state` tab, re-sends the message of the moment
+once, which doubles as "announce again".
+
+Groups: for each group named by a preset in force in any rotation, the
+desired members are the assignees of the shifts in force at `now` (`start <=
+now < end`) in those rotations, sorted and de-duplicated, as member ids; the
+adapter resolves them. A rotation with a nobody shift contributes nothing
+and is warned about, and so is a member the adapter cannot resolve. An empty
+desired set leaves the group unchanged with the warning `group @oncall:
+nobody on call, left as it is`, because Slack refuses to empty a group
+through the API. The group has no state row: the adapter compares with the
+members Slack reports and updates only when they differ. Rotalator owns the group: anyone added by hand
+is removed at the next run.
+
+The plan is `{ messages: [{ rotation, preset, to, start, end, who, text }],
+groups: [{ group, rotations, members }], skipped, errors }`, `to` the
+rendered destination and `members` member ids, both resolved by the adapter;
+messages in rotation, preset and destination order. `#Slack state` (CSV:
+`slack-state.csv`) has the header `rotation | preset | to | start | who |
+sent at`, one row per rotation, preset and rendered destination, rewritten
+after each run that posted: rows of pairs whose rotation or preset no longer
+exists are dropped, the others kept, sent rows replaced. The adapter creates
+the tab when it first has something to write. A dry run leaves it alone.
+
+### 14.4 Adapter
+
+`slackApi(method, params)` in `40_api.js` posts JSON to
+`https://slack.com/api/<method>` through `UrlFetchApp.fetch` with the bot
+token as a bearer header and `muteHttpExceptions`, parses the body and
+throws `<method>: <error>` when `ok` is false; on HTTP 429 it sleeps for
+`Retry-After` once and retries, then fails. Calls used: `users.lookupByEmail`,
+`users.info`, `conversations.list` (paged, `types` public and private,
+`exclude_archived`), `usergroups.list`, `usergroups.users.list`,
+`usergroups.users.update`, `chat.postMessage`, `auth.test` (the menu's
+connection check).
+
+Id resolution turns a destination or member into a Slack id and remembers it:
+an email through `users.lookupByEmail`; a `#name` through `conversations.list`,
+which on a large workspace pages through thousands of channels, so the
+result is cached and a channel id in `to` is the recommended form; an
+`@handle` group through `usergroups.list`; a bare `U…`, `W…`, `C…`, `G…` or
+`S…` as it is. A member id that contains `@` is looked up as an email; one
+that does not needs an `| id |` row. Every resolution is written back to
+`#Slack` as `<name> | id | <Slack id>` appended after the last row in
+lookup order, so the next run makes no lookup call for it; a user may add or
+edit these rows by hand (a member whose id is not an email, a channel the
+bot cannot list) and delete one to force a fresh lookup. The rows are the
+`ids` of the inputs; the plan receives them as the resolver's cache.
+
+`slack_afterRun(result, storage, options)` plans, then posts when
+`UrlFetchApp` exists, `options.mode` is not `dry run`, and either the run
+writes or `options.slack` is `true` (the hourly tick, 14.5, which leaves the
+ledgers alone but still posts, updates groups and writes `#Slack state` and
+the error rows through the storage). To post it resolves the destinations, posts each due message with `chat.postMessage`
+(`channel` a channel or user id, users get the direct message opened by
+Slack), records the state rows of the successful posts, and brings each
+group in line with `usergroups.users.update`. Between posts it asks the run
+guard (10.4) whether to stop; on `aborted` or `budget` the remaining posts
+wait for the next run, which finds them still due, and `data.note` carries
+the standard stop note. Failures are reported in place (section 1): a
+destination that does not resolve or a post that fails (`channel_not_found`,
+`not_in_channel` with the hint to invite the bot or grant
+`chat:write.public`, `user_not_found`, a token error) gets `| error |
+<message> (<rotation> / <preset>)` above the preset's `to` row; a group
+failure above its `group` row; a member without an id above the `to` row
+that named it, with the hint `add a row "<member> | id | U..."`. The
+extension's errors are appended to the run's errors as `Slack <where>:
+<message>` and counted in the toast. A failed post is not recorded, so it
+is retried next run; the destinations that succeeded are, so they are not
+sent twice.
+
+`slackStatusData(plan)` and `slack_status(status)` render a `Slack` block
+in `#Status` (suffix `(dry run)`, or `(no slack)` in Node): one line per
+rotation and preset with `posted`, `skipped`, `failed`; one line per group
+with its members and `updated` or `unchanged`; the elapsed seconds on the
+title row; a `slack errors` table. Without `UrlFetchApp` (Node) the block
+lists what would be posted. `options.slack === false` skips the hook, for
+menu actions that run the scheduler for another purpose.
+
+### 14.5 Menu, trigger and Set Up
+
+`slack_menu` adds a separator and four items. `Set Slack token…` prompts for
+the bot token and stores it in the script property `rotalator.slack.token`,
+never in a cell; `Remove Slack token` deletes it. `Check Slack connection`
+calls `auth.test` and toasts the workspace and bot name or the error. `Send
+test message: selected preset` takes the preset from the active cell's row in
+`#Slack`, renders its text for the shift in force in the active or first
+rotation that names it, prefixes `[test]` and posts it to the preset's
+destinations without touching the state, so templates can be checked at
+once. `Install hourly Slack trigger` and `Remove hourly Slack trigger` manage
+a time-based trigger on `slackTick`, which runs `runStorage` for all
+rotations with `write: false` and `slack: true`: the ledgers and status tabs
+stay as they are, and the hook posts and updates groups from the plan of
+that read (14.4), under `withLock`; `Remove trigger` of the core leaves it alone. Menu actions and
+`slackTick` run through `withLock` like the calendar actions.
+
+`slack_setup(ss)` creates `#Slack` directly after `#GCal` when that tab
+exists, else after `#Global`, and moves an existing one there once, following
+the `#GCal` rules (13.5). An empty tab gets the template
+(`slackTemplateRows`): the header, the cheat sheet `SLACK_CHEAT_SHEET` as
+comment rows in column C (a `SETTINGS` heading with the settings, their
+forms and defaults, a `TEMPLATES` line with the placeholders and the
+`{start:%fmt}` directives, an `IDS` line explaining the `| id |` rows, a
+`USE` line with `set slack=<preset> [<preset> ...]`), then two preset
+blocks: `team` (note `Channel handover message and the @oncall group`) with
+`to` = `#FILL IN WITH CHANNEL`, `when` `0`, `text` at its default and
+`group` `@oncall`; `heads-up` (note `Reminder to the person three days
+before`) with `to` `{who}`, `when` `-3d` and `text` `Reminder: you are on
+call for {rotation} from {start:%a %e %b} to {end:%a %e %b}`. Formatting
+follows `#GCal`: script font, wrap, frozen bold grey header, widths 140,
+120, 700, grey tab colour, error rows light red, preset rows light blue,
+comment rows light yellow, and `| id |` rows light grey. `slack_setupTab`
+fills an empty `#Slack` the same way and refuses a filled one. `#Slack
+state` is created by the adapter, not by Set Up: header, frozen, grey,
+script-owned. `slack_help` appends the `SLACK` lines to `#Help`: the cheat
+sheet, the timing rule, the group rule and the menu items.
+
+### 14.6 Credentials and scopes
+
+The Slack side is one app installed in the workspace with a bot token
+(`xoxb-…`); INSTALL.md carries an app manifest to paste. Bot scopes:
+`chat:write` (post to channels the bot is in and to people), `chat:write.public`
+(public channels without joining), `users:read` and `users:read.email`
+(lookup by email), `channels:read` and `groups:read` (`#name` resolution),
+`usergroups:read` and `usergroups:write`. Corporate workspaces may need an
+admin to approve the app and to allow the app to edit user groups; on
+Enterprise Grid a group synced from the identity provider cannot be changed
+through the API, so `@oncall` must be a workspace group Rotalator owns. The
+token is read from the script property at each call and never logged; the
+menu actions and `slackTick` run as the user who installed them, the nightly
+trigger as the account that installed it, and the script property is shared
+by all, so one token serves every path. `appsscript.json` lists
+`script.external_request` up front (13.6). Slack's rate limit for posting
+is about one message per second per channel; the adapter honours
+`Retry-After` once and otherwise reports the failure and moves on.
+
+Node: `node/load.js` loads `Slack` like `GCal`; the CLI loads it for any
+directory that holds a `slack.csv`, so `run` mirrors the spreadsheet (error
+rows with `--write`, the block in `--status`, exit 1 on preset errors)
+without Slack calls, and `rotalator slack DIR [--rotation NAME]` runs the
+scheduler without writing and prints the plan as text: the messages that
+would go out with their rendered text and destinations, the desired members
+of each group. Golden scenario `slack`: two rotations sharing `@oncall`
+through two presets, one with a heads-up to `{who}`, a `slack-state.csv`
+that already records the current channel message so only the heads-up is
+due; the run compares the plan with `expected/slack.json` and the state
+rows that would be written.
+
+## 15. Future extensions
 
 - Month-based periods with day-of-month anchors.
-- A `Members` tab mapping ids to names and emails for notifications.
-- Google Calendar export as the first extension (`GCal`); PagerDuty export
-  could follow the same shape.
+- A `Members` tab mapping ids to names and emails, shared by the Slack and
+  GCal extensions in place of the `| id |` rows.
+- Exact-time Slack delivery: a one-off trigger per handover installed by the
+  nightly run, or Slack's scheduled posts (`chat.scheduleMessage`, up to 120
+  days ahead) reconciled like calendar events, which would let `when` carry a
+  time of day (`-1d@09:00`).
+- Interactive Slack (`/oncall` commands, App Home, swap requests) needs Slack
+  to reach the schedule: a small external service in Socket Mode running the
+  core in Node against a Sheets API storage adapter, reusing the Slack plan.
+- PagerDuty export following the GCal shape.
 - Concurrency guard via read-compute-reread-compare if runs ever collide with
   editing.
 - A terminator `shift` row with nobody at `horizonEnd`, if a visible end of
