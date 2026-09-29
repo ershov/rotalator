@@ -1,0 +1,5 @@
+rotation,preset,to,start,who,sent at
+primary,team,#oncall-team,2026-10-05,dave@example.com,2026-10-05T02:10
+secondary,second,C0SECOND,2026-10-05T09:00,frank,2026-10-05T09:30
+tertiary,team,#oncall-team,2026-09-28,zed,2026-09-28T02:10
+primary,old,#old,2026-09-28,carol,2026-09-28T02:10

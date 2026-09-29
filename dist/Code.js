@@ -2583,7 +2583,8 @@ function newPreset(name, note, row, settings) {
 // whole value), A and B empty is a comment. settings: { key: { parse, def, hint, template, required } }: parse
 // returns null on a bad value, def is the value of an unset setting, hint names the accepted forms in errors,
 // a template setting parses to a string or an array of strings that are checked for unknown placeholders
-// (options.placeholders) and directives once, a required setting is reported on the preset row when missing.
+// (options.placeholders, or the setting's own placeholders list) and directives once, a required setting is
+// reported on the preset row when missing.
 // options: { tab, placeholders, check }; tab labels the errors, check(preset) returns a message for the
 // preset row or null. Returns { presets, errors }: every preset in tab order with its own errors list (a
 // preset with errors is unusable) and setRows (the tab row of each setting given), and the flat errors as
@@ -2622,7 +2623,7 @@ function parsePresetTab(rows, settings, options) {
     var parsed = spec.parse(value);
     if (parsed === null) { fail(i + 2, current, 'bad value for ' + key + ': "' + value + '"' + (spec.hint ? '; use ' + spec.hint : '')); return; }
     if (spec.template) {
-      [].concat(parsed).forEach(function (t) { templateErrors(t, key, placeholders).forEach(function (message) { fail(i + 2, current, message); }); });
+      [].concat(parsed).forEach(function (t) { templateErrors(t, key, spec.placeholders || placeholders).forEach(function (message) { fail(i + 2, current, message); }); });
     }
     current[key] = parsed;
   });
@@ -2837,8 +2838,8 @@ function missingExtensionWarnings(status) {
 
 // Read, advance, regenerate and optionally write back through a Storage (DESIGN 8).
 // options: write, mode, rotations (names to regenerate; the others are read but not written).
-// Returns { ledgers, global, errors, status, ext }; ledgers holds only the regenerated ones and global is null
-// when there is no #Global tab. A bad now, holiday cell or rotation name stops the run with nothing written.
+// Returns { ledgers, read, global, errors, status, ext }; ledgers holds only the regenerated ones, read every
+// rotation as read (frozen ones included), and global is null when there is no #Global tab. A bad now, holiday cell or rotation name stops the run with nothing written.
 // Extension hooks: <prefix>_readInputs(storage) before regenerate, its value kept in ext[prefix];
 // <prefix>_afterRun(result, storage, options) when the run had no errors, after the ledgers are written and
 // before the status tabs, so what it records in result.status reaches <prefix>_status. A hook that throws
@@ -2866,7 +2867,7 @@ function runStorage(storage, nowText, options) {
   });
   var globalCells = storage.readGlobal();
   var ignored = storage.ignoredTabs();
-  if (errors.length) return { ledgers: ledgers, global: null, errors: errors.concat(extMessages()), status: null, ext: ext };
+  if (errors.length) return { ledgers: ledgers, read: ledgers, global: null, errors: errors.concat(extMessages()), status: null, ext: ext };
 
   var globalRows = rowsFromCells(globalCells);
   var globalSets = rowsOfType(globalRows, 'set');
@@ -2891,7 +2892,7 @@ function runStorage(storage, nowText, options) {
     Object.keys(out).forEach(function (name) { storage.writeLedger(name, out[name]); });
     if (global) storage.writeGlobal(global);
   }
-  var run = { ledgers: out, global: global, errors: errors, status: result.status, ext: ext };
+  var run = { ledgers: out, read: ledgers, global: global, errors: errors, status: result.status, ext: ext };
   if (!errors.length && !extErrors.length) callExtensionHooks('afterRun', [run, storage, options], onExtensionError);
   extErrors.forEach(function (e) { result.status.errors.push(e); errors.push(e.message); });
   if (options.write) storage.writeStatus(result.status);

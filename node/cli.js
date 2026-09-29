@@ -10,6 +10,7 @@ const USAGE = `usage:
   rotalator run DIR [--now YYYY-MM-DDTHH:MM] [--rotation NAME]... [--write] [--status]
   rotalator init DIR [--rotation NAME] [--start YYYY-MM-DDTHH:MM] [--history-from YYYY-MM-DD] [--now YYYY-MM-DDTHH:MM]
   rotalator export DIR [--now YYYY-MM-DDTHH:MM] [--rotation NAME]... [--repair]
+  rotalator slack DIR [--now YYYY-MM-DDTHH:MM] [--rotation NAME]...
   rotalator help
 
 run     regenerates the ledgers in DIR and prints them as CSV; --write saves them, --status appends the status tables.
@@ -19,6 +20,9 @@ init    creates <NAME>.csv (default "Rotation 1 Primary") from the rotation temp
         --history-from adds empty shift rows on the grid from that date up to --start.
 export  prints the Google Calendar export plan (GCal extension) for the rotations with a cal setting, from gcal.csv;
         nothing is written and no calendar is touched. --repair plans every shift from the first one.
+slack   prints the Slack plan (Slack extension) from slack.csv and slack-state.csv: the messages due now with their
+        rendered text and destinations, the members each user group should have, and the state rows a post would
+        write; nothing is written and nothing is posted.
 `;
 
 function ledgerCsv(rows) {
@@ -71,6 +75,56 @@ function exportDir(dir, nowText, { rotations = null, repair = false } = {}) {
   const result = runDir(dir, nowText, { rotations, export: false });
   if (result.errors.length) return { result, plan: null };
   return { result, plan: structuredClone(U.gcalPlan(result, result.ext.gcal, { repair, rotations: rotations || undefined })) };
+}
+
+// Plan of the Slack extension as text: the lines per rotation and preset, the messages, the groups, the state
+// rows a post would write, then warnings and errors.
+function slackPlanText(plan, state) {
+  const rows = [];
+  if (plan.lines.length) {
+    rows.push(['rotation', 'preset', 'due', 'skipped']);
+    plan.lines.forEach((l) => rows.push([l.rotation, l.preset, String(l.due), String(l.skipped)]));
+    rows.push([]);
+  }
+  if (plan.messages.length) {
+    rows.push(['message', 'rotation', 'preset', 'to', 'start', 'end', 'who', 'text']);
+    plan.messages.forEach((m) => rows.push(['', m.rotation, m.preset, m.to, m.start, m.end, m.who, m.text]));
+    rows.push([]);
+  }
+  if (plan.groups.length) {
+    rows.push(['group', 'rotations', 'members']);
+    plan.groups.forEach((g) => rows.push([g.group, g.rotations.join(', '), g.members.join(', ')]));
+    rows.push([]);
+  }
+  if (state.length) {
+    rows.push(['state', ...load(['Slack']).SLACK_STATE_HEADER]);
+    state.forEach((r) => rows.push(['', ...r]));
+    rows.push([]);
+  }
+  if (plan.warnings.length) {
+    rows.push(['warning', 'rotation', 'message']);
+    plan.warnings.forEach((w) => rows.push(['', w.rotation ?? '', w.message]));
+    rows.push([]);
+  }
+  if (plan.errors.length) {
+    rows.push(['error', 'where', 'message']);
+    plan.errors.forEach((e) => rows.push(['', e.where, e.message]));
+  }
+  return textTable(rows);
+}
+
+// Runs the scheduler without writing (both extension hooks left out) and plans the Slack messages and groups
+// against slack-state.csv; state is the rows a post of every due message at now would leave.
+function slackDir(dir, nowText, { rotations = null } = {}) {
+  const U = load(['Slack']);
+  const result = runDir(dir, nowText, { rotations, export: false, slack: false });
+  if (result.errors.length) return { result, plan: null, state: null };
+  const storage = new CsvDirStorage(dir, { readOnly: true });
+  const before = U.slackStateFromRows(storage.readTabRows(U.SLACK_STATE_TAB, U.SLACK_STATE_HEADER));
+  const plan = U.slackPlan(result, result.ext.slack, before);
+  const posted = plan.messages.map((m) => ({ ...m, sentAt: result.status.now }));
+  const state = U.slackStateRows(before, posted, result, result.ext.slack);
+  return { result, plan: structuredClone(plan), state: structuredClone(state) };
 }
 
 // The extension each input file asks for: a directory with a gcal.csv gets GCal, one with a slack.csv gets
@@ -217,6 +271,15 @@ function mainExport(argv) {
   return plan.errors.length ? 1 : 0;
 }
 
+function mainSlack(argv) {
+  const args = parseExportArgs(argv);
+  const { result, plan, state } = slackDir(args.dir, args.now, { rotations: args.rotations.length ? args.rotations : null });
+  if (!plan) { result.errors.forEach((e) => process.stderr.write(e + '\n')); return 1; }
+  process.stdout.write(slackPlanText(plan, state));
+  plan.errors.forEach((e) => process.stderr.write(`${e.where}: ${e.message}\n`));
+  return plan.errors.length ? 1 : 0;
+}
+
 function mainInit(argv) {
   const args = parseInitArgs(argv);
   const result = initDir(args.dir, args);
@@ -231,6 +294,7 @@ function main(argv) {
     if (command === 'run') return mainRun(rest);
     if (command === 'init') return mainInit(rest);
     if (command === 'export') return mainExport(rest);
+    if (command === 'slack') return mainSlack(rest);
     if (command === undefined || command === 'help' || command === '--help' || command === '-h') {
       process.stdout.write(USAGE);
       return command === undefined ? 1 : 0;
@@ -245,4 +309,4 @@ function main(argv) {
 
 if (require.main === module) process.exitCode = main(process.argv.slice(2));
 
-module.exports = { runStorage, runDir, ledgerCsv, statusText, initDir, exportDir, planText, main };
+module.exports = { runStorage, runDir, ledgerCsv, statusText, initDir, exportDir, planText, slackDir, slackPlanText, main };

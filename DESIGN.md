@@ -687,6 +687,10 @@ place and where it is only reported in `#Status` (and why):
 | `preset "p" skipped: <its errors>` | in `#GCal` through the preset's own error rows; not repeated at the `cal` row | Calendar block errors, run errors |
 | `calendar "<id>" not found or not shared with this account`, API failures per calendar | `error` row above the preset's `id` row in `#GCal` (the preset row without one), written after the export | Calendar block errors, run errors |
 | `aborted after N event(s)`, `time budget reached ...` (10.4) | none: transient, nothing to fix in a tab | warnings (once; the Calendar block repeats it in its toast only) |
+| `#Slack` preset errors (14.1) | `error` row above the offending `#Slack` row | Slack block errors, run errors as `Slack <where>: <message>` |
+| `unknown preset "p" in slack; add it to #Slack`, `preset "p" skipped: <its errors>` | none yet: in place above the `set` row carrying `slack` with the adapter (14.4, ticket C) | Slack block errors, run errors |
+| `group @x: nobody on call in <rotation>`, `group @x: nobody on call, left as it is` (14.3) | none: nothing to fix in a row | warnings |
+| Slack delivery failures per destination, group or member (14.4) | `error` row above the preset's `to` or `group` row in `#Slack`, with the adapter (ticket C) | Slack block errors, run errors |
 | Menu-action failures: a clean that cannot open a calendar, `unknown rotation`/`unknown preset`/`preset has errors` from a clean, `N error(s), nothing exported` from a re-export, an extension `setup` failure named in the Set Up toast | none: no run result and no row to attach to | none; toast and log |
 
 ## 7. Multiple rotations and the `#Global` tab
@@ -951,7 +955,11 @@ the status data and writes both the `#Status` and the `#All shifts` tab;
 CLI `--status` share one layout. `80_runner.js` holds the shared
 `runStorage(storage, nowText, options)`: it reads through the storage, drops
 blank rows, calls `advance` and then `regenerate`, fills in the tabs block, and
-writes when asked. Its `rotations` option names the rotations to regenerate;
+writes when asked. Its result is `{ ledgers, read, global, errors, status,
+ext }`: `ledgers` the regenerated rotations as written, `read` every rotation
+as read (frozen ones included, so an extension needs no second read),
+`global` the `#Global` rows or null, `ext` the values of the `readInputs`
+hooks. Its `rotations` option names the rotations to regenerate;
 the others are read but not written, and an unknown name stops the run like a
 bad `now`, with nothing written. The CLI exposes it as `rotalator run DIR
 --rotation NAME`, repeatable. Each adapter only obtains `now` in the
@@ -1576,7 +1584,11 @@ the first shift and `{next}` beyond the last are empty; a nobody shift makes
 In `text` a member placeholder renders as a mention `<@U…>` when the member
 resolves to a Slack id (14.4) and as the verbatim member id otherwise;
 `{group}` renders as `<!subteam^S…>`; the other values are escaped for
-Slack's markup (`&`, `<`, `>`). Text is trimmed. In `to` a member placeholder
+Slack's markup (`&`, `<`, `>`). Text is trimmed. `slackRenderText(template,
+values, mention)` does this with `mention(kind, id)` supplying the mention
+or null; the pure plan renders with no resolver, so its `text` shows member
+ids and the group handle verbatim, and each message carries its `values`
+so the adapter re-renders the template once the ids are resolved. In `to` a member placeholder
 renders as the member id, which is then resolved like a literal email or
 id: a destination that renders empty is skipped and counted, one that does
 not resolve is an error (14.4).
@@ -1589,8 +1601,9 @@ rotation the run read, frozen ones included (run scope, 8): a message is
 about the ledger as it stands, and a group is a union over rotations, so
 `Run for current rotation` must not drop the other rotations' people from
 `@oncall`. Shifts come from `status.shifts` (start, end, assignee) joined
-with the rotation's rows for `pin` and `note`, in start order, so `{prev}`
-and `{next}` are neighbours in that order.
+with the rotation's rows for `pin` and `note` (the written rows, or the
+runner's `read` rows for a frozen rotation), in start order, so `{prev}` and
+`{next}` are neighbours in that order.
 
 Messages: for each rotation, each preset named by its effective `slack` at
 `now` that has `to`, and each shift with an assignee, the message window is
@@ -1601,7 +1614,10 @@ since shifts do not overlap. Its message is due for a destination when
 or the row names a different shift start or assignee. A shift already
 recorded with the same start and assignee is not sent again, whatever
 happened to `{prev}` or `{next}`; a reassigned shift is announced again with
-the new person. A run that comes more than one shift length late therefore
+the new person. A destination that renders empty, or like an earlier
+destination of the same preset (`#chan, #chan`, or `{who}, {prev}` when the
+same person holds both shifts), is skipped and counted, so one state key
+gets one message. A run that comes more than one shift length late therefore
 skips the shifts whose windows have passed: with the nightly trigger alone a
 period shorter than a day loses messages, and the hourly Slack trigger
 (14.5) is the remedy. Deleting a state row, or the whole `#Slack state` tab, re-sends the message of the moment
@@ -1610,18 +1626,26 @@ once, which doubles as "announce again".
 Groups: for each group named by a preset in force in any rotation, the
 desired members are the assignees of the shifts in force at `now` (`start <=
 now < end`) in those rotations, sorted and de-duplicated, as member ids; the
-adapter resolves them. A rotation with a nobody shift contributes nothing
-and is warned about, and so is a member the adapter cannot resolve. An empty
+adapter resolves them. A rotation contributes nothing and gets the warning
+`group @oncall: nobody on call in <rotation>` when its shift at `now` has
+nobody or when no shift covers `now`; a member the adapter cannot resolve
+is warned about too. An empty
 desired set leaves the group unchanged with the warning `group @oncall:
 nobody on call, left as it is`, because Slack refuses to empty a group
 through the API. The group has no state row: the adapter compares with the
 members Slack reports and updates only when they differ. Rotalator owns the group: anyone added by hand
 is removed at the next run.
 
-The plan is `{ messages: [{ rotation, preset, to, start, end, who, text }],
-groups: [{ group, rotations, members }], skipped, errors }`, `to` the
-rendered destination and `members` member ids, both resolved by the adapter;
-messages in rotation, preset and destination order. `#Slack state` (CSV:
+The plan is `{ lines: [{ rotation, preset, due, skipped }], messages: [{
+rotation, preset, to, start, end, who, text, values }], groups: [{ group,
+rotations, members }], skipped, errors, warnings }`: one line per rotation
+and message preset in force, `to` the rendered destination and `members`
+member ids, both resolved by the adapter; messages in rotation, preset and
+destination order; `warnings` the group warnings above, added to the run's
+warnings by the hook. `slackStateRows(state, posted, run, inputs)` gives the
+new state rows from the entries read (`slackStateFromRows`) and the posted
+messages with their `sentAt`, keeping only pairs of a rotation the run read
+and a preset the tab knows. `#Slack state` (CSV:
 `slack-state.csv`) has the header `rotation | preset | to | start | who |
 sent at`, one row per rotation, preset and rendered destination, rewritten
 after each run that posted: rows of pairs whose rotation or preset no longer
@@ -1677,8 +1701,9 @@ sent twice.
 
 `slackStatusData(plan)` and `slack_status(status)` render a `Slack` block
 in `#Status` (suffix `(dry run)`, or `(no slack)` in Node): one line per
-rotation and preset with `posted`, `skipped`, `failed`; one line per group
-with its members and `updated` or `unchanged`; the elapsed seconds on the
+rotation and preset with `due`, `posted`, `skipped`, `failed`; one line per
+group with its rotations, members and a `result` of `updated`, `unchanged`
+or `failed` (empty when nothing was delivered); the elapsed seconds on the
 title row; a `slack errors` table. Without `UrlFetchApp` (Node) the block
 lists what would be posted. `options.slack === false` skips the hook, for
 menu actions that run the scheduler for another purpose.

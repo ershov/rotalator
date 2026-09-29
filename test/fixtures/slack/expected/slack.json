@@ -1,0 +1,60 @@
+{
+  "lines": [
+    {
+      "rotation": "primary",
+      "preset": "team",
+      "due": 0,
+      "skipped": 0
+    },
+    {
+      "rotation": "primary",
+      "preset": "heads-up",
+      "due": 1,
+      "skipped": 0
+    },
+    {
+      "rotation": "secondary",
+      "preset": "second",
+      "due": 0,
+      "skipped": 0
+    }
+  ],
+  "messages": [
+    {
+      "rotation": "primary",
+      "preset": "heads-up",
+      "to": "dave@example.com",
+      "start": "2026-10-05",
+      "end": "2026-10-12",
+      "who": "dave@example.com",
+      "text": "Reminder: you are on call for primary from Mon 5 Oct to Mon 12 Oct",
+      "values": {
+        "who": "dave@example.com",
+        "prev": "carol",
+        "next": "",
+        "rotation": "primary",
+        "start": 29852640,
+        "end": 29862720,
+        "note": "",
+        "pin": "a",
+        "group": ""
+      }
+    }
+  ],
+  "groups": [
+    {
+      "group": "@oncall",
+      "rotations": [
+        "primary",
+        "secondary"
+      ],
+      "members": [
+        "dave@example.com",
+        "frank"
+      ]
+    }
+  ],
+  "skipped": 0,
+  "errors": [],
+  "warnings": []
+}

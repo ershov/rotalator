@@ -1,0 +1,13 @@
+preset,setting,value
+team,,Channel handover message and the @oncall group
+,to,#oncall-team
+,text,{who} is on call for {rotation} from {start} to {end}
+,group,@oncall
+heads-up,,Reminder to the person three days before
+,to,{who}
+,when,-3d
+,text,Reminder: you are on call for {rotation} from {start:%a %e %b} to {end:%a %e %b}
+second,,Secondary channel handover and the same group
+,to,C0SECOND
+,group,@oncall
+alice,id,U0ALICE

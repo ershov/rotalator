@@ -1,0 +1,9 @@
+pin,start,type,what,end,duration,note
+,,set,"period=1w, horizon=3w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0, slack=second",,,
+,,team,"erin, frank",,,
+,2026-09-28T09:00,set,anchor,,,
+a,2026-09-28T09:00,shift,erin,,,
+,2026-10-05T09:00,snapshot,"erin=7, frank=0",,,
+a,2026-10-05T09:00,shift,frank,,,
+,2026-10-12T09:00,shift,erin,,,
+,2026-10-19T09:00,shift,frank,,,

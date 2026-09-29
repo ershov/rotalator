@@ -1,0 +1,11 @@
+pin,start,type,what,end,duration,note
+,,set,"period=1w, horizon=3w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0, slack=team heads-up",,,
+,,team,"alice, bob, carol, dave@example.com",,,
+,2026-09-14,set,anchor,,,
+x,2026-09-14,shift,alice,,,
+x,2026-09-21,shift,bob,,,
+a,2026-09-28,shift,carol,,,volunteered
+,2026-10-05,snapshot,"alice=7, bob=7, carol=7, dave@example.com=0",,,
+a,2026-10-05,shift,dave@example.com,,,
+x,2026-10-12,shift,-,,,offsite week
+,2026-10-19,shift,alice,,,

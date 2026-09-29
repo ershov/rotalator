@@ -7,6 +7,8 @@ const { runDir, runStorage, ledgerCsv, statusText } = require('../node/cli.js');
 const { CsvDirStorage, MemoryStorage } = require('../node/storage.js');
 
 const FIXTURES = path.join(__dirname, 'fixtures');
+// Files of system tabs under expected/: everything else there is a ledger.
+const SYSTEM_FILES = ['holidays.csv', 'global.csv', 'gcal.csv', 'slack.csv', 'slack-state.csv'];
 
 test('CsvDirStorage: # files and files without the ledger header are ignored and reported', () => {
   const storage = new CsvDirStorage(path.join(FIXTURES, 'disabled-rotation'));
@@ -50,7 +52,7 @@ for (const name of fs.readdirSync(FIXTURES).sort()) {
     const storage = new CsvDirStorage(dir);
     const nowText = storage.readNow();
     const result = runDir(dir, nowText);
-    const expected = fs.readdirSync(path.join(dir, 'expected')).filter((f) => f.endsWith('.csv') && f !== 'global.csv').map((f) => f.slice(0, -4)).sort();
+    const expected = fs.readdirSync(path.join(dir, 'expected')).filter((f) => f.endsWith('.csv') && !SYSTEM_FILES.includes(f)).map((f) => f.slice(0, -4)).sort();
     assert.deepEqual(Object.keys(result.ledgers).sort(), expected);
     for (const rotation of expected) {
       assert.equal(ledgerCsv(result.ledgers[rotation]), fs.readFileSync(path.join(dir, 'expected', `${rotation}.csv`), 'utf8'), rotation);
@@ -64,8 +66,14 @@ for (const name of fs.readdirSync(FIXTURES).sort()) {
     const statusFile = path.join(dir, 'expected', 'status.txt');
     if (fs.existsSync(statusFile)) assert.equal(statusText(result.status), fs.readFileSync(statusFile, 'utf8'));
 
-    // Extension tabs travel along: a gcal.csv loads the GCal extension, which reads #GCal on the second run too.
-    const tabs = { '#GCal': storage.readTabRows('#GCal', ['preset', 'setting', 'value']) };
+    // Extension tabs travel along: a gcal.csv or slack.csv loads its extension, which reads its tabs on the
+    // second run too.
+    const preset = ['preset', 'setting', 'value'];
+    const tabs = {
+      '#GCal': storage.readTabRows('#GCal', preset),
+      '#Slack': storage.readTabRows('#Slack', preset),
+      '#Slack state': storage.readTabRows('#Slack state', ['rotation', 'preset', 'to', 'start', 'who', 'sent at']),
+    };
     const again = runStorage(new MemoryStorage({ ledgers: result.ledgers, holidays: storage.readHolidays(), global: result.global ?? [], tabs }), nowText);
     if (result.global) assert.equal(ledgerCsv(again.global), ledgerCsv(result.global), 'global second run');
     for (const rotation of expected) {

@@ -605,6 +605,49 @@ Events carry the tag `rotalator=<rotation>|<start>`; that is how the script
 finds them again, and events without it are never touched. Two presets of one
 rotation must point at different calendars.
 
+## Slack messages and user groups
+
+The Slack extension is a second script file, `Slack.js`, installed next to
+the core. With it, every rotation whose `slack` setting names presets gets a
+message per shift to the channels and people those presets describe, and
+Slack user groups such as `@oncall` follow the people on call. Presets live
+in the `#Slack` tab with the grammar of `#GCal`:
+
+```
+preset   | setting | value
+team     |         | Channel handover message and the @oncall group
+         | to      | #oncall-team
+         | group   | @oncall
+heads-up |         | Reminder to the person three days before
+         | to      | {who}
+         | when    | -3d
+         | text    | Reminder: you are on call for {rotation} from {start:%a %e %b} to {end:%a %e %b}
+```
+
+`to` lists destinations: a channel by id (`C…`) or name (`#oncall-team`), a
+person by email or Slack id (`U…`), or `{who}`, `{prev}`, `{next}` for the
+assignee of the shift, of the previous one and of the next one. `when` moves
+the message relative to the shift start (`0` at the handover, `-3d` three
+days before, `2h` after); `text` is the message template, taking `{who}`,
+`{prev}`, `{next}`, `{rotation}`, `{start}`, `{end}`, `{note}`, `{pin}` and
+`{group}`; `group` names a user group the people on call in every rotation
+using the preset should form. A preset needs `to` or `group`. Rows `<member>
+| id | U…` cache resolved Slack ids and may be typed by hand for a member
+whose id is not an email. Mistakes are reported like in `#GCal`, with `error`
+rows above the offending rows.
+
+Then `set slack=team heads-up` in the rotation (or in `#Global`). Each run
+finds, per rotation and preset, the shift whose window `[start + when, end +
+when)` contains the run instant and posts its message once per destination:
+`#Slack state` remembers what was sent, so a shift is announced once and again
+only when it is reassigned; deleting a state row re-sends. Groups are set to
+the assignees on call across their rotations; a group nobody is on call for
+is left alone with a warning. The `#Status` tab gets a `Slack` block with
+the counts per rotation and preset (`due`, `posted`, `skipped`, `failed`),
+the groups with their members, and any Slack errors, which never stop the
+ledger run. Without the extension the `slack` setting is accepted and
+`#Status` warns that the slack extension is not installed.
+
 ## Command line
 
 The core also runs in Node without a spreadsheet, using a directory of CSV
@@ -613,8 +656,9 @@ files. Files map to tabs: one `<rotation>.csv` per ledger with the header row,
 `#Global`, optional `gcal.csv` for `#GCal` (its presence loads the Google
 Calendar extension, so `run` reports preset errors like the spreadsheet does,
 without touching any calendar), optional `slack.csv` and `slack-state.csv` for
-`#Slack` and `#Slack state` (the Slack extension, loaded the same way),
-`status.json` for the `#Status` and `#All
+`#Slack` and `#Slack state` (the Slack extension, loaded the same way;
+`rotalator slack DIR` prints the messages due, the group members and the
+state rows a post would write), `status.json` for the `#Status` and `#All
 shifts` data, and `now.txt` with the run instant. A file named
 `#<anything>.csv` is never a rotation, like a `#` tab, and other `.csv` files
 without the ledger header are ignored.

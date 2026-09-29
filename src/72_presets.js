@@ -24,7 +24,8 @@ function newPreset(name, note, row, settings) {
 // whole value), A and B empty is a comment. settings: { key: { parse, def, hint, template, required } }: parse
 // returns null on a bad value, def is the value of an unset setting, hint names the accepted forms in errors,
 // a template setting parses to a string or an array of strings that are checked for unknown placeholders
-// (options.placeholders) and directives once, a required setting is reported on the preset row when missing.
+// (options.placeholders, or the setting's own placeholders list) and directives once, a required setting is
+// reported on the preset row when missing.
 // options: { tab, placeholders, check }; tab labels the errors, check(preset) returns a message for the
 // preset row or null. Returns { presets, errors }: every preset in tab order with its own errors list (a
 // preset with errors is unusable) and setRows (the tab row of each setting given), and the flat errors as
@@ -63,7 +64,7 @@ function parsePresetTab(rows, settings, options) {
     var parsed = spec.parse(value);
     if (parsed === null) { fail(i + 2, current, 'bad value for ' + key + ': "' + value + '"' + (spec.hint ? '; use ' + spec.hint : '')); return; }
     if (spec.template) {
-      [].concat(parsed).forEach(function (t) { templateErrors(t, key, placeholders).forEach(function (message) { fail(i + 2, current, message); }); });
+      [].concat(parsed).forEach(function (t) { templateErrors(t, key, spec.placeholders || placeholders).forEach(function (message) { fail(i + 2, current, message); }); });
     }
     current[key] = parsed;
   });
