@@ -64,7 +64,7 @@ the reserved `#GCal` and `#Slack` tabs.
 | `#Global` | users and script | Spreadsheet-wide `set` defaults, relations between rotations over time, comments; the script adds `error` rows. |
 | `#Status` | script | Recognised tabs, scores, last and next shifts, exclusions, warnings. Fully rewritten each run. |
 | `#All shifts` | script | Every shift of every rotation in one table. Fully rewritten each run. |
-| `#Preview <rotation>`, `#Preview Global` | script | Dry run output. |
+| `#Preview <rotation>` | script | Preview output: the ledger a `Run - preview` would write, formatted like a rotation tab (10.1). |
 | `#Help` | script | Plain-text help, rewritten by Set Up Spreadsheet, kept as the last tab. |
 | `#GCal` | users | Calendar presets, reserved for the GCal extension (8, Extensions). The core neither reads nor shapes it. |
 | `#Slack` | users and script | Slack presets and cached Slack ids, reserved for the Slack extension (14). The core neither reads nor shapes it. |
@@ -626,7 +626,7 @@ error and warning rows extension blocks report (8); `shiftsRows` adds
 the `{ row, col }` (0-based) of each rotation's shift covering `now` (the
 same rule as `current`), empty when `now` is unknown. Adapters format them
 without knowing the layout while the CLI prints rows only. Both tabs are
-rewritten in full on every run, including dry runs.
+rewritten in full on every run, previews included.
 
 ### 5.9 Properties
 
@@ -802,7 +802,8 @@ other than `set`, relation or comment in `#Global`, bad `start`, `end` or
 `duration`) get an `error` row above them and are ignored; the run reports
 them but continues, because the ledgers do not depend on the relations being
 valid (global `set` rows do stop it, 3.5). `#Global` is written back in full
-like a ledger when the tab exists; a dry run writes `#Preview Global`. The
+like a ledger when the tab exists; a preview reads it as usual and writes
+nothing for it (its errors still reach `#Status`). The
 sweep already walks all rotations in one merged time order, so relations add
 only the pair states, the order and two candidate filters. The `#All shifts`
 tab is the all-rotations view.
@@ -895,7 +896,7 @@ toast for `setup`. A `readInputs` failure also skips that run's `afterRun`.
 | `<prefix>_setupTab(sheet)` | Set Up Tab, before the core's own handling | Returns `true` when the extension filled or refused the active tab itself (its own tabs); anything else leaves the tab to the core. |
 | `<prefix>_help(lines)` | `helpText()`, used by Set Up Spreadsheet for `#Help` | Receives a copy of `HELP_TEXT` and returns extra lines appended after it (a line ending with `:` is a heading); anything but an array adds nothing. |
 | `<prefix>_readInputs(storage)` | `runStorage`, before `advance` and `regenerate` | Reads the extension's inputs through the storage (a tab, a CSV file); the value is kept as `result.ext[prefix]`. |
-| `<prefix>_afterRun(result, storage, options)` | `runStorage`, when the run had no errors | After the ledgers and `#Global` are written (when writing) and before the status tabs; `result` is the runner's result including `ext`, and whatever the hook records in `result.status` (by convention under `status.ext[prefix]`) reaches `<prefix>_status`. `options` tells write and mode, so a dry run stays dry. |
+| `<prefix>_afterRun(result, storage, options)` | `runStorage`, when the run had no errors | After the ledgers and `#Global` are written (when writing) and before the status tabs; `result` is the runner's result including `ext`, and whatever the hook records in `result.status` (by convention under `status.ext[prefix]`) reaches `<prefix>_status`. `options` tells write and mode, so a preview stays a preview. |
 | `<prefix>_status(status)` | `statusRows`, `statusRowsVertical` | Returns `{ rows, headerRows, errorRows, warningRows }` (cell arrays; the index lists point into `rows`, `headerRows` default the first row) appended to `#Status` after the errors table, preceded by a blank row; rows are padded or cut to the tab's 17 columns; error and warning rows are painted like the core's; null or no rows add nothing. |
 
 Core helpers for extension actions (10.4): `withLock(fn)` runs a menu action
@@ -974,11 +975,12 @@ bad `now`, with nothing written. The CLI exposes it as `rotalator run DIR
 spreadsheet time zone as `YYYY-MM-DDTHH:MM` text and converts date cells to
 that form before handing them over.
 
-Apps Script menu: `Run`, `Run - dry run` (writes `#Preview
-<rotation>` tabs), `Run for current rotation`, `Run for current rotation -
-dry run` (the active tab only, through the runner's `rotations` option; a
-dry run then writes that rotation's preview, `#Preview Global` when a `#Global`
-tab exists, and the status tabs), `Set Up Spreadsheet`, `Set Up Tab`, `Fill
+Apps Script menu: `Run`, `Run - preview` (`previewRun`: writes `#Preview
+<rotation>` tabs and the status tabs, nothing for `#Global`; the runner's
+`mode` is `preview`), `Run for current rotation`, `Run for current rotation -
+preview` (`previewRunCurrent`: the active tab only, through the runner's
+`rotations` option; the preview then writes that rotation's preview tab and
+the status tabs), `Set Up Spreadsheet`, `Set Up Tab`, `Fill
 Shifts Grid` (section 10), `Install nightly trigger`, `Remove trigger`, then
 the items of each installed extension (`<prefix>_menu`, Extensions above);
 `Abort run` follows the run items (10.4). The
@@ -1059,7 +1061,12 @@ previews, grey for the editable `#Holidays`, `#Global` and `#GCal`). Tabs
 with content but no ledger header are left alone; `#GCal` is placed and
 formatted by the GCal extension (13.5). The runner keeps applying plain text to
 the ranges it writes. Preview tabs are created right after the tab they
-preview and never moved.
+preview and never moved, and get the rotation tab formatting in full: the
+writer calls `formatTab` after writing a preview (`tabLayout` gives preview
+tabs the ledger layout) and Set Up formats them the same way, so plain text
+on `A:G`, the bold grey frozen header with widths and notes, trimmed spare
+columns and the rotation conditional row colours (`LEDGER_FORMAT_RULES`)
+apply on both paths, with the generated blue tab colour.
 
 Rotation tabs and `#Global` also get conditional formatting: the tab's rules
 are replaced (not appended to) by the script's set, so a user rule on these
@@ -1181,7 +1188,7 @@ and the nightly trigger) can start a run at the same time. Three measures keep
 that harmless; they live in `90_gas.js` and `80_runner.js` and are reused by
 extensions.
 
-- Lock: every user-triggered run (`Run`, the dry runs, the current-rotation
+- Lock: every user-triggered run (`Run`, the previews, the current-rotation
   runs, the trigger handler, the calendar re-export and clean actions, the
   Slack connection check, test message and hourly tick)
   and the two actions that rewrite cells a run may be sorting (`Fill Shifts
@@ -1304,7 +1311,7 @@ without `id` gets its row above the preset row), everything else unchanged.
 the error rows inserted at or above it (`row` is its position before), so
 the `#Status` entry matches the tab the user sees. A second run reproduces
 the same tab; fixing a row removes its error row on the next run.
-This happens on every read, dry runs included, wherever the storage can
+This happens on every read, previews included, wherever the storage can
 write: the Sheets adapter always, the CSV directory unless it was opened
 read-only (the CLI without `--write`), the memory storage in tests; a storage
 without `writeTabRows` only reads. The inputs keep the cleaned rows
@@ -1361,7 +1368,7 @@ Rotalator-tagged event there. `gcalStatusData(plan)` is the status block
 data, one line per rotation and preset with the counts `create`, `update`,
 `delete`, `unchanged` at zero for the adapter to fill and `skipped` from the
 plan, plus the plan's errors; `gcal_status(status)` renders `status.ext.gcal`
-as a `Calendar` block (a `(dry run)` suffix when `mode` is set), one row per
+as a `Calendar` block (a `(preview)` suffix when `mode` is set), one row per
 line and a `calendar errors` table when there are errors.
 
 A rotation naming two presets on the same calendar keeps the first: their
@@ -1459,7 +1466,7 @@ is unbounded.
 
 `gcal_afterRun(result, storage, options)` plans the regenerated rotations,
 reconciles when `CalendarApp` exists (dry when `options.write` is false or
-`options.mode` is `dry run`, which the block marks) and stores the counts and
+`options.mode` is `preview`, which the block marks) and stores the counts and
 errors under `result.status.ext.gcal` when a rotation uses `cal` or the
 presets have errors; the core writes the status tabs afterwards, so the
 `Calendar` block is in the same run's `#Status`. Without `CalendarApp` (Node)
@@ -1662,7 +1669,7 @@ and a preset the tab knows. `#Slack state` (CSV:
 sent at`, one row per rotation, preset and rendered destination, rewritten
 after each run that posted: rows of pairs whose rotation or preset no longer
 exists are dropped, the others kept, sent rows replaced. The adapter creates
-the tab when it first has something to write. A dry run leaves it alone.
+the tab when it first has something to write. A preview leaves it alone.
 
 ### 14.4 Adapter
 
@@ -1698,7 +1705,7 @@ that finds nothing (`#name` or `@handle` not listed, `users_not_found`) is
 not cached and is reported by the caller; an API failure throws.
 
 `slack_afterRun(result, storage, options)` plans, then delivers
-(`slackDeliver`) when `UrlFetchApp` exists, `options.mode` is not `dry run`,
+(`slackDeliver`) when `UrlFetchApp` exists, `options.mode` is not `preview`,
 and either the run writes or `options.slack` is `true` (the hourly tick,
 14.5, which leaves the ledgers alone but still posts, updates groups and
 writes `#Slack state` and the `#Slack` rows through the storage). It resolves
@@ -1739,7 +1746,7 @@ is retried next run; the destinations that succeeded are, so they are not
 sent twice.
 
 `slackStatusData(plan)` and `slack_status(status)` render a `Slack` block
-in `#Status` (suffix `(dry run)`, or `(no slack)` in Node): one line per
+in `#Status` (suffix `(preview)`, or `(no slack)` in Node): one line per
 rotation and preset with `due`, `posted`, `skipped`, `failed`; one line per
 group with its rotations, members and a `result` of `updated`, `unchanged`
 or `failed` (empty when nothing was delivered); the elapsed seconds on the

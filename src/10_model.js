@@ -16,14 +16,18 @@ function isSystemTab(name) {
   return name.charAt(0) === SYSTEM_TAB_PREFIX;
 }
 
-// Preview of a rotation tab, or '#Preview Global' for the #Global tab.
+// Preview tab of a rotation tab (DESIGN 3.1); #Global has none, a preview writes nothing for it.
 function previewTabName(name) {
-  return PREVIEW_TAB_PREFIX + (isSystemTab(name) ? name.slice(1) : name);
+  return PREVIEW_TAB_PREFIX + name;
+}
+
+function isPreviewTab(name) {
+  return name.indexOf(PREVIEW_TAB_PREFIX) === 0;
 }
 
 function isKnownSystemTab(name) {
   return name === HOLIDAYS_TAB || name === GLOBAL_TAB || name === STATUS_TAB || name === ALL_SHIFTS_TAB ||
-    name === HELP_TAB || extensionTabOwner(name) !== null || name.indexOf(PREVIEW_TAB_PREFIX) === 0;
+    name === HELP_TAB || extensionTabOwner(name) !== null || isPreviewTab(name);
 }
 
 // The extension that owns a reserved tab (DESIGN 8, Extensions): the core neither reads nor shapes it.

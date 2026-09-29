@@ -200,7 +200,7 @@ menu gains the re-export and clean items. Then:
    add a preset per further calendar (README, "Google Calendar export"), and
    add `cal=<preset names>` to a `set` row of each rotation to export, or to
    `#Global`.
-4. **Run - dry run** shows the counts in the `Calendar` block of `#Status`
+4. **Run - preview** shows the counts in the `Calendar` block of `#Status`
    without touching the calendars; **Run** exports.
 
 The first calendar action asks for the calendar permission if the manifest
@@ -301,14 +301,15 @@ history rows; leave future rows to the script.
 
 ## 6. First run and nightly trigger
 
-1. **Rotalator > Run - dry run** writes `#Preview <rotation>` tabs
-   (created right after each rotation tab on the first dry run), `#Status`
-   and `#All shifts`, and leaves the ledgers untouched. Check the preview and
+1. **Rotalator > Run - preview** writes `#Preview <rotation>` tabs
+   (created right after each rotation tab on the first preview, formatted
+   like the rotation tabs), `#Status` and `#All shifts`, and leaves the
+   ledgers and `#Global` untouched. Check the preview and
    the `tabs` block at the top of `#Status`, which lists the rotations found
    and the tabs ignored.
 2. **Rotalator > Run** writes the ledgers: the `snapshot` row and the
    generated shifts appear. **Run for current rotation** and **Run for
-   current rotation - dry run** do the same for the active tab only; the
+   current rotation - preview** do the same for the active tab only; the
    other rotations are read but left as they are.
 3. **Rotalator > Install nightly trigger** schedules Run every day between
    02:00 and 03:00 in the spreadsheet time zone. Installing again replaces the

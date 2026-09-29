@@ -291,14 +291,18 @@ function isSystemTab(name) {
   return name.charAt(0) === SYSTEM_TAB_PREFIX;
 }
 
-// Preview of a rotation tab, or '#Preview Global' for the #Global tab.
+// Preview tab of a rotation tab (DESIGN 3.1); #Global has none, a preview writes nothing for it.
 function previewTabName(name) {
-  return PREVIEW_TAB_PREFIX + (isSystemTab(name) ? name.slice(1) : name);
+  return PREVIEW_TAB_PREFIX + name;
+}
+
+function isPreviewTab(name) {
+  return name.indexOf(PREVIEW_TAB_PREFIX) === 0;
 }
 
 function isKnownSystemTab(name) {
   return name === HOLIDAYS_TAB || name === GLOBAL_TAB || name === STATUS_TAB || name === ALL_SHIFTS_TAB ||
-    name === HELP_TAB || extensionTabOwner(name) !== null || name.indexOf(PREVIEW_TAB_PREFIX) === 0;
+    name === HELP_TAB || extensionTabOwner(name) !== null || isPreviewTab(name);
 }
 
 // The extension that owns a reserved tab (DESIGN 8, Extensions): the core neither reads nor shapes it.
@@ -2381,8 +2385,8 @@ var HELP_TEXT = [
   '',
   'MENU:',
   'Run: regenerates every rotation and rewrites #Status and #All shifts; the nightly trigger runs this',
-  'Run - dry run: writes #Preview <rotation> tabs instead of the ledgers, plus #Status and #All shifts',
-  'Run for current rotation / Run for current rotation - dry run: the same for the active tab only',
+  'Run - preview: writes #Preview <rotation> tabs instead of the ledgers, plus #Status and #All shifts; #Global is read but not written',
+  'Run for current rotation / Run for current rotation - preview: the same for the active tab only',
   'Abort run: asks the run in progress to stop its calendar export or clean at the next event; one run at a time holds the script lock, others wait 5 s and give up',
   'Set Up Spreadsheet: creates missing tabs, formats every tab and rewrites #Help; never changes your data',
   'Set Up Tab: fills an empty tab from its template (rotation, #Holidays or #Global)',
@@ -2923,7 +2927,7 @@ function runStorage(storage, nowText, options) {
   var global = globalCells.length ? result.global.rows.map(rowToArray) : null;
   result.errors.forEach(function (e) { errors.push(describeError(e)); });
   result.status.now = nowText;
-  result.status.mode = options.mode || (options.write ? 'run' : 'dry run');
+  result.status.mode = options.mode || (options.write ? 'run' : 'preview');
   result.status.tabs = {
     rotations: Object.keys(ledgers), regenerated: result.regenerated ? Object.keys(out) : [],
     holidays: holidays.length, global: globalCount, ignored: ignored,
@@ -3061,7 +3065,8 @@ var GLOBAL_FORMAT_RULES = [
 ];
 
 // Storage interface of DESIGN 8 over the active spreadsheet. With preview set, ledgers are written to
-// '#Preview <rotation>' tabs instead of the ledger tabs. Ledgers are written as plain text only.
+// '#Preview <rotation>' tabs instead of the ledger tabs and #Global is not written at all. Ledgers are
+// written as plain text only.
 class SheetsStorage {
   constructor(spreadsheet, options) {
     this.ss = spreadsheet;
@@ -3191,14 +3196,14 @@ class SheetsStorage {
     (table.currentCells || []).forEach(function (c) { sheet.getRange(c.row + 1, c.col + 1).setBackground(COLOR_CURRENT_CELL); });
   }
 
-  // Rows below the header of a ledger-shaped tab; previews go to '#Preview <name>' with a fresh header.
+  // Rows below the header of a ledger-shaped tab. A preview goes to '#Preview <name>', rewritten with a fresh
+  // header and formatted like a rotation tab (formatTab, DESIGN 10.1), so Set Up and the writer agree.
   writeLedgerRows(name, rows) {
     var sheet;
     if (this.preview) {
       sheet = this.previewSheet(name);
       sheet.clear();
       this.writeTextRows(sheet, 1, [LEDGER_HEADER]);
-      this.formatTableRows(sheet, LEDGER_HEADER.length, { headerRows: [0] });
     } else {
       sheet = this.ss.getSheetByName(name);
       if (!sheet) return;
@@ -3206,14 +3211,16 @@ class SheetsStorage {
       if (last > 1) sheet.getRange(2, 1, last - 1, LEDGER_HEADER.length).clearContent();
     }
     this.writeTextRows(sheet, 2, rows);
+    if (this.preview) formatTab(sheet);
   }
 
   writeLedger(rotation, rows) {
     this.writeLedgerRows(rotation, rows);
   }
 
+  // A preview reads #Global as usual and writes nothing for it.
   writeGlobal(rows) {
-    this.writeLedgerRows(GLOBAL_TAB, rows);
+    if (!this.preview) this.writeLedgerRows(GLOBAL_TAB, rows);
   }
 
   // Generated tabs are cleared with their formats and rewritten; table: { rows, headerRows, dividerRows, currentCells }.
@@ -3246,9 +3253,9 @@ class SheetsStorage {
 function onOpen() {
   var menu = SpreadsheetApp.getUi().createMenu('Rotalator')
     .addItem('Run', 'run')
-    .addItem('Run - dry run', 'dryRun')
+    .addItem('Run - preview', 'previewRun')
     .addItem('Run for current rotation', 'runCurrent')
-    .addItem('Run for current rotation - dry run', 'dryRunCurrent')
+    .addItem('Run for current rotation - preview', 'previewRunCurrent')
     .addItem('Abort run', 'abortRun')
     .addSeparator()
     .addItem('Set Up Spreadsheet', 'setupSpreadsheet')
@@ -3266,10 +3273,10 @@ function onOpen() {
 function runWith(preview, rotations) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var storage = new SheetsStorage(ss, { preview: preview });
-  var options = { write: true, mode: preview ? 'dry run' : 'run' };
+  var options = { write: true, mode: preview ? 'preview' : 'run' };
   if (rotations) options.rotations = rotations;
   var result = runStorage(storage, storage.nowText, options);
-  var title = preview ? 'Rotalator dry run' : 'Rotalator';
+  var title = preview ? 'Rotalator preview' : 'Rotalator';
   var what = rotations ? rotations.join(', ') : Object.keys(result.ledgers).length + ' rotation(s)';
   var done = result.status ? what + ' ' + (preview ? 'previewed' : 'updated') + ' at ' + storage.nowText : result.errors[0];
   var warnings = result.status ? result.status.warnings.length : 0;
@@ -3320,7 +3327,7 @@ function run() {
   return withLock(function () { return runWith(false, null); });
 }
 
-function dryRun() {
+function previewRun() {
   return withLock(function () { return runWith(true, null); });
 }
 
@@ -3340,7 +3347,7 @@ function runCurrent() {
   return name === null ? null : withLock(function () { return runWith(false, [name]); });
 }
 
-function dryRunCurrent() {
+function previewRunCurrent() {
   var name = currentRotation();
   return name === null ? null : withLock(function () { return runWith(true, [name]); });
 }
@@ -3434,7 +3441,8 @@ function setConditionalRules(sheet, rules, width) {
 
 // Idempotent formatting: font and top-left alignment on the whole tab, plain text on the whole ledger columns
 // (A:G), bold grey frozen header, widths, notes and spare columns removed on tabs that have their header,
-// conditional row colours on rotation tabs and #Global, tab colour on system tabs. Never touches cell values.
+// conditional row colours on rotation tabs, their previews and #Global, tab colour on system tabs. Never
+// touches cell values.
 function formatTab(sheet) {
   var name = sheet.getName();
   var layout = tabLayout(sheet);
@@ -3457,7 +3465,7 @@ function formatTab(sheet) {
     trimColumns(sheet, width);
   }
   if (!layout.header && layout.keep) trimColumns(sheet, layout.keep);
-  if (!isSystemTab(name)) setConditionalRules(sheet, LEDGER_FORMAT_RULES, LEDGER_HEADER.length);
+  if (!isSystemTab(name) || isPreviewTab(name)) setConditionalRules(sheet, LEDGER_FORMAT_RULES, LEDGER_HEADER.length);
   if (name === GLOBAL_TAB) setConditionalRules(sheet, GLOBAL_FORMAT_RULES, LEDGER_HEADER.length);
   if (isSystemTab(name)) {
     var editable = name === HOLIDAYS_TAB || name === GLOBAL_TAB;
@@ -3589,7 +3597,7 @@ function setupTab() {
   if (isSystemTab(name) && !isKnownSystemTab(name)) { toast('"' + name + '" starts with # and is not a system tab; rename it to use it as a rotation'); return; }
   var owner = extensionTabOwner(name);
   if (owner !== null) { toast('"' + name + '" belongs to the ' + owner + ' extension; use Set Up Spreadsheet with the extension installed'); return; }
-  if (name === STATUS_TAB || name === ALL_SHIFTS_TAB || name === HELP_TAB || name.indexOf(PREVIEW_TAB_PREFIX) === 0) { toast('"' + name + '" is written by the script; nothing to fill in'); return; }
+  if (name === STATUS_TAB || name === ALL_SHIFTS_TAB || name === HELP_TAB || isPreviewTab(name)) { toast('"' + name + '" is written by the script; nothing to fill in'); return; }
   if (!isEmptySheet(sheet)) { toast('"' + name + '" is not empty; Set Up Tab only fills empty tabs'); return; }
   writeTemplate(sheet, templateFor(name, new SheetsStorage(ss)));
   formatTab(sheet);

@@ -251,12 +251,12 @@ test('status block: data from the plan, rows through the core hook', () => {
   const without = U.statusRows(result.status).rows.length;
   data.lines[0].create = 3;
   data.errors.push({ where: 'primary', message: 'calendar not found' });
-  data.mode = 'dry run';
+  data.mode = 'preview';
   result.status.ext = { gcal: data };
   const block = plain(U.gcal_status(result.status));
   assert.deepEqual(plain(U.gcal_status({ ext: { gcal: { lines: [] } } })), { rows: [['Calendar'], ['rotation', 'preset', 'calendar', 'create', 'update', 'delete', 'unchanged', 'skipped']], headerRows: [0, 1], errorRows: [], warningRows: [] }, 'errors may be omitted');
   assert.deepEqual(block, { rows: [
-    ['Calendar (dry run)'],
+    ['Calendar (preview)'],
     ['rotation', 'preset', 'calendar', 'create', 'update', 'delete', 'unchanged', 'skipped'],
     ['primary', 'team', 'team@group.calendar.google.com', '3', '0', '0', '0', '1'],
     ['primary', 'personal', 'oncall@example.com', '0', '0', '0', '0', '1'],
@@ -271,7 +271,7 @@ test('status block: data from the plan, rows through the core hook', () => {
   data.elapsed = 42;
   data.note = 'aborted after 3 event(s)';
   const noted = plain(U.gcal_status(result.status));
-  assert.deepEqual(noted.rows[0], ['Calendar (dry run)', 'elapsed', '42 s']);
+  assert.deepEqual(noted.rows[0], ['Calendar (preview)', 'elapsed', '42 s']);
   assert.equal(noted.rows.length, 6);
   assert.ok(!noted.rows.some((r) => r[0] === 'note'));
   assert.deepEqual(noted.headerRows, [0, 1, 4]);
@@ -279,9 +279,9 @@ test('status block: data from the plan, rows through the core hook', () => {
   delete data.note;
   const rows = plain(U.statusRows(result.status));
   assert.equal(rows.rows.length, without + 7);
-  assert.deepEqual(rows.rows[without + 1].slice(0, 1), ['Calendar (dry run)']);
+  assert.deepEqual(rows.rows[without + 1].slice(0, 1), ['Calendar (preview)']);
   assert.deepEqual(rows.headerRows.slice(-3), [without + 1, without + 2, without + 5]);
-  assert.match(statusText(result.status), /\nCalendar \(dry run\)\nrotation +preset +calendar +create +update +delete +unchanged +skipped\nprimary +team +team@group.calendar.google.com +3 +0 +0 +0 +1\n/);
+  assert.match(statusText(result.status), /\nCalendar \(preview\)\nrotation +preset +calendar +create +update +delete +unchanged +skipped\nprimary +team +team@group.calendar.google.com +3 +0 +0 +0 +1\n/);
 });
 
 // Mock of the CalendarApp and Utilities surface the adapter uses; tz is treated as UTC. Every mutation is
@@ -463,7 +463,7 @@ test('reconcile: all-day dates in the script zone, timed instants in the spreads
   } finally { removeMocks(); }
 });
 
-test('reconcile: dry run counts without writing; missing calendar and API failure are errors, not exceptions', () => {
+test('reconcile: dry counts without writing; missing calendar and API failure are errors, not exceptions', () => {
   const calendars = installMocks([TEAM_CAL]);
   try {
     const result = runDir(FIXTURE, null, { export: false });
@@ -506,17 +506,17 @@ test('clean: a rotation in its calendars by tag prefix, or every tagged event of
   } finally { removeMocks(); }
 });
 
-test('gcal_afterRun: exports through the runner, dry when not writing or on a dry run, skipped on export: false', () => {
+test('gcal_afterRun: exports through the runner, dry when not writing or on a preview, skipped on export: false', () => {
   const calendars = installMocks([TEAM_CAL, PERSONAL_CAL]);
   try {
     const storage = new CsvDirStorage(FIXTURE);
     const inputs = { ledgers: storage.readLedgers(), holidays: storage.readHolidays(), global: storage.readGlobal(), tabs: { '#GCal': storage.readTabRows(U.GCAL_TAB, U.PRESET_HEADER) } };
-    const dry = runStorage(new MemoryStorage(inputs), storage.readNow(), { write: true, mode: 'dry run' });
-    assert.equal(dry.status.ext.gcal.mode, 'dry run');
+    const dry = runStorage(new MemoryStorage(inputs), storage.readNow(), { write: true, mode: 'preview' });
+    assert.equal(dry.status.ext.gcal.mode, 'preview');
     assert.deepEqual(dry.status.ext.gcal.lines.map((l) => l.create), [3, 3]);
     assert.equal(calendars[TEAM_CAL].live().length, 0);
     const noWrite = runStorage(new MemoryStorage(inputs), storage.readNow());
-    assert.equal(noWrite.status.ext.gcal.mode, 'dry run');
+    assert.equal(noWrite.status.ext.gcal.mode, 'preview');
     const skipped = runStorage(new MemoryStorage(inputs), storage.readNow(), { write: true, export: false });
     assert.equal(skipped.status.ext, undefined);
     const mem = new MemoryStorage(inputs);
@@ -619,7 +619,7 @@ test('reconcile and clean stop between events on abort or budget, recording the 
     assert.equal(budget.note, 'time budget reached after 1 event(s); the next run continues');
     assert.equal(budget.elapsed, 300);
     assert.equal(calendars[TEAM_CAL].live().filter((ev) => ev.title.startsWith('x ')).length, 1);
-    // Dry runs check the guard too; nothing was written anyway.
+    // Dry passes check the guard too; nothing was written anyway.
     const dry = U.gcalReconcile(changed, U.gcalStatusData(changed), { tz: 'UTC', dry: true, guard: fakeGuard({ abortAfter: 0 }) });
     assert.equal(dry.note, 'aborted after 0 event(s)');
     // Clean stops the same way, counting deletions done.
@@ -722,8 +722,8 @@ test('in-place errors: unknown preset above the cal set row in the rotation or i
   assert.ok(!fixed.ledgers.primary.some((r) => r[2] === 'error'));
   // Without write nothing is written and the result's ledgers stay as the core produced them.
   const dry = new MemoryStorage({ ledgers: ledger(BASE + ', cal=team nope'), tabs: { '#GCal': presets } });
-  const dryRun = runStorage(dry, NOW);
-  assert.ok(!dryRun.ledgers.primary.some((r) => r[2] === 'error'));
+  const unwritten = runStorage(dry, NOW);
+  assert.ok(!unwritten.ledgers.primary.some((r) => r[2] === 'error'));
   assert.equal(dry.ledgers.primary.length, 2);
   // From #Global: the error goes above the global set row, prefixed with the rotation; two rotations, two rows.
   const global = [R('', '', 'set', 'cal=team nope'), R('', '2026-10-05T09:00', 'set', 'horizon=2w')];

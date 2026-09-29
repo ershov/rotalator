@@ -159,13 +159,13 @@ test('runner: readInputs before regenerate, afterRun after the ledgers and befor
     afterRun: (result, s, options) => {
       calls.push('afterRun');
       assert.equal(s, storage);
-      assert.equal(options.mode, 'dry run');
+      assert.equal(options.mode, 'preview');
       assert.deepEqual(plain(result.ext), { gcal: { presets: ['team'] } });
       assert.equal(Object.keys(result.ledgers).length, 1);
       result.status.ext = { gcal: { exported: 2 } };
     },
   };
-  const result = withFakeGcal(hooks, () => runStorage(storage, NOW, { write: true, mode: 'dry run' }));
+  const result = withFakeGcal(hooks, () => runStorage(storage, NOW, { write: true, mode: 'preview' }));
   assert.deepEqual(calls, ['readInputs', 'writeLedger', 'afterRun', 'writeStatus']);
   assert.deepEqual(result.ext, { gcal: { presets: ['team'] } });
   assert.deepEqual(result.status.ext, { gcal: { exported: 2 } });

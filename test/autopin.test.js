@@ -100,7 +100,7 @@ test('no autopin without now, on frozen rotations or on the error path', () => {
   assert.deepEqual(pins(broken).map((p) => p[1]).filter(Boolean), ['x']);
 });
 
-test('runner: pins land in the written ledger and in a dry run result', () => {
+test('runner: pins land in the written ledger and in a preview result', () => {
   const ledgers = { r: [SET(), TEAM, ...HISTORY] };
   const storage = new MemoryStorage({ ledgers });
   const result = runStorage(storage, NOW, { write: true });

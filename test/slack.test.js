@@ -379,7 +379,7 @@ test('status block: data from the plan, rows through the core hook', () => {
   assert.match(statusText(result.status), /Slack \(no slack\)  elapsed +0 s\nrotation +preset +due +posted +skipped +failed\nprimary +team +0/);
   delete result.status.ext;
   assert.equal(U.slack_status(result.status), null, 'nothing without status.ext.slack');
-  const filled = { ...data, mode: 'dry run', note: 'aborted after 1 message(s)', errors: [{ where: 'primary / team', message: 'channel_not_found' }] };
+  const filled = { ...data, mode: 'preview', note: 'aborted after 1 message(s)', errors: [{ where: 'primary / team', message: 'channel_not_found' }] };
   filled.lines[1].posted = 1;
   filled.groups[0].result = 'updated';
   const rows = plain(U.slack_status({ ext: { slack: filled } }));
@@ -396,7 +396,7 @@ test('status block: data from the plan, rows through the core hook', () => {
   assert.deepEqual(plain(U.slack_status({ ext: { slack: { lines: [] } } })), { rows: [['Slack'], ['rotation', 'preset', 'due', 'posted', 'skipped', 'failed']], headerRows: [0, 1], errorRows: [], warningRows: [] });
   // The rows reach #Status through the core with the error rows marked.
   const status = U.statusRows({ ...result.status, ext: { slack: filled } });
-  const start = plain(status.rows).findIndex((r) => r[0] === 'Slack (dry run)');
+  const start = plain(status.rows).findIndex((r) => r[0] === 'Slack (preview)');
   assert.ok(start > 0);
   assert.ok(plain(status.errorRows).includes(start + 9));
 });
@@ -670,7 +670,7 @@ test('afterRun live: group failure above the group row, unresolved member warned
   } finally { removeSlack(); }
 });
 
-test('afterRun live: the run guard stops between posts, the rest waits; dry run and non-writing runs make no calls; the hourly tick posts', () => {
+test('afterRun live: the run guard stops between posts, the rest waits; previews and non-writing runs make no calls; the hourly tick posts', () => {
   let abort = false;
   const { calls } = installSlack({ ...DIRECTORY, 'usergroups.users.list': { ok: true, users: [] }, 'usergroups.users.update': { ok: true }, 'chat.postMessage': () => { abort = true; return { ok: true }; } });
   U.activeRunGuard = U.runGuard({ start: 0, clock: () => 3000, aborted: () => abort });
@@ -696,15 +696,15 @@ test('afterRun live: the run guard stops between posts, the rest waits; dry run 
     assert.equal(budget.data.note, 'time budget reached after 0 message(s); the next run continues');
     assert.deepEqual(budget.storage.tabs['#Slack state'], []);
     U.activeRunGuard = null;
-    // Dry run: the block is marked, no call, no state; a run without write likewise; the tick posts without writing ledgers.
-    const dry = liveRun(BASE + ', slack=team', tabs, [], { run: { mode: 'dry run' } });
+    // Preview: the block is marked, no call, no state; a run without write likewise; the tick posts without writing ledgers.
+    const dry = liveRun(BASE + ', slack=team', tabs, [], { run: { mode: 'preview' } });
     assert.deepEqual(calls, []);
-    assert.equal(dry.data.mode, 'dry run');
+    assert.equal(dry.data.mode, 'preview');
     assert.deepEqual(dry.storage.tabs['#Slack state'], []);
     assert.deepEqual(dry.storage.tabs['#Slack'], tabs);
     const noWrite = liveRun(BASE + ', slack=team', tabs, [], { run: { write: false } });
     assert.deepEqual(calls, []);
-    assert.equal(noWrite.data.mode, 'dry run');
+    assert.equal(noWrite.data.mode, 'preview');
     const tick = liveRun(BASE + ', slack=team', tabs, [], { run: { write: false, slack: true } });
     assert.deepEqual(calls.map((c) => c.method), ['usergroups.list', 'chat.postMessage', 'chat.postMessage', 'usergroups.users.list', 'usergroups.users.update']);
     assert.equal(tick.data.mode, undefined);
@@ -727,7 +727,7 @@ test('in-place errors: the slack value errors go above the set row that carries 
   assert.deepEqual(again.storage.ledgers, mem.storage.ledgers);
   const broken = liveRun(BASE + ', slack=team broken', [...TEAM, G('broken', '', ''), G('', 'to', 'C9'), G('', 'when', 'x')]);
   assert.ok(!broken.storage.ledgers.primary.some((r) => r[2] === 'error'));
-  // From #Global, prefixed with the rotation; a dry run writes nothing.
+  // From #Global, prefixed with the rotation; a preview writes nothing.
   const viaGlobal = liveRun(BASE, TEAM, [], { global: [R('', '2026-10-05T09:00', 'set', 'slack=nope')] });
   assert.deepEqual(viaGlobal.storage.global, [ERR('2026-10-05T09:00', 'primary: unknown preset "nope" in slack; add it to #Slack'), R('', '2026-10-05T09:00', 'set', 'slack=nope')]);
   assert.ok(!viaGlobal.storage.ledgers.primary.some((r) => r[2] === 'error'));

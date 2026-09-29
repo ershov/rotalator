@@ -82,7 +82,7 @@ function runStorage(storage, nowText, options) {
   var global = globalCells.length ? result.global.rows.map(rowToArray) : null;
   result.errors.forEach(function (e) { errors.push(describeError(e)); });
   result.status.now = nowText;
-  result.status.mode = options.mode || (options.write ? 'run' : 'dry run');
+  result.status.mode = options.mode || (options.write ? 'run' : 'preview');
   result.status.tabs = {
     rotations: Object.keys(ledgers), regenerated: result.regenerated ? Object.keys(out) : [],
     holidays: holidays.length, global: globalCount, ignored: ignored,

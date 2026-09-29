@@ -1,4 +1,4 @@
-Rotalator  dry run  2026-09-08T10:00
+Rotalator  preview  2026-09-08T10:00
 
 Tabs
 rotations    primary

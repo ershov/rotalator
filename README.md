@@ -34,7 +34,7 @@ Setup and deployment are in [INSTALL.md](INSTALL.md). The design is in
 | `#Status` | script | Recognised tabs, scores, last and next shifts, exclusions, warnings. Rewritten on every run. |
 | `#All shifts` | script | Every shift of every rotation in one table. Rewritten on every run. |
 | `#Help` | script | Plain-text help on columns, rows, settings, intervals, relations and the menu. Rewritten by Set Up Spreadsheet and kept as the last tab. |
-| `#Preview <rotation>`, `#Preview Global` | script | Output of a dry run. |
+| `#Preview <rotation>` | script | Output of a preview: the ledger a run would write, formatted like the rotation tab. |
 | `#Global` | users and script | Spreadsheet-wide `set` defaults and relations between rotations, see below. The script adds `error` rows. |
 | `#GCal` | users | Calendar presets for the Google Calendar extension. Reserved: the core leaves it alone. |
 | `#Slack`, `#Slack state` | users and script | Slack presets and cached ids, and what the Slack extension has posted. Reserved: the core leaves them alone. |
@@ -294,12 +294,12 @@ INSTALL.md).
 
 - **Run** regenerates every rotation and rewrites `#Status` and
   `#All shifts`. This is what the nightly trigger runs.
-- **Run - dry run** writes `#Preview <rotation>` tabs instead of the ledgers,
-  plus the status tabs.
-- **Run for current rotation** and its dry run variant do the same for the
-  active tab only; the other rotations are read but not written. The dry run
-  writes that rotation's preview, `#Preview Global` when a `#Global` tab
-  exists, and the status tabs. The active tab must be a rotation tab.
+- **Run - preview** writes `#Preview <rotation>` tabs instead of the
+  ledgers, plus the status tabs; `#Global` is read but not written.
+- **Run for current rotation** and its preview variant do the same for the
+  active tab only; the other rotations are read but not written. The preview
+  writes that rotation's preview tab and the status tabs. The active tab must
+  be a rotation tab.
 - **Abort run** asks the run in progress to stop: its calendar export or
   clean stops within a few seconds, at the next event, and says so in
   `#Status` and in a toast; with no run in progress it only says so. The
@@ -312,7 +312,7 @@ INSTALL.md).
   its token, connection check, test message and hourly trigger items (see
   below).
 
-One run at a time: every run, dry run, re-export and clean, the nightly
+One run at a time: every run, preview, re-export and clean, the nightly
 trigger, the Slack connection check, test message and hourly trigger,
 **Fill Shifts Grid** and **Set Up Spreadsheet** take a script lock. The
 token items and the trigger installers take none.
@@ -377,14 +377,15 @@ delete the `snapshot` row to replay everything from the top.
 **Pause a rotation.** Rename its tab to `#<rotation>`. It is skipped until
 renamed back.
 
-**Preview.** Use `Rotalator > Run - dry run` or `Run for current rotation
-- dry run`. They write `#Preview <rotation>` tabs, `#Status` and `#All
-shifts` and leave the ledgers untouched. A missing
-preview tab is created right after its rotation tab.
+**Preview.** Use `Rotalator > Run - preview` or `Run for current rotation
+- preview`. They write `#Preview <rotation>` tabs, `#Status` and `#All
+shifts` and leave the ledgers and `#Global` untouched. A missing preview tab
+is created right after its rotation tab; it looks like the rotation tab,
+same header, widths and row colours.
 
 ## #Status and #All shifts tabs
 
-`#Status` starts with the run instant and mode (`run` or `dry run`), then a
+`#Status` starts with the run instant and mode (`run` or `preview`), then a
 `Tabs` block: the rotations found, the rotations regenerated in this run, the
 number of holidays and `#Global` rows read, and the tabs ignored (a disabled
 `#<rotation>` appears there). With several rotations and at least one
@@ -412,8 +413,8 @@ at which any rotation changes hands: the cell holds who starts then, `-` for
 a shift with nobody, and stays empty for rotations that do not change at that
 instant. A `--now--` row separates past from future, and the cell of each
 rotation's current shift is highlighted. Columns are sized to their content,
-at least 120px wide. Both tabs are rewritten by every run, including dry
-runs.
+at least 120px wide. Both tabs are rewritten by every run, previews
+included.
 
 ## Global defaults and relations between rotations
 
@@ -478,7 +479,7 @@ A relation row that names a rotation without a tab (or a disabled `#` tab),
 names its own rotation or a rotation twice, or has a malformed `what` gets an
 `error` row above it and is ignored. Unlike ledger errors and malformed
 global `set` rows, this does not stop the run. `#Global` is written back
-sorted; a dry run writes `#Preview Global`.
+sorted; a preview leaves it alone.
 
 ## What the script never touches
 
@@ -571,7 +572,7 @@ rotation). Each run exports the shifts from the stored snapshot to the
 horizon end: new shifts are created, changed ones updated (only the fields
 that differ, no new invitations), events of shifts that no longer exist
 deleted; events the script did not create are never touched, and shifts with
-nobody get no event. A dry run computes the counts without touching the
+nobody get no event. A preview computes the counts without touching the
 calendars. The `#Status` tab gets a `Calendar` block with the counts per
 rotation and preset (`create`, `update`, `delete`, `unchanged`, `skipped`)
 and any calendar errors, which never stop the ledger run. Without the

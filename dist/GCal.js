@@ -610,7 +610,7 @@ function gcalTicker(action) {
   };
 }
 
-// Hook (DESIGN 8, Extensions): after a run without errors, export the regenerated rotations. A dry run, or a
+// Hook (DESIGN 8, Extensions): after a run without errors, export the regenerated rotations. A preview, or a
 // run that does not write, computes the counts only; without CalendarApp (Node) the plan is recorded as is.
 // The status gets a Calendar block when a rotation uses cal or the presets have errors. options.export ===
 // false leaves the export to the caller (the menu actions run the scheduler without writing).
@@ -618,10 +618,10 @@ function gcal_afterRun(result, storage, options) {
   if (options.export === false) return;
   var plan = gcalPlan(result, result.ext.gcal, {});
   var data = gcalStatusData(plan);
-  var dry = !options.write || options.mode === 'dry run';
+  var dry = !options.write || options.mode === 'preview';
   if (typeof CalendarApp === 'undefined') { data.mode = 'no calendar'; data.elapsed = currentRunGuard().elapsedSeconds(); }
   else {
-    if (dry) data.mode = 'dry run';
+    if (dry) data.mode = 'preview';
     if (plan.events.length) gcalAnnounce(plan);
     gcalReconcile(plan, data, { tz: storage.tz, dry: dry, progress: gcalProgress, ticker: gcalTicker('exporting') });
   }
