@@ -209,29 +209,6 @@ function gcalReconcile(plan, data, options) {
   return gcalFinish(data, stopper, done, 'event(s)', guard);
 }
 
-// In-place error rows for the plan errors the cal value causes (DESIGN 6): above the set row that carries cal
-// in the rotation tab, or in #Global (prefixed with the rotation) when the value comes from there. Written
-// only when the run writes; the core drops error rows on its next read. The result's cells are updated too,
-// so the CLI prints them.
-function gcalWriteCalErrors(result, storage, plan, options) {
-  if (!options.write) return;
-  var byTarget = {};
-  plan.errors.filter(function (e) { return e.setting === 'cal'; }).forEach(function (e) {
-    var rot = result.status.rotations.find(function (r) { return r.name === e.rotation; });
-    var cal = rot && rot.settings.values.find(function (s) { return s.key === 'cal'; });
-    var global = Boolean(cal && cal.source === 'global');
-    var target = global ? GLOBAL_TAB : e.rotation;
-    (byTarget[target] = byTarget[target] || []).push(global ? e.rotation + ': ' + e.message : e.message);
-  });
-  Object.keys(byTarget).forEach(function (target) {
-    var global = target === GLOBAL_TAB;
-    var cells = global ? result.global : result.ledgers[target];
-    var out = cells ? gcalCellsWithCalErrors(cells, result.status.at, byTarget[target]) : null;
-    if (!out) return;
-    if (global) { result.global = out; storage.writeGlobal(out); } else { result.ledgers[target] = out; storage.writeLedger(target, out); }
-  });
-}
-
 // In-place error rows for calendars that could not be opened or failed (DESIGN 13.4): above the preset's id
 // row in #GCal (the preset row when it has none), on top of the parse errors already there, wherever the
 // storage can write.
@@ -327,7 +304,8 @@ function gcal_afterRun(result, storage, options) {
     if (plan.events.length) gcalAnnounce(plan);
     gcalReconcile(plan, data, { tz: storage.tz, dry: dry, progress: gcalProgress, ticker: gcalTicker('exporting') });
   }
-  gcalWriteCalErrors(result, storage, plan, options);
+  // The cal value's own errors go above its set row, only when the run writes (DESIGN 6).
+  if (options.write) writeSettingErrors(result, storage, plan.errors, 'cal');
   gcalWriteCalendarErrors(storage, result.ext.gcal, data);
   // The extension's errors count as errors of the run and a stop note as a warning (DESIGN 6, 10.4).
   data.errors.forEach(function (e) { result.errors.push('GCal ' + e.where + ': ' + e.message); });

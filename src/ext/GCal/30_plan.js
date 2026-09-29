@@ -47,31 +47,6 @@ function gcalRotationPresets(cal, inputs, rotation, errors) {
   return out;
 }
 
-// Index in the written cells (sorted ledger or #Global rows) of the set row that put cal in force at now:
-// the last set row at or before now, epoch rows included, whose what sets cal.
-function gcalCalRowIndex(cells, now) {
-  var found = -1;
-  cells.forEach(function (c, i) {
-    var row = rowFromArray(c, i + 2);
-    if (row.type !== 'set' || row.start === null) return;
-    if (now !== null && now !== undefined && row.start > now) return;
-    var parsed = parseSetArg(row.what, row.start);
-    if (parsed.error === null && 'cal' in parsed.values && parsed.reset.indexOf('cal') < 0) found = i;
-  });
-  return found;
-}
-
-// The cells with an error row above the cal set row for each message (same start, so the ledger order keeps
-// it there); null when no such row exists.
-function gcalCellsWithCalErrors(cells, now, messages) {
-  var i = gcalCalRowIndex(cells, now);
-  if (i < 0) return null;
-  var out = cells.slice();
-  var rows = messages.map(function (m) { return rowToArray(makeRow({ type: 'error', startText: cells[i][1], what: m })); });
-  out.splice.apply(out, [i, 0].concat(rows));
-  return out;
-}
-
 // Export window [from, to): from the stored snapshot the run started at (everything after it may have
 // changed) to horizonEnd; without a stored snapshot, or when repairing, from the rotation's first shift.
 function gcalWindow(rot, shifts, repair) {

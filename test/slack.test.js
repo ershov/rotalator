@@ -449,3 +449,288 @@ test('golden slack fixture: plan, state rows and CLI', () => {
   assert.match(fs.readFileSync(path.join(dir, 'slack.csv'), 'utf8'), /\n,error,"bad value for when: ""soon""[^\n]*\n,when,soon\n$/);
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+// Mock of the UrlFetchApp, PropertiesService and Utilities surface the adapter uses. handlers: method to a
+// response body, or a function (params, calls) giving one; a body with `status` other than 200 stands for an
+// HTTP failure with its `headers`. Every call is logged as { method, params, request }.
+function installSlack(handlers, token = 'xoxb-test') {
+  const calls = [];
+  const sleeps = [];
+  U.UrlFetchApp = { fetch: (url, request) => {
+    const method = url.slice('https://slack.com/api/'.length);
+    const params = Object.fromEntries(new URLSearchParams(request.payload));
+    calls.push({ method, params, request });
+    const h = handlers[method];
+    const body = typeof h === 'function' ? h(params, calls) : (h ?? { ok: false, error: 'unknown_method' });
+    const status = body.status ?? 200;
+    return {
+      getResponseCode: () => status,
+      getHeaders: () => body.headers ?? {},
+      getContentText: () => (body.text !== undefined ? body.text : JSON.stringify(status === 200 ? body : { ok: false, error: 'ratelimited' })),
+    };
+  } };
+  U.PropertiesService = { getScriptProperties: () => ({ getProperty: (key) => (key === 'rotalator.slack.token' ? token : null) }) };
+  U.Utilities = { sleep: (ms) => sleeps.push(ms) };
+  return { calls, sleeps };
+}
+function removeSlack() { delete U.UrlFetchApp; delete U.PropertiesService; delete U.Utilities; }
+const DIRECTORY = {
+  'conversations.list': (p) => (p.cursor ? { ok: true, channels: [{ id: 'C0CHAN', name: 'chan' }] } : { ok: true, channels: [{ id: 'C0OTHER', name: 'other' }], response_metadata: { next_cursor: 'p2' } }),
+  'users.lookupByEmail': (p) => (p.email === 'dave@example.com' ? { ok: true, user: { id: 'U0DAVE' } } : { ok: false, error: 'users_not_found' }),
+  'usergroups.list': { ok: true, usergroups: [{ id: 'S0ON', handle: 'oncall' }] },
+  'chat.postMessage': { ok: true, ts: '1' },
+};
+const IDS = [G('alice', 'id', 'U0A'), G('bob', 'id', 'U0B')];
+// A live run in memory: write by default, the #Slack rows given, the state rows given.
+function liveRun(set, tabs, state = [], options = {}) {
+  const storage = new MemoryStorage({ ledgers: options.ledgers || ledger(set), global: options.global || [], tabs: { '#Slack': tabs, '#Slack state': state } });
+  const result = runStorage(storage, options.now || NOW, { write: true, ...(options.run || {}) });
+  return { result, storage, data: result.status?.ext?.slack ? plain(result.status.ext.slack) : null };
+}
+
+test('slackApi: request shape, bearer token, ok:false mapping with hints, 429 retried once, no token', () => {
+  let refusals = 0;
+  const { calls, sleeps } = installSlack({
+    'chat.postMessage': (p) => (p.channel === 'C1' ? { ok: true, ts: '1.2' } : { ok: false, error: p.channel }),
+    'usergroups.users.update': () => (refusals++ < 1 ? { status: 429, headers: { 'Retry-After': '7' } } : { ok: true }),
+    'usergroups.users.list': { status: 429, headers: {} },
+    'auth.test': { status: 500, text: 'gateway' },
+  });
+  try {
+    assert.deepEqual(plain(U.slackApi('chat.postMessage', { channel: 'C1', text: 'a & b=c', unset: undefined, gone: null })), { ok: true, ts: '1.2' });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].request.method, 'post');
+    assert.equal(calls[0].request.contentType, 'application/x-www-form-urlencoded');
+    assert.deepEqual(plain(calls[0].request.headers), { Authorization: 'Bearer xoxb-test' });
+    assert.equal(calls[0].request.muteHttpExceptions, true);
+    assert.equal(calls[0].request.payload, 'channel=C1&text=a%20%26%20b%3Dc');
+    assert.throws(() => U.slackApi('chat.postMessage', { channel: 'channel_not_found' }), { message: 'chat.postMessage: channel_not_found' });
+    assert.throws(() => U.slackApi('chat.postMessage', { channel: 'not_in_channel' }), { message: 'chat.postMessage: not_in_channel; invite the bot to the channel or grant chat:write.public' });
+    assert.throws(() => U.slackApi('chat.postMessage', { channel: 'invalid_auth' }), { message: 'chat.postMessage: invalid_auth; set the bot token with Set Slack token' });
+    // 429: sleep Retry-After seconds, retry once, succeed.
+    assert.deepEqual(plain(U.slackApi('usergroups.users.update', { usergroup: 'S1', users: 'U1,U2' })), { ok: true });
+    assert.deepEqual(sleeps, [7000]);
+    assert.deepEqual(calls.slice(-2).map((c) => c.params), [{ usergroup: 'S1', users: 'U1,U2' }, { usergroup: 'S1', users: 'U1,U2' }]);
+    // Refused twice: one second by default, then the failure.
+    assert.throws(() => U.slackApi('usergroups.users.list', { usergroup: 'S1' }), { message: 'usergroups.users.list: ratelimited' });
+    assert.deepEqual(sleeps, [7000, 1000]);
+    assert.equal(calls.length, 8);
+    assert.throws(() => U.slackApi('auth.test'), { message: 'auth.test: HTTP 500' });
+    assert.equal(calls[calls.length - 1].request.payload, '');
+    // Without a token nothing is fetched.
+    installSlack({}, null);
+    assert.throws(() => U.slackApi('auth.test'), { message: 'auth.test: no Slack token; set the bot token with Set Slack token' });
+  } finally { removeSlack(); }
+});
+
+test('resolver: ids as they are, lookups cached as id rows in lookup order, listings fetched once, unresolved forms', () => {
+  const { calls } = installSlack(DIRECTORY);
+  try {
+    const r = U.slackResolver({ alice: 'U0A', '#cached': 'C9' });
+    assert.equal(r.resolve('U1'), 'U1');
+    assert.equal(r.resolve('W1'), 'W1');
+    assert.equal(r.resolve('C1'), 'C1');
+    assert.equal(r.resolve('G1'), 'G1');
+    assert.equal(r.resolve('S1'), 'S1');
+    assert.equal(r.resolve('alice'), 'U0A');
+    assert.equal(r.resolve('#cached'), 'C9');
+    assert.equal(r.resolve('bob'), null, 'a bare member id needs an id row');
+    assert.deepEqual(calls, []);
+    assert.equal(r.resolve('dave@example.com'), 'U0DAVE');
+    assert.deepEqual(calls.map((c) => [c.method, c.params]), [['users.lookupByEmail', { email: 'dave@example.com' }]]);
+    assert.equal(r.resolve('dave@example.com'), 'U0DAVE');
+    assert.equal(calls.length, 1, 'cached');
+    assert.equal(r.resolve('#chan'), 'C0CHAN');
+    assert.deepEqual(calls.slice(1).map((c) => c.params), [
+      { types: 'public_channel,private_channel', exclude_archived: 'true', limit: '1000' },
+      { types: 'public_channel,private_channel', exclude_archived: 'true', limit: '1000', cursor: 'p2' },
+    ]);
+    assert.equal(r.resolve('#other'), 'C0OTHER');
+    assert.equal(r.resolve('#nope'), null);
+    assert.equal(calls.length, 3, 'the channel listing is fetched once');
+    assert.equal(r.resolve('@oncall'), 'S0ON');
+    assert.equal(r.resolve('@nope'), null);
+    assert.deepEqual(calls.slice(3).map((c) => c.method), ['usergroups.list']);
+    assert.throws(() => r.resolve('zed@example.com'), { message: 'users.lookupByEmail: users_not_found' });
+    assert.deepEqual(plain(r.rows()), [['dave@example.com', 'id', 'U0DAVE'], ['#chan', 'id', 'C0CHAN'], ['#other', 'id', 'C0OTHER'], ['@oncall', 'id', 'S0ON']]);
+    assert.equal(U.slackUnresolvedMessage('#x'), 'channel "#x" not found; use its id, or invite the bot when it is private');
+    assert.equal(U.slackUnresolvedMessage('@x'), 'user group "@x" not found');
+    assert.equal(U.slackUnresolvedMessage('bob'), 'member "bob" has no Slack id; add a row "bob | id | U..."');
+    assert.deepEqual(plain(U.slackResolver(null).rows()), []);
+  } finally { removeSlack(); }
+});
+
+test('afterRun live: posts to a channel and a person with mentions, writes the state and the id rows, group compared then updated', () => {
+  let members = ['U0B'];
+  const { calls } = installSlack({ ...DIRECTORY, 'usergroups.users.list': () => ({ ok: true, users: members }), 'usergroups.users.update': (p) => { members = p.users.split(','); return { ok: true }; } });
+  try {
+    const MENTION = [G('team', '', 'note'), G('', 'to', '#chan, {who}'), G('', 'text', '{who} on, {prev} off, {group}'), G('', 'group', '@oncall')];
+    const tabs = [...MENTION, ...IDS];
+    const { result, storage, data } = liveRun(BASE + ', slack=team', tabs);
+    assert.deepEqual(result.errors, []);
+    assert.deepEqual(calls.map((c) => [c.method, c.params]), [
+      ['conversations.list', { types: 'public_channel,private_channel', exclude_archived: 'true', limit: '1000' }],
+      ['conversations.list', { types: 'public_channel,private_channel', exclude_archived: 'true', limit: '1000', cursor: 'p2' }],
+      ['usergroups.list', {}],
+      ['chat.postMessage', { channel: 'C0CHAN', text: '<@U0A> on,  off, <!subteam^S0ON>' }],
+      ['chat.postMessage', { channel: 'U0A', text: '<@U0A> on,  off, <!subteam^S0ON>' }],
+      ['usergroups.users.list', { usergroup: 'S0ON' }],
+      ['usergroups.users.update', { usergroup: 'S0ON', users: 'U0A' }],
+    ]);
+    assert.deepEqual(data, {
+      lines: [{ rotation: 'primary', preset: 'team', due: 2, posted: 2, skipped: 0, failed: 0 }],
+      groups: [{ group: '@oncall', rotations: ['primary'], members: ['alice'], result: 'updated' }],
+      errors: [], elapsed: 0,
+    });
+    assert.deepEqual(storage.tabs['#Slack state'], [
+      ['primary', 'team', '#chan', '2026-10-05T09:00', 'alice', NOW],
+      ['primary', 'team', 'alice', '2026-10-05T09:00', 'alice', NOW],
+    ]);
+    assert.deepEqual(storage.tabs['#Slack'], [...tabs, G('#chan', 'id', 'C0CHAN'), G('@oncall', 'id', 'S0ON')]);
+    assert.deepEqual(result.status.warnings, []);
+    // The next run from the written tabs: no lookups, nothing due, the group unchanged, nothing written.
+    calls.length = 0;
+    const again = liveRun(null, storage.tabs['#Slack'], storage.tabs['#Slack state'], { ledgers: storage.ledgers });
+    assert.deepEqual(calls.map((c) => c.method), ['usergroups.users.list']);
+    assert.deepEqual(again.data.lines, [{ rotation: 'primary', preset: 'team', due: 0, posted: 0, skipped: 0, failed: 0 }]);
+    assert.equal(again.data.groups[0].result, 'unchanged');
+    assert.deepEqual(again.storage.tabs, storage.tabs);
+  } finally { removeSlack(); }
+});
+
+test('afterRun live: a failed post is not recorded and is retried next run; errors above the to row; unresolved destinations', () => {
+  const handlers = { ...DIRECTORY, 'chat.postMessage': (p) => (p.channel === 'C0CHAN' ? { ok: false, error: 'not_in_channel' } : { ok: true }) };
+  const { calls } = installSlack(handlers);
+  try {
+    const TWO = [G('team', '', ''), G('', 'to', '#chan, U0X'), G('heads', '', ''), G('', 'to', '{who}, {next}, zed@example.com')];
+    const first = liveRun(BASE + ', slack=team heads', TWO);
+    assert.deepEqual(first.result.errors, [
+      'Slack primary / team: chat.postMessage: not_in_channel; invite the bot to the channel or grant chat:write.public',
+      'Slack primary / heads: member "alice" has no Slack id; add a row "alice | id | U..."',
+      'Slack primary / heads: member "bob" has no Slack id; add a row "bob | id | U..."',
+      'Slack primary / heads: users.lookupByEmail: users_not_found',
+    ]);
+    assert.deepEqual(first.data.lines, [
+      { rotation: 'primary', preset: 'team', due: 2, posted: 1, skipped: 0, failed: 1 },
+      { rotation: 'primary', preset: 'heads', due: 3, posted: 0, skipped: 0, failed: 3 },
+    ]);
+    assert.deepEqual(first.storage.tabs['#Slack state'], [['primary', 'team', 'U0X', '2026-10-05T09:00', 'alice', NOW]], 'the success only');
+    assert.deepEqual(first.storage.tabs['#Slack'], [
+      G('team', '', ''),
+      G('', 'error', 'chat.postMessage: not_in_channel; invite the bot to the channel or grant chat:write.public (primary / team)'),
+      G('', 'to', '#chan, U0X'),
+      G('heads', '', ''),
+      G('', 'error', 'member "alice" has no Slack id; add a row "alice | id | U..." (primary / heads)'),
+      G('', 'error', 'member "bob" has no Slack id; add a row "bob | id | U..." (primary / heads)'),
+      G('', 'error', 'users.lookupByEmail: users_not_found (primary / heads)'),
+      G('', 'to', '{who}, {next}, zed@example.com'),
+      G('#chan', 'id', 'C0CHAN'),
+    ]);
+    assert.equal(calls.filter((c) => c.method === 'chat.postMessage').length, 2, 'unresolved destinations make no post');
+    // Next run: the bot is in the channel and alice has an id row; the failed ones are still due, U0X is not.
+    handlers['chat.postMessage'] = { ok: true };
+    calls.length = 0;
+    const second = liveRun(null, [...first.storage.tabs['#Slack'], G('alice', 'id', 'U0A')], first.storage.tabs['#Slack state'], { ledgers: first.storage.ledgers });
+    assert.deepEqual(calls.filter((c) => c.method === 'chat.postMessage').map((c) => c.params.channel), ['C0CHAN', 'U0A']);
+    assert.deepEqual(second.result.errors, [
+      'Slack primary / heads: member "bob" has no Slack id; add a row "bob | id | U..."',
+      'Slack primary / heads: users.lookupByEmail: users_not_found',
+    ]);
+    assert.deepEqual(second.storage.tabs['#Slack state'].map((r) => r[2]), ['alice', '#chan', 'U0X']);
+    assert.equal(second.storage.tabs['#Slack'].filter((r) => r[1] === 'error').length, 2, 'error rows recomputed');
+  } finally { removeSlack(); }
+});
+
+test('afterRun live: group failure above the group row, unresolved member warned, empty group left alone, no update when equal', () => {
+  const handlers = { ...DIRECTORY, 'usergroups.users.list': { ok: true, users: ['U0A', 'U0B'] }, 'usergroups.users.update': { ok: false, error: 'permission_denied' } };
+  const { calls } = installSlack(handlers);
+  try {
+    const GROUPS = [G('team', '', ''), G('', 'to', 'C1'), G('', 'group', '@oncall'), G('two', '', ''), G('', 'group', 'S0TWO'), G('', 'to', 'C2')];
+    const two = { primary: ledger(BASE + ', slack=team').primary, secondary: [R('', '2026-10-05T09:00', 'set', BASE + ', slack=two'), R('', '2026-10-05T09:00', 'team', 'erin')] };
+    const run = liveRun(null, [...GROUPS, ...IDS], [], { ledgers: two });
+    assert.deepEqual(run.result.errors, ['Slack group @oncall: usergroups.users.update: permission_denied']);
+    assert.deepEqual(run.data.groups.map((g) => [g.group, g.members, g.result]), [['@oncall', ['alice'], 'failed'], ['S0TWO', ['erin'], '']]);
+    assert.deepEqual(run.result.status.warnings.map((w) => [w.rotation, w.message]), [['Slack', 'group S0TWO: member "erin" has no Slack id; add a row "erin | id | U..."'], ['Slack', 'group S0TWO: no member has a Slack id, left as it is']]);
+    assert.deepEqual(run.storage.tabs['#Slack'].slice(0, 3), [G('team', '', ''), G('', 'to', 'C1'), G('', 'error', 'usergroups.users.update: permission_denied (group @oncall)')]);
+    assert.deepEqual(calls.filter((c) => c.method.startsWith('usergroups.users')).map((c) => c.params), [{ usergroup: 'S0ON' }, { usergroup: 'S0ON', users: 'U0A' }]);
+    // Equal membership in any order: compared, not updated.
+    calls.length = 0;
+    handlers['usergroups.users.list'] = { ok: true, users: ['U0B', 'U0A'] };
+    const pair = liveRun(null, [...GROUPS, ...IDS], [], { ledgers: { ...two, primary: ledger(BASE + ', slack=team', 'alice').primary, secondary: [R('', '2026-10-05T09:00', 'set', BASE + ', slack=team'), R('', '2026-10-05T09:00', 'team', 'bob')] } });
+    assert.deepEqual(pair.data.groups, [{ group: '@oncall', rotations: ['primary', 'secondary'], members: ['alice', 'bob'], result: 'unchanged' }]);
+    assert.deepEqual(calls.filter((c) => c.method.startsWith('usergroups.users')).map((c) => c.method), ['usergroups.users.list']);
+    // Nobody on call: the plan's warning, no group call at all.
+    calls.length = 0;
+    const gap = ledger(BASE + ', slack=team');
+    gap.primary.push(R('x', '2026-10-05T09:00', 'shift', '-'));
+    const empty = liveRun(null, [...GROUPS.slice(0, 3), ...IDS], [], { ledgers: gap });
+    assert.deepEqual(calls, []);
+    assert.equal(empty.data.groups[0].result, '');
+    assert.deepEqual(empty.result.status.warnings.map((w) => w.message), ['group @oncall: nobody on call in primary', 'group @oncall: nobody on call, left as it is']);
+  } finally { removeSlack(); }
+});
+
+test('afterRun live: the run guard stops between posts, the rest waits; dry run and non-writing runs make no calls; the hourly tick posts', () => {
+  let abort = false;
+  const { calls } = installSlack({ ...DIRECTORY, 'usergroups.users.list': { ok: true, users: [] }, 'usergroups.users.update': { ok: true }, 'chat.postMessage': () => { abort = true; return { ok: true }; } });
+  U.activeRunGuard = U.runGuard({ start: 0, clock: () => 3000, aborted: () => abort });
+  try {
+    const tabs = [...TEAM, G('', 'to', 'C1, C2'), ...IDS];
+    tabs.splice(1, 1);
+    const stopped = liveRun(BASE + ', slack=team', tabs);
+    // The group handle is resolved for the text's values before the first post; the guard is asked from then on.
+    assert.deepEqual(calls.map((c) => c.method), ['usergroups.list', 'chat.postMessage']);
+    assert.deepEqual(stopped.data.lines, [{ rotation: 'primary', preset: 'team', due: 2, posted: 1, skipped: 0, failed: 0 }]);
+    assert.equal(stopped.data.note, 'aborted after 1 message(s)');
+    assert.equal(stopped.data.elapsed, 3);
+    assert.equal(stopped.data.groups[0].result, '', 'the group waits too');
+    assert.deepEqual(stopped.result.status.warnings.map((w) => [w.rotation, w.message]), [['Slack', 'aborted after 1 message(s)']]);
+    assert.deepEqual(stopped.storage.tabs['#Slack state'].map((r) => r[2]), ['C1']);
+    assert.deepEqual(stopped.result.errors, []);
+    // Budget already used: nothing posted, the note says so.
+    abort = false;
+    calls.length = 0;
+    U.activeRunGuard = U.runGuard({ start: 0, budgetSeconds: 1, clock: () => 5000 });
+    const budget = liveRun(BASE + ', slack=team', tabs);
+    assert.deepEqual(calls, []);
+    assert.equal(budget.data.note, 'time budget reached after 0 message(s); the next run continues');
+    assert.deepEqual(budget.storage.tabs['#Slack state'], []);
+    U.activeRunGuard = null;
+    // Dry run: the block is marked, no call, no state; a run without write likewise; the tick posts without writing ledgers.
+    const dry = liveRun(BASE + ', slack=team', tabs, [], { run: { mode: 'dry run' } });
+    assert.deepEqual(calls, []);
+    assert.equal(dry.data.mode, 'dry run');
+    assert.deepEqual(dry.storage.tabs['#Slack state'], []);
+    assert.deepEqual(dry.storage.tabs['#Slack'], tabs);
+    const noWrite = liveRun(BASE + ', slack=team', tabs, [], { run: { write: false } });
+    assert.deepEqual(calls, []);
+    assert.equal(noWrite.data.mode, 'dry run');
+    const tick = liveRun(BASE + ', slack=team', tabs, [], { run: { write: false, slack: true } });
+    assert.deepEqual(calls.map((c) => c.method), ['usergroups.list', 'chat.postMessage', 'chat.postMessage', 'usergroups.users.list', 'usergroups.users.update']);
+    assert.equal(tick.data.mode, undefined);
+    assert.deepEqual(tick.data.lines[0].posted, 2);
+    assert.deepEqual(tick.storage.tabs['#Slack state'].map((r) => r[2]), ['C1', 'C2']);
+    assert.deepEqual(tick.storage.ledgers, ledger(BASE + ', slack=team'), 'the tick leaves the ledgers alone');
+    assert.equal(tick.storage.status, null);
+    assert.equal(liveRun(BASE + ', slack=team', tabs, [], { run: { slack: false } }).data, null);
+  } finally { U.activeRunGuard = null; removeSlack(); }
+});
+
+test('in-place errors: the slack value errors go above the set row that carries slack, in the ledger or #Global', () => {
+  const ERR = (start, what) => R('', start, 'error', what);
+  const mem = liveRun(BASE + ', slack=team nope', TEAM);
+  assert.deepEqual(mem.result.errors, ['Slack primary: unknown preset "nope" in slack; add it to #Slack']);
+  assert.deepEqual(mem.storage.ledgers.primary.slice(0, 2), [ERR('2026-10-05T09:00', 'unknown preset "nope" in slack; add it to #Slack'), R('', '2026-10-05T09:00', 'set', BASE + ', slack=team nope')]);
+  assert.deepEqual(mem.result.ledgers.primary, mem.storage.ledgers.primary);
+  // The second run drops and rewrites it identically; a preset with its own errors is not repeated here.
+  const again = liveRun(null, TEAM, [], { ledgers: mem.storage.ledgers });
+  assert.deepEqual(again.storage.ledgers, mem.storage.ledgers);
+  const broken = liveRun(BASE + ', slack=team broken', [...TEAM, G('broken', '', ''), G('', 'to', 'C9'), G('', 'when', 'x')]);
+  assert.ok(!broken.storage.ledgers.primary.some((r) => r[2] === 'error'));
+  // From #Global, prefixed with the rotation; a dry run writes nothing.
+  const viaGlobal = liveRun(BASE, TEAM, [], { global: [R('', '2026-10-05T09:00', 'set', 'slack=nope')] });
+  assert.deepEqual(viaGlobal.storage.global, [ERR('2026-10-05T09:00', 'primary: unknown preset "nope" in slack; add it to #Slack'), R('', '2026-10-05T09:00', 'set', 'slack=nope')]);
+  assert.ok(!viaGlobal.storage.ledgers.primary.some((r) => r[2] === 'error'));
+  const dry = liveRun(BASE + ', slack=nope', TEAM, [], { run: { write: false } });
+  assert.ok(!dry.storage.ledgers.primary.some((r) => r[2] === 'error'));
+});

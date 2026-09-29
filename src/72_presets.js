@@ -111,6 +111,47 @@ function presetRowsWithErrors(rows, errors) {
   return out;
 }
 
+// The cells (sorted ledger or #Global rows) with an error row for each message above the set row that put
+// `key` in force at now: the last set row at or before now whose what sets it, same start so the ledger order
+// keeps it there; null when no such row exists.
+function cellsWithSettingErrors(cells, now, key, messages) {
+  var found = -1;
+  cells.forEach(function (c, i) {
+    var row = rowFromArray(c, i + 2);
+    if (row.type !== 'set' || row.start === null) return;
+    if (now !== null && now !== undefined && row.start > now) return;
+    var parsed = parseSetArg(row.what, row.start);
+    if (parsed.error === null && key in parsed.values && parsed.reset.indexOf(key) < 0) found = i;
+  });
+  if (found < 0) return null;
+  var out = cells.slice();
+  var rows = messages.map(function (m) { return rowToArray(makeRow({ type: 'error', startText: cells[found][1], what: m })); });
+  out.splice.apply(out, [found, 0].concat(rows));
+  return out;
+}
+
+// In-place error rows for the plan errors an extension's setting value causes (DESIGN 6): the errors with
+// `setting` equal to key go above the set row that carries it in the rotation tab, or in #Global (prefixed
+// with the rotation) when the value comes from there. The result's cells are updated too, so the CLI prints
+// them; the core drops error rows on its next read.
+function writeSettingErrors(result, storage, errors, key) {
+  var byTarget = {};
+  errors.filter(function (e) { return e.setting === key; }).forEach(function (e) {
+    var rot = result.status.rotations.find(function (r) { return r.name === e.rotation; });
+    var setting = rot && rot.settings.values.find(function (s) { return s.key === key; });
+    var global = Boolean(setting && setting.source === 'global');
+    var target = global ? GLOBAL_TAB : e.rotation;
+    (byTarget[target] = byTarget[target] || []).push(global ? e.rotation + ': ' + e.message : e.message);
+  });
+  Object.keys(byTarget).forEach(function (target) {
+    var global = target === GLOBAL_TAB;
+    var cells = global ? result.global : result.ledgers[target];
+    var out = cells ? cellsWithSettingErrors(cells, result.status.at, key, byTarget[target]) : null;
+    if (!out) return;
+    if (global) { result.global = out; storage.writeGlobal(out); } else { result.ledgers[target] = out; storage.writeLedger(target, out); }
+  });
+}
+
 // strftime subset over a naive instant: %Y %m %d %e (day without padding) %H %M %a %A %b %B %j %u (Monday 1),
 // %% a percent sign. Returns { text, unknown: ['%q', ...] }; a trailing % is an unknown directive too.
 function strftime(format, min) {

@@ -688,9 +688,11 @@ place and where it is only reported in `#Status` (and why):
 | `calendar "<id>" not found or not shared with this account`, API failures per calendar | `error` row above the preset's `id` row in `#GCal` (the preset row without one), written after the export | Calendar block errors, run errors |
 | `aborted after N event(s)`, `time budget reached ...` (10.4) | none: transient, nothing to fix in a tab | warnings (once; the Calendar block repeats it in its toast only) |
 | `#Slack` preset errors (14.1) | `error` row above the offending `#Slack` row | Slack block errors, run errors as `Slack <where>: <message>` |
-| `unknown preset "p" in slack; add it to #Slack`, `preset "p" skipped: <its errors>` | none yet: in place above the `set` row carrying `slack` with the adapter (14.4, ticket C) | Slack block errors, run errors |
+| `unknown preset "p" in slack; add it to #Slack` | `error` row above the `set` row carrying `slack` at `now`: in the rotation tab, or in `#Global` prefixed with the rotation (14.4) | Slack block errors, run errors |
+| `preset "p" skipped: <its errors>` (slack) | in `#Slack` through the preset's own error rows; not repeated at the `slack` row | Slack block errors, run errors |
 | `group @x: nobody on call in <rotation>`, `group @x: nobody on call, left as it is` (14.3) | none: nothing to fix in a row | warnings |
-| Slack delivery failures per destination, group or member (14.4) | `error` row above the preset's `to` or `group` row in `#Slack`, with the adapter (ticket C) | Slack block errors, run errors |
+| Slack delivery failures per destination, group or member (14.4) | `error` row above the preset's `to` row (a destination that does not resolve, a member without an id, a failed post) or above the `group` row of the first preset naming the group (a group failure), with the cause in brackets | Slack block errors, run errors as `Slack <where>: <message>` |
+| `group @x: member "m" has no Slack id; ...`, `group @x: no member has a Slack id, left as it is` (14.4) | none: the member has no row of its own | warnings |
 | Menu-action failures: a clean that cannot open a calendar, `unknown rotation`/`unknown preset`/`preset has errors` from a clean, `N error(s), nothing exported` from a re-export, an extension `setup` failure named in the Set Up toast | none: no run result and no row to attach to | none; toast and log |
 
 ## 7. Multiple rotations and the `#Global` tab
@@ -820,7 +822,7 @@ src/
   50_status.js        status data, #Status and #All shifts rows
   60_relations.js     #Global rows, pair states, sweep order, repel, attract
   70_tools.js         template rows, Fill Shifts Grid rows, header notes
-  72_presets.js       preset tab grammar and message templates shared by extensions
+  72_presets.js       preset tab grammar, message templates and set-row error placement shared by extensions
   75_extensions.js    extension names and hook probing
   80_runner.js        storage-agnostic run: read, advance, regenerate, write
   90_gas.js           Apps Script entry points and Sheets adapter
@@ -915,7 +917,10 @@ extensions share lives in the core, in `72_presets.js`: the preset tab
 grammar `parsePresetTab(rows, settings, { tab, placeholders, check })` and
 its error write-back `presetRowsWithErrors(rows, errors)` (13.1), and the
 template formatter `formatTemplate(template, values)` with
-`templateErrors(template, field, names)` (13.2). `settings` is the table `{
+`templateErrors(template, field, names)` (13.2), and the in-place write of
+the errors a setting's value causes, `writeSettingErrors(result, storage,
+errors, key)` over `cellsWithSettingErrors(cells, now, key, messages)`
+(13.4, 14.4). `settings` is the table `{
 key: { parse, def, hint, template, required } }`; `tab` labels the `where`
 text, `placeholders` are checked in `template` settings, a `required`
 setting left unset is reported on the preset row, and `check(preset)` may
@@ -1402,7 +1407,7 @@ errors, wherever the storage can write; the next read drops it like any
 error row, so a shared calendar clears it. The plan errors the `cal` value
 causes (an unknown preset, two presets on one calendar; they carry `setting:
 'cal'`) go above the `set` row that put `cal` in force at `now`
-(`gcalCalRowIndex`, `gcalCellsWithCalErrors`): in the rotation tab, or in
+(the core's `writeSettingErrors`): in the rotation tab, or in
 `#Global` prefixed with the rotation name when the value comes from there;
 written through `writeLedger`/`writeGlobal` only when the run writes, and
 into the result's cells so the CLI prints them. That tab is therefore
@@ -1654,46 +1659,73 @@ the tab when it first has something to write. A dry run leaves it alone.
 
 ### 14.4 Adapter
 
-`slackApi(method, params)` in `40_api.js` posts JSON to
+`slackApi(method, params)` in `40_api.js` posts form-encoded parameters to
 `https://slack.com/api/<method>` through `UrlFetchApp.fetch` with the bot
-token as a bearer header and `muteHttpExceptions`, parses the body and
-throws `<method>: <error>` when `ok` is false; on HTTP 429 it sleeps for
-`Retry-After` once and retries, then fails. Calls used: `users.lookupByEmail`,
-`users.info`, `conversations.list` (paged, `types` public and private,
+token as a bearer header and `muteHttpExceptions`, parses the body and throws `<method>:
+<error>` when `ok` is false, with a hint after the common errors
+(`not_in_channel`: invite the bot or grant `chat:write.public`; the token
+errors `not_authed`, `invalid_auth`, `token_revoked`, `account_inactive` and
+a missing property: set the token from the menu; `missing_scope`); on HTTP
+429 it sleeps for `Retry-After` seconds (one by default) once and retries,
+then fails like any other error. Calls used: `users.lookupByEmail`,
+`conversations.list` (paged with `cursor`, `types` public and private,
 `exclude_archived`), `usergroups.list`, `usergroups.users.list`,
 `usergroups.users.update`, `chat.postMessage`, `auth.test` (the menu's
 connection check).
 
-Id resolution turns a destination or member into a Slack id and remembers it:
-an email through `users.lookupByEmail`; a `#name` through `conversations.list`,
-which on a large workspace pages through thousands of channels, so the
-result is cached and a channel id in `to` is the recommended form; an
-`@handle` group through `usergroups.list`; a bare `U…`, `W…`, `C…`, `G…` or
-`S…` as it is. A member id that contains `@` is looked up as an email; one
-that does not needs an `| id |` row. Every resolution is written back to
+Id resolution (`slackResolver(ids)`, `resolve(text)`) turns a destination or
+member into a Slack id and remembers it: an email through
+`users.lookupByEmail`; a `#name` through `conversations.list`, which on a
+large workspace pages through thousands of channels, so the listing is
+fetched once per run, the result is cached and a channel id in `to` is the
+recommended form; an `@handle` group through `usergroups.list`, fetched once
+per run too; a bare `U…`, `W…`, `C…`, `G…` or `S…` as it is. A member id that
+contains `@` is looked up as an email; one that does not needs an `| id |`
+row and is otherwise unresolved. Every resolution is written back to
 `#Slack` as `<name> | id | <Slack id>` appended after the last row in
 lookup order, so the next run makes no lookup call for it; a user may add or
 edit these rows by hand (a member whose id is not an email, a channel the
 bot cannot list) and delete one to force a fresh lookup. The rows are the
-`ids` of the inputs; the plan receives them as the resolver's cache.
+`ids` of the inputs; the resolver starts from them as its cache. A lookup
+that finds nothing (`#name` or `@handle` not listed, `users_not_found`) is
+not cached and is reported by the caller; an API failure throws.
 
-`slack_afterRun(result, storage, options)` plans, then posts when
-`UrlFetchApp` exists, `options.mode` is not `dry run`, and either the run
-writes or `options.slack` is `true` (the hourly tick, 14.5, which leaves the
-ledgers alone but still posts, updates groups and writes `#Slack state` and
-the error rows through the storage). To post it resolves the destinations, posts each due message with `chat.postMessage`
+`slack_afterRun(result, storage, options)` plans, then delivers
+(`slackDeliver`) when `UrlFetchApp` exists, `options.mode` is not `dry run`,
+and either the run writes or `options.slack` is `true` (the hourly tick,
+14.5, which leaves the ledgers alone but still posts, updates groups and
+writes `#Slack state` and the `#Slack` rows through the storage). It resolves
+each due message's destination and posts it with `chat.postMessage`
 (`channel` a channel or user id, users get the direct message opened by
-Slack), records the state rows of the successful posts, and brings each
-group in line with `usergroups.users.update`. Between posts it asks the run
-guard (10.4) whether to stop; on `aborted` or `budget` the remaining posts
-wait for the next run, which finds them still due, and `data.note` carries
-the standard stop note. Failures are reported in place (section 1): a
-destination that does not resolve or a post that fails (`channel_not_found`,
-`not_in_channel` with the hint to invite the bot or grant
-`chat:write.public`, `user_not_found`, a token error) gets `| error |
-<message> (<rotation> / <preset>)` above the preset's `to` row; a group
-failure above its `group` row; a member without an id above the `to` row
-that named it, with the hint `add a row "<member> | id | U..."`. The
+Slack; the text re-rendered with `slackRenderText` and a `mention` from the
+resolver, so members with an id and the group become mentions and the
+others stay verbatim), records the state rows of the successful posts, and
+brings each group in line: the desired members resolved (a member without an
+id or unknown to Slack is a warning `group @x: <why>` and left out; when
+none resolves the group is left alone with the warning `group @x: no member
+has a Slack id, left as it is`), compared as sorted id lists with
+`usergroups.users.list`, and `usergroups.users.update` called only when they
+differ, the block's `result` set to `updated`, `unchanged` or `failed`. An
+empty desired set makes no call (14.3). Before each post and each group it
+asks the run guard (10.4) whether to stop; on `aborted` or `budget` the
+remaining posts and groups wait for the next run, which finds them still
+due, `data.note` carries the standard stop note (`after N message(s)`) and
+the run's warnings list it once. Failures are reported in place (section
+1): a destination that does not resolve or a post that fails
+(`channel_not_found`, `not_in_channel` with the hint, `users_not_found`
+from the email lookup, a token error) gets `| error | <message> (<rotation>
+/ <preset>)` above the preset's `to` row; a group failure `| error |
+<message> (group @x)` above the `group` row of the first preset naming the
+group; a member without an id above the `to` row that named it, with the
+hint `add a row "<member> | id | U..."`. After the delivery `#Slack state`
+is written when at least one post succeeded (the storage creates the tab),
+and `#Slack` is written once when there are new id rows or delivery errors:
+the cleaned rows, the id rows appended, the parse and delivery error rows
+above their rows. The plan errors the `slack` value causes (`setting:
+'slack'`, an unknown preset) go above the `set` row that put `slack` in
+force at `now`, in the rotation tab or in `#Global` prefixed with the
+rotation (the core's `writeSettingErrors`, as for `cal` in 13.4),
+written only when the run writes and into the result's cells. The
 extension's errors are appended to the run's errors as `Slack <where>:
 <message>` and counted in the toast. A failed post is not recorded, so it
 is retried next run; the destinations that succeeded are, so they are not

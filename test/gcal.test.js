@@ -750,7 +750,7 @@ test('in-place errors: unknown preset above the cal set row in the rotation or i
   const smem = new MemoryStorage({ ledgers: ledger(BASE + ', cal=a b'), tabs: { '#GCal': shared } });
   runStorage(smem, NOW, { write: true });
   assert.deepEqual(smem.ledgers.primary[0], ERR('2026-10-05T09:00', 'preset "b" skipped: calendar same@example.com is already used by preset "a"'));
-  assert.equal(U.gcalCellsWithCalErrors([R('', '2026-10-05T09:00', 'set', 'period=1w')], U.parseDateTime(NOW), ['x']), null, 'no cal row, nothing to place');
+  assert.equal(U.cellsWithSettingErrors([R('', '2026-10-05T09:00', 'set', 'period=1w')], U.parseDateTime(NOW), 'cal', ['x']), null, 'no cal row, nothing to place');
 });
 
 test('in-place errors: a calendar that cannot be opened is reported above the preset id row in #GCal', () => {
