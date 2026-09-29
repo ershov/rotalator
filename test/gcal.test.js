@@ -28,22 +28,22 @@ test('loader: the extension is in the shared context and its hooks are visible t
 
 test('storage: readTabRows for gcal.csv and the tabs option, header required, never a rotation', () => {
   const storage = new CsvDirStorage(FIXTURE);
-  const rows = plain(storage.readTabRows(U.GCAL_TAB, U.GCAL_HEADER));
+  const rows = plain(storage.readTabRows(U.GCAL_TAB, U.PRESET_HEADER));
   assert.equal(rows.length, 12);
   assert.deepEqual(rows[0], ['team', '', 'Shared team calendar: all-day events nobody is invited to']);
   assert.deepEqual(plain(storage.readTabRows(U.GCAL_TAB, ['other', 'header'])), [], 'header must match');
   assert.deepEqual(Object.keys(storage.readLedgers()), ['primary', 'secondary']);
   assert.deepEqual(storage.ignoredTabs(), []);
-  assert.deepEqual(plain(new CsvDirStorage(path.join(__dirname, 'fixtures', 'steady')).readTabRows(U.GCAL_TAB, U.GCAL_HEADER)), []);
+  assert.deepEqual(plain(new CsvDirStorage(path.join(__dirname, 'fixtures', 'steady')).readTabRows(U.GCAL_TAB, U.PRESET_HEADER)), []);
   const mem = new MemoryStorage({ tabs: { '#GCal': TEAM } });
-  assert.deepEqual(mem.readTabRows('#GCal', U.GCAL_HEADER), TEAM);
-  assert.deepEqual(new MemoryStorage().readTabRows('#GCal', U.GCAL_HEADER), []);
+  assert.deepEqual(mem.readTabRows('#GCal', U.PRESET_HEADER), TEAM);
+  assert.deepEqual(new MemoryStorage().readTabRows('#GCal', U.PRESET_HEADER), []);
   // A storage without readTabRows yields no presets.
   assert.deepEqual(plain(U.gcal_readInputs({})), { presets: [], errors: [], rows: [] });
 });
 
 test('presets: fixture parses into two presets with defaults filled', () => {
-  const { presets, errors } = plain(U.parseGCalPresets(new CsvDirStorage(FIXTURE).readTabRows(U.GCAL_TAB, U.GCAL_HEADER)));
+  const { presets, errors } = plain(U.parseGCalPresets(new CsvDirStorage(FIXTURE).readTabRows(U.GCAL_TAB, U.PRESET_HEADER)));
   assert.deepEqual(errors, []);
   assert.deepEqual(presets.map((p) => p.name), ['team', 'personal']);
   assert.deepEqual(presets[0], {
@@ -138,17 +138,7 @@ test('presets: every error, presets with errors are kept but unusable', () => {
   assert.deepEqual(plain(U.parseGCalPresets([G('', '', 'just a comment'), G('', '', '')])), { presets: [], errors: [] });
 });
 
-test('strftime subset and templates', () => {
-  const t = dt('2026-10-05T09:07');
-  const f = (fmt, at = t) => U.gcalStrftime(fmt, at).text;
-  assert.equal(f('%Y-%m-%d %H:%M'), '2026-10-05 09:07');
-  assert.equal(f('%e|%a|%A|%b|%B|%j|%u|%%'), '5|Mon|Monday|Oct|October|278|1|%');
-  assert.equal(f('%a %u %j', dt('2026-01-04')), 'Sun 7 004');
-  assert.equal(f('%B %e', dt('2026-02-28T23:59')), 'February 28');
-  const odd = U.gcalStrftime('%q and %d%', t);
-  assert.equal(odd.text, '%q and 05%');
-  assert.deepEqual(plain(odd.unknown), ['%q', '%'], 'a trailing % is reported');
-
+test('templates: gcalFormat fills the GCal placeholders and gcalTemplateErrors names them', () => {
   const values = { who: 'alice', rotation: 'primary', note: 'swap', pin: 'x', start: dt('2026-10-05'), end: dt('2026-10-12T09:00') };
   const out = U.gcalFormat('{rotation}: {who} [{pin}] {start} to {end} ({start:%a %e %b}-{end:%a %e %b %H:%M}) {note} {nope} {start:%Z}', values);
   assert.equal(out.text, 'primary: alice [x] 2026-10-05 to 2026-10-12T09:00 (Mon 5 Oct-Mon 12 Oct 09:00) swap {nope} %Z');
@@ -520,7 +510,7 @@ test('gcal_afterRun: exports through the runner, dry when not writing or on a dr
   const calendars = installMocks([TEAM_CAL, PERSONAL_CAL]);
   try {
     const storage = new CsvDirStorage(FIXTURE);
-    const inputs = { ledgers: storage.readLedgers(), holidays: storage.readHolidays(), global: storage.readGlobal(), tabs: { '#GCal': storage.readTabRows(U.GCAL_TAB, U.GCAL_HEADER) } };
+    const inputs = { ledgers: storage.readLedgers(), holidays: storage.readHolidays(), global: storage.readGlobal(), tabs: { '#GCal': storage.readTabRows(U.GCAL_TAB, U.PRESET_HEADER) } };
     const dry = runStorage(new MemoryStorage(inputs), storage.readNow(), { write: true, mode: 'dry run' });
     assert.equal(dry.status.ext.gcal.mode, 'dry run');
     assert.deepEqual(dry.status.ext.gcal.lines.map((l) => l.create), [3, 3]);
@@ -681,8 +671,6 @@ test('error rows: placed above the offending row, dropped on read, written back 
   ]);
   // Error rows are the script's: dropped on read, never parsed.
   assert.deepEqual(plain(U.gcalDropErrorRows(withErrors)), rows);
-  assert.equal(U.gcalIsErrorRow(['', 'Error', 'x']), true);
-  assert.equal(U.gcalIsErrorRow(['p', 'error', 'x']), false, 'a preset named error is not an error row');
   assert.deepEqual(plain(U.parseGCalPresets(U.gcalDropErrorRows(withErrors)).errors), plain(parsed.errors));
   // Through the storage: readInputs writes the tab back with the error rows; a second read is identical.
   const storage = new MemoryStorage({ tabs: { '#GCal': rows } });
@@ -710,7 +698,7 @@ test('error rows: placed above the offending row, dropped on read, written back 
   assert.equal(fs.readFileSync(path.join(dir, 'gcal.csv'), 'utf8'), U.formatCsv([['preset', 'setting', 'value'], ...rows]));
   U.gcal_readInputs(new CsvDirStorage(dir));
   assert.equal(fs.readFileSync(path.join(dir, 'gcal.csv'), 'utf8'), U.formatCsv([['preset', 'setting', 'value'], ...withErrors]));
-  assert.deepEqual(plain(new CsvDirStorage(dir).readTabRows(U.GCAL_TAB, U.GCAL_HEADER)), withErrors);
+  assert.deepEqual(plain(new CsvDirStorage(dir).readTabRows(U.GCAL_TAB, U.PRESET_HEADER)), withErrors);
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -769,7 +757,7 @@ test('in-place errors: a calendar that cannot be opened is reported above the pr
   const calendars = installMocks([TEAM_CAL]);
   try {
     const storage = new CsvDirStorage(FIXTURE);
-    const presets = storage.readTabRows(U.GCAL_TAB, U.GCAL_HEADER);
+    const presets = storage.readTabRows(U.GCAL_TAB, U.PRESET_HEADER);
     const inputs = { ledgers: storage.readLedgers(), holidays: storage.readHolidays(), global: storage.readGlobal(), tabs: { '#GCal': presets } };
     const mem = new MemoryStorage(inputs);
     const result = runStorage(mem, storage.readNow(), { write: true });

@@ -37,7 +37,7 @@ var GCAL_HELP_LINES = [
 function gcalTemplateRows() {
   var comment = function (text) { return ['', '', text]; };
   var setting = function (key, value) { return ['', key, value]; };
-  return [GCAL_HEADER.slice()].concat(GCAL_CHEAT_SHEET.map(comment), [
+  return [PRESET_HEADER.slice()].concat(GCAL_CHEAT_SHEET.map(comment), [
     ['', '', ''],
     [GCAL_TEMPLATE_PRESET, '', GCAL_TEMPLATE_NOTE],
     setting('id', GCAL_TEMPLATE_ID),
@@ -56,7 +56,7 @@ function gcalTemplateRows() {
 // belong to the core's Apps Script file.
 function gcalFormatRules() {
   return [
-    { formula: '=$B1="' + GCAL_ERROR_TYPE + '"', color: COLOR_ERROR },
+    { formula: '=$B1="' + PRESET_ERROR_TYPE + '"', color: COLOR_ERROR },
     { formula: '=AND($A1<>"", ROW()>1)', color: COLOR_SETTINGS },
     { formula: '=AND($A1="", $B1="", $C1<>"")', color: COLOR_COMMENT },
   ];
@@ -77,7 +77,7 @@ function gcal_help(lines) {
 // Formats #GCal like an editable system tab: script font, wrapped and top-left aligned everywhere, plain
 // text, bold grey frozen header, widths, spare columns removed, grey tab colour.
 function gcalFormatTab(sheet) {
-  var width = GCAL_HEADER.length;
+  var width = PRESET_HEADER.length;
   var all = sheet.getRange(1, 1, sheet.getMaxRows(), sheet.getMaxColumns());
   all.setFontFamily(FONT_FAMILY);
   all.setWrap(true);

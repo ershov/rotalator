@@ -2,7 +2,7 @@
 // src/ext/<Name>/*.js; it defines global functions <prefix>_<hook> where the prefix is the lower-case name.
 // The core never registers anything: hooks are probed with typeof when they are called, so an extension that
 // is not installed is simply skipped and file load order never matters.
-var EXTENSIONS = ['GCal'];
+var EXTENSIONS = ['GCal', 'Slack'];
 var EXTENSION_HOOKS = ['menu', 'setup', 'setupTab', 'help', 'readInputs', 'afterRun', 'status'];
 
 function extensionPrefix(name) {

@@ -15,14 +15,23 @@ function rowsFromCells(cells) {
     .filter(Boolean));
 }
 
-// Warning per rotation whose cal setting at the status instant names presets while no calendar extension is
-// installed to export them (DESIGN 8, Extensions).
-function missingCalendarWarnings(status) {
+// Settings that only an extension acts on: the warning names the extension when the setting is in force
+// while the extension is not installed (DESIGN 8, Extensions).
+var EXTENSION_SETTINGS = [
+  { extension: 'GCal', key: 'cal', label: 'calendar' },
+  { extension: 'Slack', key: 'slack', label: 'slack' },
+];
+
+// Warning per rotation and extension setting that names presets at the status instant while the extension
+// is not installed to act on them.
+function missingExtensionWarnings(status) {
   var out = [];
-  if (extensionInstalled('GCal')) return out;
-  status.rotations.forEach(function (rot) {
-    var cal = rot.settings.values.find(function (s) { return s.key === 'cal'; });
-    if (cal && cal.value !== '') out.push({ rotation: rot.name, start: null, message: 'calendar extension not installed; cal=' + cal.value + ' has no effect' });
+  EXTENSION_SETTINGS.forEach(function (es) {
+    if (extensionInstalled(es.extension)) return;
+    status.rotations.forEach(function (rot) {
+      var setting = rot.settings.values.find(function (s) { return s.key === es.key; });
+      if (setting && setting.value !== '') out.push({ rotation: rot.name, start: null, message: es.label + ' extension not installed; ' + es.key + '=' + setting.value + ' has no effect' });
+    });
   });
   return out;
 }
@@ -78,7 +87,7 @@ function runStorage(storage, nowText, options) {
     rotations: Object.keys(ledgers), regenerated: result.regenerated ? Object.keys(out) : [],
     holidays: holidays.length, global: globalCount, ignored: ignored,
   };
-  result.status.warnings = result.status.warnings.concat(missingCalendarWarnings(result.status));
+  result.status.warnings = result.status.warnings.concat(missingExtensionWarnings(result.status));
   if (options.write) {
     Object.keys(out).forEach(function (name) { storage.writeLedger(name, out[name]); });
     if (global) storage.writeGlobal(global);

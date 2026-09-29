@@ -73,11 +73,22 @@ function exportDir(dir, nowText, { rotations = null, repair = false } = {}) {
   return { result, plan: structuredClone(U.gcalPlan(result, result.ext.gcal, { repair, rotations: rotations || undefined })) };
 }
 
-// A directory with a gcal.csv gets the GCal extension, so the CLI mirrors the spreadsheet: error rows written
-// with --write, the Calendar block in --status, exit 1 on preset errors, no calendar calls in Node. Without
-// write the storage is read-only.
+// The extension each input file asks for: a directory with a gcal.csv gets GCal, one with a slack.csv gets
+// Slack, so the CLI mirrors the spreadsheet: error rows written with --write, the extension's block in
+// --status, exit 1 on preset errors, no external calls in Node. An extension whose source directory does not
+// exist yet is skipped.
+const EXTENSION_FILES = { 'gcal.csv': 'GCal', 'slack.csv': 'Slack' };
+const EXT_DIR = path.join(__dirname, '..', 'src', 'ext');
+
+function extensionsFor(dir) {
+  return Object.keys(EXTENSION_FILES)
+    .filter((file) => fs.existsSync(path.join(dir, file)) && fs.existsSync(path.join(EXT_DIR, EXTENSION_FILES[file])))
+    .map((file) => EXTENSION_FILES[file]);
+}
+
+// Without write the storage is read-only.
 function runDir(dir, nowText, options = {}) {
-  if (fs.existsSync(path.join(dir, 'gcal.csv'))) load(['GCal']);
+  load(extensionsFor(dir));
   const storage = new CsvDirStorage(dir, { readOnly: !options.write });
   return runStorage(storage, nowText ?? storage.readNow(), options);
 }

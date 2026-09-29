@@ -33,6 +33,7 @@ next      alice             from 2026-09-14T09:00
   precredit      1ts                     default
   autopin        a:0                     rotation
   cal                                    default
+  slack                                  default
 
 warnings
 rotation  start             message

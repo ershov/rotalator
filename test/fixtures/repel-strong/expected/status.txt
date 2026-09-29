@@ -38,6 +38,7 @@ next      dave              from 2026-09-14T09:00
   precredit      1ts                     default
   autopin        a:0                     rotation
   cal                                    default
+  slack                                  default
 
 rotation  secondary
 snapshot  2026-09-07T09:00
@@ -66,6 +67,7 @@ next      carol             from 2026-09-14T09:00
   precredit      1ts                     default
   autopin        a:0                     rotation
   cal                                    default
+  slack                                  default
 
 start             primary  secondary
 2026-06-01T09:00  alice    bob

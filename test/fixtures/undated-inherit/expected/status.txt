@@ -34,6 +34,7 @@ next      bob               from 2026-07-06T09:00
   precredit      0                       global
   autopin        a:0                     rotation
   cal                                    default
+  slack                                  default
 
 start             primary
 2026-06-01T09:00  alice

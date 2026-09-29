@@ -139,10 +139,15 @@ class SheetsStorage {
   }
 
   // Rows below the header of any tab, written back in full, for extensions: the mirror of readTabRows. A
-  // missing tab is left alone; rows are cut or padded to the header width.
+  // missing tab is created with the header as its first row; rows are cut or padded to the header width.
   writeTabRows(name, header, rows) {
     var sheet = this.ss.getSheetByName(name);
-    if (!sheet) return;
+    if (!sheet) {
+      sheet = this.ss.insertSheet(name);
+      this.writeTextRows(sheet, 1, [header]);
+      this.formatTableRows(sheet, header.length, { headerRows: [0] });
+      sheet.setFrozenRows(1);
+    }
     var last = sheet.getLastRow();
     if (last > 1) sheet.getRange(2, 1, last - 1, header.length).clearContent();
     var cells = rows.map(function (row) { return header.map(function (_, i) { return row[i] === undefined || row[i] === null ? '' : row[i]; }); });
@@ -386,10 +391,10 @@ function writeHeaderRow(sheet, header) {
 }
 
 // Header, column widths and notes per tab kind; null for tabs the script does not shape: unknown '#' tabs,
-// non-empty tabs without the ledger header and #GCal, which the calendar extension owns.
+// non-empty tabs without the ledger header and the tabs an extension owns (#GCal, #Slack, #Slack state).
 function tabLayout(sheet) {
   var name = sheet.getName();
-  if (name === GCAL_TAB) return null;
+  if (extensionTabOwner(name) !== null) return null;
   if (name === HOLIDAYS_TAB) return { header: HOLIDAYS_HEADER, widths: HOLIDAYS_COLUMN_WIDTHS, notes: true, freeze: true };
   if (name === ALL_SHIFTS_TAB) return { header: null, widths: null, notes: false, freeze: false };
   if (name === STATUS_TAB) return { header: null, widths: STATUS_COLUMN_WIDTHS, notes: false, freeze: false };
@@ -551,7 +556,8 @@ function setupTab() {
   var taken = callExtensionHooks('setupTab', [sheet], logExtensionError).some(function (r) { return r.value === true; });
   if (taken) return;
   if (isSystemTab(name) && !isKnownSystemTab(name)) { toast('"' + name + '" starts with # and is not a system tab; rename it to use it as a rotation'); return; }
-  if (name === GCAL_TAB) { toast('"' + name + '" belongs to the GCal extension; use Set Up Spreadsheet with the extension installed'); return; }
+  var owner = extensionTabOwner(name);
+  if (owner !== null) { toast('"' + name + '" belongs to the ' + owner + ' extension; use Set Up Spreadsheet with the extension installed'); return; }
   if (name === STATUS_TAB || name === ALL_SHIFTS_TAB || name === HELP_TAB || name.indexOf(PREVIEW_TAB_PREFIX) === 0) { toast('"' + name + '" is written by the script; nothing to fill in'); return; }
   if (!isEmptySheet(sheet)) { toast('"' + name + '" is not empty; Set Up Tab only fills empty tabs'); return; }
   writeTemplate(sheet, templateFor(name, new SheetsStorage(ss)));

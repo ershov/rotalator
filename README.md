@@ -20,7 +20,7 @@ approval. The core is complete on its own; optional features such as the
 Google Calendar export come as extensions, a second script file installed
 next to the core that adds its own menu items, tabs and `#Status` block. The
 core works without them and only carries what the ledger needs either way:
-the `cal` setting and the reserved `#GCal` tab.
+the `cal` and `slack` settings and the reserved `#GCal` and `#Slack` tabs.
 
 Setup and deployment are in [INSTALL.md](INSTALL.md). The design is in
 [DESIGN.md](DESIGN.md).
@@ -37,6 +37,7 @@ Setup and deployment are in [INSTALL.md](INSTALL.md). The design is in
 | `#Preview <rotation>`, `#Preview Global` | script | Output of a dry run. |
 | `#Global` | users and script | Spreadsheet-wide `set` defaults and relations between rotations, see below. The script adds `error` rows. |
 | `#GCal` | users | Calendar presets for the Google Calendar extension. Reserved: the core leaves it alone. |
+| `#Slack`, `#Slack state` | users and script | Slack presets and cached ids, and what the Slack extension has posted. Reserved: the core leaves them alone. |
 
 A tab whose name starts with `#` is a system tab and never a rotation. Any
 other tab is a rotation when its first row is exactly the header below;
@@ -205,6 +206,7 @@ like any ledger error.
 | `precredit` | `1ts` | Interval after the snapshot within which pinned shifts are credited before slots are assigned; `1ts` is one full cycle of the current roster. `0` disables. |
 | `autopin` | `a:2sl` | After each run, every shift starting up to `now + autopin` whose pin cell is empty gets the marker `a`: `0` pins the shifts that have started, `2w` also the next two weeks, `-2w` leaves the last two weeks unpinned, `1sl` and `0.5ts` are grid units, `false` pins nothing. `a:2w` (anything before the last colon) sets the marker. Existing pins are kept. |
 | `cal` | empty | Space-separated names of calendar presets from the `#GCal` tab (`cal=team backup`; names are letters, digits, `-` and `_`). The Google Calendar extension exports the rotation's shifts to those calendars; without the extension the setting is accepted and `#Status` warns `calendar extension not installed`. |
+| `slack` | empty | Space-separated names of Slack presets from the `#Slack` tab (`slack=team heads-up`), same grammar as `cal`. The Slack extension posts the messages and keeps the user groups; without the extension the setting is accepted and `#Status` warns `slack extension not installed`. |
 
 ### Intervals
 
@@ -397,7 +399,7 @@ effect at the run instant and its source (`rotation`, `global` or
 `default`); when a later `set` row exists, a `note` row names its start,
 since the values change from there. A warnings table appears when
 `min_distance` or a `repel` was relaxed, a slot was unassignable or a
-rotation uses `cal` without the calendar extension. After a validation error
+rotation uses `cal` or `slack` without its extension. After a validation error
 the tab lists the errors instead of rotations. An installed extension may
 append its own block at the end.
 
@@ -610,7 +612,9 @@ files. Files map to tabs: one `<rotation>.csv` per ledger with the header row,
 `holidays.csv` for `#Holidays` (`date,note`), optional `global.csv` for
 `#Global`, optional `gcal.csv` for `#GCal` (its presence loads the Google
 Calendar extension, so `run` reports preset errors like the spreadsheet does,
-without touching any calendar), `status.json` for the `#Status` and `#All
+without touching any calendar), optional `slack.csv` and `slack-state.csv` for
+`#Slack` and `#Slack state` (the Slack extension, loaded the same way),
+`status.json` for the `#Status` and `#All
 shifts` data, and `now.txt` with the run instant. A file named
 `#<anything>.csv` is never a rotation, like a `#` tab, and other `.csv` files
 without the ledger header are ignored.

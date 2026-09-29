@@ -677,7 +677,7 @@ place and where it is only reported in `#Status` (and why):
 | `no eligible member for shift <a> to <b>` | `error` row at the slot start, next to the `shift` with nobody | warnings |
 | `min_distance relaxed to ...`, `repel! relaxed to ...`, `repel relaxed: <who> also on <rotation>` | `note` of the generated shift | warnings |
 | `comment row N: unparseable start, treated as undated` | none: comments are never rewritten and the row stays where it is | warnings |
-| `calendar extension not installed; cal=... has no effect` | none: no extension is there to write it | warnings |
+| `calendar extension not installed; cal=... has no effect`, `slack extension not installed; slack=... has no effect` | none: no extension is there to write it | warnings |
 | `<Name> extension: <message>` (a hook threw, 8) | none: no source row; also logged | errors |
 | `bad now`, `holidays row N: bad date`, `unknown rotation` | none: the run stops before writing; toast, log, CLI stderr | none (no status) |
 | `another Rotalator run is in progress` | none; toast and log | none |
@@ -908,10 +908,16 @@ shaped by Set Up: `tabLayout` leaves them to the extension), and the warnings
 `slack` in force at `now` while `extensionInstalled` says no for that
 extension. Extensions never call each other: either may be absent. What two
 extensions share lives in the core, in `72_presets.js`: the preset tab
-grammar `parsePresetTab(rows, settings)` and its error write-back
-`presetRowsWithErrors(rows, errors)` (13.1), and the template formatter
-`formatTemplate(template, values)` with `templateErrors(template, field,
-names)` (13.2). GCal and Slack call them with their own settings tables and
+grammar `parsePresetTab(rows, settings, { tab, placeholders, check })` and
+its error write-back `presetRowsWithErrors(rows, errors)` (13.1), and the
+template formatter `formatTemplate(template, values)` with
+`templateErrors(template, field, names)` (13.2). `settings` is the table `{
+key: { parse, def, hint, template, required } }`; `tab` labels the `where`
+text, `placeholders` are checked in `template` settings, a `required`
+setting left unset is reported on the preset row, and `check(preset)` may
+return one more message for the preset row. `formatTemplate` takes the keys
+of `values` as the allowed placeholders and formats `start` and `end` as
+instants. GCal and Slack call them with their own settings tables and
 placeholder lists. `node/load.js` takes an
 optional list of extension names: `load(['GCal'])` evaluates
 `src/ext/GCal/*.js` into the same context after the core, once per process,

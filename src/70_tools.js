@@ -92,6 +92,7 @@ var HELP_TEXT = [
   'precredit=1ts: how far ahead pinned shifts are credited before turns are decided',
   'autopin=a:2sl: after each run, shifts starting up to now + this interval get the pin marker a (false: never; a:2w sets the marker); pinned shifts are kept, so this fixes the near future',
   'cal: space-separated names of calendar presets from the #GCal tab (cal=team backup); exported by the GCal extension, a warning in #Status when it is not installed',
+  'slack: space-separated names of Slack presets from the #Slack tab (slack=team heads-up); posted by the Slack extension, a warning in #Status when it is not installed',
   '',
   'INTERVALS (duration, horizon, min_distance, precredit, tolerance):',
   'clock units w d h m; one token may be fractional (1.5w, 0.5d), integer tokens chain from large to small (1d12h)',

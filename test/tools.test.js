@@ -42,10 +42,11 @@ test('templateRows: header, help comments, epoch set and team rows, dated set an
   const epochSet = parsed.find((r) => r.type === 'set');
   assert.ok(U.isEpochRow(epochSet));
   const values = U.parseSetArg(epochSet.what, epochSet.start).values;
-  // anchor comes from the dated row; cal has an empty default and is not spelled.
+  // anchor comes from the dated row; cal and slack have an empty default and are not spelled.
   const expected = { ...plain(U.defaultSettings()), period: 7 * 1440 };
   delete expected.anchor;
   delete expected.cal;
+  delete expected.slack;
   assert.deepEqual(plain(values), expected);
   assert.equal('anchor' in values, false);
   // The help comments attach to the epoch set row; epoch rows sort first, the dated anchor row after them.

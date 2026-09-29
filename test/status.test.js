@@ -100,9 +100,10 @@ test('statusRows and shiftsRows: rows, header and divider metadata', () => {
   assert.deepEqual(rows[21].slice(14, 17), ['precredit', '1ts', 'default']);
   assert.deepEqual(rows[22].slice(14, 17), ['autopin', 'a:0', 'rotation']);
   assert.deepEqual(rows[23].slice(14, 17), ['cal', '', 'default']);
-  assert.deepEqual(trim([rows[24]]), [[]]);
-  assert.deepEqual(rows[25].slice(0, 2), ['rotation', 'secondary']);
-  assert.deepEqual(structuredClone(out.headerRows), [0, 2, 9, 25]);
+  assert.deepEqual(rows[24].slice(14, 17), ['slack', '', 'default']);
+  assert.deepEqual(trim([rows[25]]), [[]]);
+  assert.deepEqual(rows[26].slice(0, 2), ['rotation', 'secondary']);
+  assert.deepEqual(structuredClone(out.headerRows), [0, 2, 9, 26]);
   assert.ok(!rows.some((r) => r[0] === 'warnings'), 'no warnings block without warnings');
   assert.ok(!rows.some((r) => r[0] === 'errors'), 'no errors block without errors');
   assert.equal(U.formatExclusions([{ from: dt('2026-10-05T09:00'), to: null }]), '2026-10-05T09:00 to open');
@@ -204,6 +205,7 @@ test('status: effective settings at now, every key, note on a later set row', ()
     { key: 'precredit', value: '1ts', source: 'default' },
     { key: 'autopin', value: 'a:0', source: 'rotation' },
     { key: 'cal', value: '', source: 'default' },
+    { key: 'slack', value: '', source: 'default' },
   ]);
   const rows = trim(U.statusRows(runStorage(new MemoryStorage({ ledgers: withLater }), NOW).status).rows);
   assert.deepEqual(rows.find((r) => r[14] === 'note').slice(14), ['note', 'a set row at 2026-10-19T09:00 changes these values']);

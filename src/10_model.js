@@ -8,6 +8,8 @@ var STATUS_TAB = '#Status';
 var ALL_SHIFTS_TAB = '#All shifts';
 var HELP_TAB = '#Help';
 var GCAL_TAB = '#GCal';
+var SLACK_TAB = '#Slack';
+var SLACK_STATE_TAB = '#Slack state';
 var PREVIEW_TAB_PREFIX = '#Preview ';
 
 function isSystemTab(name) {
@@ -21,7 +23,14 @@ function previewTabName(name) {
 
 function isKnownSystemTab(name) {
   return name === HOLIDAYS_TAB || name === GLOBAL_TAB || name === STATUS_TAB || name === ALL_SHIFTS_TAB ||
-    name === HELP_TAB || name === GCAL_TAB || name.indexOf(PREVIEW_TAB_PREFIX) === 0;
+    name === HELP_TAB || extensionTabOwner(name) !== null || name.indexOf(PREVIEW_TAB_PREFIX) === 0;
+}
+
+// The extension that owns a reserved tab (DESIGN 8, Extensions): the core neither reads nor shapes it.
+function extensionTabOwner(name) {
+  if (name === GCAL_TAB) return 'GCal';
+  if (name === SLACK_TAB || name === SLACK_STATE_TAB) return 'Slack';
+  return null;
 }
 
 // order: same-instant sort (DESIGN 3.6). what: item grammar of the column (see validateWhat).
@@ -138,13 +147,12 @@ var INTERVAL_HINT = 'an interval like 2sl, 1ts, 3d or 0';
 var POSITIVE_INTERVAL_HINT = 'a positive interval like 2sl, 1ts or 3d';
 var AUTOPIN_HINT = 'false, or an interval relative to now like 0, 2w, -2w or 1sl, optionally marker:interval';
 var AUTOPIN_MARKER = 'a';
-var CAL_HINT = 'space-separated preset names of letters, digits, - and _';
+var PRESET_NAMES_HINT = 'space-separated preset names of letters, digits, - and _';
 
-// cal (DESIGN 3.5): preset names for the calendar extension, kept verbatim with single spaces between them.
-function parseCalendarPresets(text) {
+// cal and slack (DESIGN 3.5): preset names for an extension, kept verbatim with single spaces between them.
+function parsePresetNames(text) {
   var names = text.trim().split(/\s+/).filter(Boolean);
-  var valid = names.every(function (n) { return /^[A-Za-z0-9_-]+$/.test(n); });
-  return names.length && valid ? names.join(' ') : null;
+  return names.length && names.every(isValidPresetName) ? names.join(' ') : null;
 }
 
 // autopin (DESIGN 3.5): false, or [marker:]interval where the interval may carry a sign and the marker is
@@ -186,7 +194,8 @@ var SETTINGS = {
   baseline:      { parse: parseBaselineKeyword,    def: 'median',             bare: 'default' },
   precredit:     { parse: parseInterval,           def: parseInterval('1ts'), bare: 'default', hint: INTERVAL_HINT },
   autopin:       { parse: parseAutopin,            def: parseAutopin('a:2sl'), bare: 'default', hint: AUTOPIN_HINT },
-  cal:           { parse: parseCalendarPresets,    def: '',                   bare: 'default', hint: CAL_HINT },
+  cal:           { parse: parsePresetNames,        def: '',                   bare: 'default', hint: PRESET_NAMES_HINT },
+  slack:         { parse: parsePresetNames,        def: '',                   bare: 'default', hint: PRESET_NAMES_HINT },
 };
 
 function defaultSettings() {

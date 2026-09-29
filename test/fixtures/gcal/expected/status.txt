@@ -34,6 +34,7 @@ next                        from 2026-10-12
   precredit      1ts                     default
   autopin        a:0                     rotation
   cal            team personal           rotation
+  slack                                  default
 
 rotation  secondary
 snapshot  2026-10-05T09:00
@@ -60,6 +61,7 @@ next      erin              from 2026-10-12T09:00
   precredit      1ts                     default
   autopin        a:0                     rotation
   cal                                    default
+  slack                                  default
 
 Calendar (no calendar)  elapsed   0 s
 rotation                preset    calendar                        create  update  delete  unchanged  skipped

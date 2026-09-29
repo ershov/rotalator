@@ -1,8 +1,6 @@
-// GCal extension: calendar presets from the #GCal tab or gcal.csv (DESIGN, Google Calendar extension).
-// Rows below the header preset | setting | value: a non-empty column A starts a preset (C is its note), an
-// empty A with a non-empty B is a setting of the current preset (C is the whole value), A and B empty is a
-// comment. Everything of the extension is prefixed gcal.
-var GCAL_HEADER = ['preset', 'setting', 'value'];
+// GCal extension: calendar presets from the #GCal tab or gcal.csv (DESIGN 13.1). The tab grammar is the
+// core's parsePresetTab (72_presets.js); this file supplies GCal's settings table and the value parsers.
+// Everything of the extension is prefixed gcal.
 var GCAL_DEFAULT_TITLE = '{rotation}: {who}';
 var GCAL_DEFAULT_BODY = 'Rotalator shift {rotation} {start} to {end}. {note}';
 // CalendarApp.EventColor names and their numbers, and the palette of the Calendar UI as hex RGB.
@@ -13,7 +11,6 @@ var GCAL_COLOR_RGB = {
 };
 var GCAL_COLOR_DEFAULT = 'default';
 var GCAL_COLOR_HINT = 'default (the calendar\'s own colour), a Calendar colour name like pale blue, its number 1 to 11, or #RRGGBB (the nearest colour is used)';
-var GCAL_ERROR_TYPE = 'error';
 
 function gcalParseText(text) {
   return text === '' ? null : text;
@@ -65,9 +62,9 @@ function gcalParseReminders(text) {
 }
 
 // parse returns null on a bad value; def is the value of an unset setting; template settings are checked
-// for unknown placeholders and directives once, at parse time.
+// for unknown placeholders and directives once, at parse time; id is required (core parsePresetTab).
 var GCAL_SETTINGS = {
-  id:        { parse: gcalParseText,      def: null,               hint: 'a calendar id' },
+  id:        { parse: gcalParseText,      def: null,               hint: 'a calendar id', required: true },
   title:     { parse: gcalParseText,      def: GCAL_DEFAULT_TITLE, template: true },
   body:      { parse: gcalParseText,      def: GCAL_DEFAULT_BODY,  template: true },
   allday:    { parse: gcalParseAllday,    def: 'auto',             hint: 'auto, true or false' },
@@ -77,93 +74,18 @@ var GCAL_SETTINGS = {
   reminders: { parse: gcalParseReminders, def: [],                 hint: 'comma-separated clock intervals like 1d, 2h, 30m, or empty for the calendar defaults' },
 };
 
-function gcalIsValidPresetName(name) {
-  return /^[A-Za-z0-9_-]+$/.test(name);
-}
-
-// setRows: the tab row of each setting given, so a later error about a setting (a calendar that cannot be
-// opened) can be written above it.
-function gcalNewPreset(name, note, row) {
-  var preset = { name: name, note: note, row: row, setRows: {}, errors: [] };
-  Object.keys(GCAL_SETTINGS).forEach(function (key) { preset[key] = GCAL_SETTINGS[key].def; });
-  return preset;
-}
-
-// rows: cell rows below the header, error rows already dropped. Returns { presets, errors }: every preset in
-// tab order with its own errors list (a preset with errors is unusable), and the flat errors as { row, where,
-// message }: row the 1-based row of the tab as given (header 1), where '#GCal row N' with N the offending
-// row's position once the error rows are written above it (gcalRowsWithErrors), so it matches the tab the
-// user sees. The same name rule as the cal setting applies, so every preset can be named there.
+// The core's preset grammar (DESIGN 13.1) with GCal's settings and placeholders: every preset in tab order
+// with its own errors and setRows, and the flat errors { row, where: '#GCal row N', message }.
 function parseGCalPresets(rows) {
-  var presets = [];
-  var errors = [];
-  var current = null;
-  var seen = {};
-  var fail = function (i, preset, message) {
-    errors.push({ row: i + 2, where: null, message: message });
-    if (preset) preset.errors.push(message);
-  };
-  (rows || []).forEach(function (cells, i) {
-    var name = cellText(cells[0]);
-    var key = cellText(cells[1]).toLowerCase();
-    var value = cellText(cells[2]);
-    if (name !== '') {
-      current = gcalNewPreset(name, value, i + 2);
-      presets.push(current);
-      if (!gcalIsValidPresetName(name)) fail(i, current, 'bad preset name "' + name + '"; use letters, digits, - and _ without spaces');
-      else if (seen[name]) fail(i, current, 'duplicate preset "' + name + '"');
-      seen[name] = true;
-      return;
-    }
-    if (key === '') return;
-    if (current === null) { fail(i, null, 'setting "' + key + '" before any preset'); return; }
-    var spec = GCAL_SETTINGS[key];
-    if (!spec) { fail(i, current, 'unknown setting "' + key + '"'); return; }
-    if (current.setRows[key] !== undefined) { fail(i, current, 'duplicate setting "' + key + '"'); return; }
-    current.setRows[key] = i + 2;
-    var parsed = spec.parse(value);
-    if (parsed === null) { fail(i, current, 'bad value for ' + key + ': "' + value + '"' + (spec.hint ? '; use ' + spec.hint : '')); return; }
-    if (spec.template) gcalTemplateErrors(parsed, key).forEach(function (message) { fail(i, current, message); });
-    current[key] = parsed;
-  });
-  presets.forEach(function (preset) {
-    if (preset.id === null) {
-      errors.push({ row: preset.row, where: null, message: 'preset "' + preset.name + '" has no id' });
-      preset.errors.push('no id');
-    }
-  });
-  errors.sort(function (a, b) { return a.row - b.row; });
-  // The offending row moves down by one per error row written at or above it: all errors up to the last one
-  // on the same row.
-  var above = 0, seen = null;
-  errors.forEach(function (e, k) {
-    if (e.row !== seen) { seen = e.row; above = k + errors.filter(function (x) { return x.row === e.row; }).length; }
-    e.where = GCAL_TAB + ' row ' + (e.row + above);
-  });
-  return { presets: presets, errors: errors };
+  return parsePresetTab(rows, GCAL_SETTINGS, { tab: GCAL_TAB, placeholders: GCAL_PLACEHOLDERS });
 }
 
-function gcalIsErrorRow(cells) {
-  return cellText(cells[0]) === '' && cellText(cells[1]).toLowerCase() === GCAL_ERROR_TYPE;
-}
-
-// The tab without the script's error rows (DESIGN 1: error rows are removed and recomputed on every run).
 function gcalDropErrorRows(rows) {
-  return rows.filter(function (cells) { return !gcalIsErrorRow(cells); });
+  return dropPresetErrorRows(rows);
 }
 
-// The tab with an error row (| error | message) directly above each row an error names ({ row, message },
-// sorted by row here, equal rows in list order); rows are the cleaned rows the errors were computed on.
-// Rows are padded to the header width.
 function gcalRowsWithErrors(rows, errors) {
-  var out = rows.map(function (cells) {
-    return GCAL_HEADER.map(function (_, i) { return cells[i] === undefined || cells[i] === null ? '' : cells[i]; });
-  });
-  var sorted = errors.slice().sort(function (a, b) { return a.row - b.row; });
-  for (var k = sorted.length - 1; k >= 0; k--) {
-    out.splice(sorted[k].row - 2, 0, ['', GCAL_ERROR_TYPE, sorted[k].message]);
-  }
-  return out;
+  return presetRowsWithErrors(rows, errors);
 }
 
 function gcalPreset(inputs, name) {
@@ -175,13 +97,13 @@ function gcalPreset(inputs, name) {
 // is written back with an error row above each offending row (13.1), through writeTabRows when the storage
 // has it. A storage that only reads gets no write.
 function gcal_readInputs(storage) {
-  var read = typeof storage.readTabRows === 'function' ? storage.readTabRows(GCAL_TAB, GCAL_HEADER) : [];
+  var read = typeof storage.readTabRows === 'function' ? storage.readTabRows(GCAL_TAB, PRESET_HEADER) : [];
   var rows = gcalDropErrorRows(read);
   var inputs = parseGCalPresets(rows);
   inputs.rows = rows;
   if (typeof storage.writeTabRows === 'function') {
     var written = gcalRowsWithErrors(rows, inputs.errors);
-    if (JSON.stringify(written) !== JSON.stringify(gcalRowsWithErrors(read, []))) storage.writeTabRows(GCAL_TAB, GCAL_HEADER, written);
+    if (JSON.stringify(written) !== JSON.stringify(gcalRowsWithErrors(read, []))) storage.writeTabRows(GCAL_TAB, PRESET_HEADER, written);
   }
   return inputs;
 }

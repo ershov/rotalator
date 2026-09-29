@@ -37,11 +37,16 @@ test('tab names: system prefix, known system tabs, preview names', () => {
   assert.equal(U.isSystemTab('#primary'), true);
   assert.equal(U.isSystemTab('primary'), false);
   assert.equal(U.isSystemTab('.old'), false);
-  for (const name of ['#Holidays', '#Global', '#Status', '#All shifts', '#Preview primary', '#Preview Global']) {
+  for (const name of ['#Holidays', '#Global', '#Status', '#All shifts', '#Help', '#GCal', '#Slack', '#Slack state', '#Preview primary', '#Preview Global']) {
     assert.equal(U.isKnownSystemTab(name), true, name);
   }
   assert.equal(U.isKnownSystemTab('#primary'), false);
   assert.equal(U.isKnownSystemTab('primary'), false);
+  assert.equal(U.isKnownSystemTab('#Slack ids'), false);
+  assert.equal(U.extensionTabOwner('#GCal'), 'GCal');
+  assert.equal(U.extensionTabOwner('#Slack'), 'Slack');
+  assert.equal(U.extensionTabOwner('#Slack state'), 'Slack');
+  assert.equal(U.extensionTabOwner('#Global'), null);
   assert.equal(U.previewTabName('primary'), '#Preview primary');
   assert.equal(U.previewTabName('#Global'), '#Preview Global');
 });

@@ -2,8 +2,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { load } = require('../node/load.js');
-const { runStorage, statusText } = require('../node/cli.js');
-const { MemoryStorage } = require('../node/storage.js');
+const fs = require('node:fs');
+const path = require('node:path');
+const { runStorage, runDir, statusText } = require('../node/cli.js');
+const { MemoryStorage, CsvDirStorage } = require('../node/storage.js');
 
 const U = load();
 const plain = (v) => structuredClone(v);
@@ -16,17 +18,18 @@ const ledger = (set) => ({ primary: [
 ] });
 const BASE = 'period=1w, horizon=2w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0';
 
-// Defines fake gcal_<hook> functions in the shared context for one test and removes them afterwards.
-function withFakeGcal(hooks, fn) {
+// Defines fake <prefix>_<hook> functions in the shared context for one test and removes them afterwards.
+function withFakeHooks(prefix, hooks, fn) {
   const names = Object.keys(hooks);
-  names.forEach((hook) => { U[`gcal_${hook}`] = hooks[hook]; });
-  try { return fn(); } finally { names.forEach((hook) => { delete U[`gcal_${hook}`]; }); }
+  names.forEach((hook) => { U[`${prefix}_${hook}`] = hooks[hook]; });
+  try { return fn(); } finally { names.forEach((hook) => { delete U[`${prefix}_${hook}`]; }); }
 }
+const withFakeGcal = (hooks, fn) => withFakeHooks('gcal', hooks, fn);
 
 const names = (hook) => plain(U.extensionHooks(hook).map((h) => h.name));
 
 test('extension hooks: none present without an extension bundle', () => {
-  assert.deepEqual(plain(U.EXTENSIONS), ['GCal']);
+  assert.deepEqual(plain(U.EXTENSIONS), ['GCal', 'Slack']);
   assert.deepEqual(plain(U.EXTENSION_HOOKS), ['menu', 'setup', 'setupTab', 'help', 'readInputs', 'afterRun', 'status']);
   assert.equal(U.extensionHookName('GCal', 'menu'), 'gcal_menu');
   assert.equal(U.extensionHook('GCal', 'menu'), null);
@@ -278,4 +281,99 @@ test('load: extensions are added to the shared context; unknown names throw', ()
   assert.equal(load([]), U);
   assert.throws(() => load(['Nope']), /unknown extension "Nope": no src\/ext\/Nope\//);
   assert.equal(load(), U);
+});
+
+test('slack setting: the cal grammar, empty default, bare key resets, in the help text but not the template', () => {
+  assert.equal(U.SETTINGS.slack.def, '');
+  assert.equal(U.defaultSettings().slack, '');
+  assert.equal(U.parseSetArg('slack=team', null).values.slack, 'team');
+  assert.equal(U.parseSetArg('slack=team  heads-up_2', null).values.slack, 'team heads-up_2', 'single spaces, case kept');
+  assert.equal(U.parseSetArg('period=1w, slack=Team, cal=other', null).values.slack, 'Team');
+  const bare = U.parseSetArg('slack', null);
+  assert.equal(bare.values.slack, '');
+  assert.deepEqual(plain(bare.reset), ['slack']);
+  assert.match(U.parseSetArg('slack=team!', null).error, /bad value for slack: "team!"; use space-separated preset names of letters, digits, - and _/);
+  assert.match(U.parseSetArg('slack=@oncall', null).error, /bad value for slack/);
+  assert.match(U.parseSetArg('slack=', null).error, /bad assignment/);
+  const rows = (what) => U.rowsFromCells([R('', '2026-10-05T09:00', 'set', what), R('', '2026-10-05T09:00', 'team', 'alice')]);
+  assert.deepEqual(plain(U.validateLedger(rows('period=1w, slack=team heads-up'), 'r').errors), []);
+  assert.equal(U.validateLedger(rows('period=1w, slack=te/am'), 'r').errors.length, 1);
+  assert.ok(!U.templateSetWhat().split(', ').some((item) => item.split('=')[0] === 'slack'));
+  assert.ok(plain(U.HELP_TEXT).some((line) => line.startsWith('slack:')));
+  assert.deepEqual(Object.keys(U.SETTINGS).slice(-2), ['cal', 'slack']);
+});
+
+test('#Slack and #Slack state are known system tabs owned by the Slack extension', () => {
+  assert.equal(U.SLACK_TAB, '#Slack');
+  assert.equal(U.SLACK_STATE_TAB, '#Slack state');
+  for (const name of ['#Slack', '#Slack state']) {
+    assert.equal(U.isKnownSystemTab(name), true, name);
+    assert.equal(U.isSystemTab(name), true, name);
+    assert.equal(U.extensionTabOwner(name), 'Slack', name);
+  }
+  assert.equal(U.extensionTabOwner('#GCal'), 'GCal');
+  assert.equal(U.extensionTabOwner('#Slack ids'), null);
+  assert.equal(U.isKnownSystemTab('#Slack ids'), false);
+  // Not reported as ignored by the runner, whatever the storage lists.
+  const storage = new MemoryStorage({ ledgers: ledger(BASE) });
+  assert.deepEqual(runStorage(storage, NOW).status.tabs.ignored, []);
+});
+
+test('warning: slack extension not installed when slack is in force, next to the cal warning', () => {
+  const warned = runStorage(new MemoryStorage({ ledgers: ledger(BASE + ', slack=team heads-up') }), NOW);
+  assert.deepEqual(warned.errors, []);
+  assert.deepEqual(warned.status.warnings, [{ rotation: 'primary', start: null, message: 'slack extension not installed; slack=team heads-up has no effect' }]);
+  assert.match(statusText(warned.status), /warnings\nrotation +start +message\nprimary +slack extension not installed; slack=team heads-up has no effect\n/);
+  assert.deepEqual(warned.status.rotations[0].settings.values.find((v) => v.key === 'slack'), { key: 'slack', value: 'team heads-up', source: 'rotation' });
+  // Both settings in force: one warning each, cal first.
+  const both = runStorage(new MemoryStorage({ ledgers: ledger(BASE + ', cal=team, slack=team') }), NOW);
+  assert.deepEqual(both.status.warnings.map((w) => w.message), ['calendar extension not installed; cal=team has no effect', 'slack extension not installed; slack=team has no effect']);
+  // From #Global; a later set row is not in force yet; an empty slack never warns.
+  const global = [R('', '2026-10-05T09:00', 'set', 'slack=shared')];
+  const viaGlobal = runStorage(new MemoryStorage({ ledgers: ledger(BASE), global }), NOW);
+  assert.deepEqual(viaGlobal.status.warnings.map((w) => w.message), ['slack extension not installed; slack=shared has no effect']);
+  const later = ledger(BASE);
+  later.primary.push(R('', '2026-10-12T09:00', 'set', 'slack=team'));
+  assert.deepEqual(runStorage(new MemoryStorage({ ledgers: later }), NOW).status.warnings, []);
+  // Any slack hook present makes the extension installed and silences its warning only.
+  const quiet = withFakeHooks('slack', { afterRun: () => {} }, () => runStorage(new MemoryStorage({ ledgers: ledger(BASE + ', cal=c, slack=s') }), NOW));
+  assert.deepEqual(quiet.status.warnings.map((w) => w.message), ['calendar extension not installed; cal=c has no effect']);
+  assert.equal(U.extensionInstalled('Slack'), false);
+  assert.deepEqual(plain(U.EXTENSION_SETTINGS), [{ extension: 'GCal', key: 'cal', label: 'calendar' }, { extension: 'Slack', key: 'slack', label: 'slack' }]);
+});
+
+test('writeTabRows creates a missing tab in memory and CSV storage; slack files are system tabs', () => {
+  const header = ['rotation', 'preset', 'to', 'start', 'who', 'sent at'];
+  const rows = [['primary', 'team', 'C1', '2026-10-05T09:00', 'alice', '2026-10-05T10:00']];
+  const mem = new MemoryStorage();
+  assert.deepEqual(mem.readTabRows('#Slack state', header), []);
+  mem.writeTabRows('#Slack state', header, rows);
+  assert.deepEqual(mem.readTabRows('#Slack state', header), rows);
+  mem.writeTabRows('#Slack state', header, []);
+  assert.deepEqual(mem.readTabRows('#Slack state', header), []);
+
+  const dir = path.join(__dirname, '..', '.tmp', 'slack-tabs');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'primary.csv'), U.formatCsv([plain(U.LEDGER_HEADER), ...ledger(BASE).primary]));
+  fs.writeFileSync(path.join(dir, 'slack.csv'), U.formatCsv([['preset', 'setting', 'value'], ['team', '', 'note'], ['', 'to', '#chan']]));
+  const ro = new CsvDirStorage(dir, { readOnly: true });
+  ro.writeTabRows('#Slack state', header, rows);
+  assert.equal(fs.existsSync(path.join(dir, 'slack-state.csv')), false, 'read-only writes nothing');
+  const storage = new CsvDirStorage(dir);
+  assert.deepEqual(plain(storage.readTabRows('#Slack state', header)), []);
+  storage.writeTabRows('#Slack state', header, rows);
+  assert.equal(fs.readFileSync(path.join(dir, 'slack-state.csv'), 'utf8'), U.formatCsv([header, ...rows]));
+  assert.deepEqual(plain(new CsvDirStorage(dir).readTabRows('#Slack state', header)), rows);
+  assert.deepEqual(plain(storage.readTabRows('#Slack', U.PRESET_HEADER)), [['team', '', 'note'], ['', 'to', '#chan']]);
+  // slack.csv and slack-state.csv are #Slack and #Slack state: never rotations, never ignored.
+  const fresh = new CsvDirStorage(dir);
+  assert.deepEqual(Object.keys(fresh.readLedgers()), ['primary']);
+  assert.deepEqual(fresh.ignoredTabs(), []);
+  // The CLI run on such a directory works whether or not the Slack extension's source exists.
+  const result = runDir(dir, NOW);
+  assert.deepEqual(result.errors, []);
+  assert.deepEqual(Object.keys(result.ledgers), ['primary']);
+  assert.deepEqual(result.status.tabs.ignored, []);
+  fs.rmSync(dir, { recursive: true, force: true });
 });

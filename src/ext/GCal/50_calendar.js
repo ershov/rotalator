@@ -242,7 +242,7 @@ function gcalWriteCalendarErrors(storage, inputs, data) {
     var preset = e.preset ? gcalPreset(inputs, e.preset) : null;
     if (preset) extra.push({ row: preset.setRows.id || preset.row, message: e.message + ' (' + e.where + ')' });
   });
-  if (extra.length) storage.writeTabRows(GCAL_TAB, GCAL_HEADER, gcalRowsWithErrors(inputs.rows, inputs.errors.concat(extra)));
+  if (extra.length) storage.writeTabRows(GCAL_TAB, PRESET_HEADER, gcalRowsWithErrors(inputs.rows, inputs.errors.concat(extra)));
 }
 
 // Deletes tagged events per a clean plan (gcalCleanPlan): a rotation's events (tag prefix rotation|) in its
