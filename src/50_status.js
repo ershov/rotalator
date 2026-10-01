@@ -80,13 +80,13 @@ function rotationStatus(rot, now) {
   };
 }
 
-// Every shift of every rotation with its scored extent, by start then rotation order. who is '' for a nobody
-// shift.
+// Every shift of every rotation with its scored extent and the relations it does not meet (7), by start then
+// rotation order. who is '' for a nobody shift.
 function shiftsView(rots) {
   var out = [];
   rots.forEach(function (rot) {
     rot.entries.forEach(function (e) {
-      out.push({ start: e.start, end: e.end, rotation: rot.name, who: e.who === null ? '' : e.who });
+      out.push({ start: e.start, end: e.end, rotation: rot.name, who: e.who === null ? '' : e.who, unmet: e.unmet || [] });
     });
   });
   return out.sort(function (a, b) { return a.start - b.start; });
@@ -280,12 +280,15 @@ function statusRowsVertical(status) {
 // Rows of the #All shifts grid: header start | <rotation> ..., one row per distinct shift start with the
 // assignee starting then in each rotation's column ('-' for nobody), and a now row marked in every rotation
 // column after any row with the same start. currentCells [{ row, col }] (0-based) are the cells of each
-// rotation's shift covering now; both are empty when status.at is unknown.
+// rotation's shift covering now; both are empty when status.at is unknown. errorCells [{ row, col, note }]
+// are the shifts that break a relation in force (7), the note naming each relation and partner.
 function shiftsRows(status) {
   var names = status.rotations.map(function (r) { return r.name; });
   var rows = [SHIFTS_HEADER.concat(names)];
   var dividerRows = [];
   var currentCells = [];
+  var errorCells = [];
+  var unmetAt = new Map();
   var at = status.at;
   var known = at !== null && at !== undefined;
   var current = {};
@@ -295,15 +298,20 @@ function shiftsRows(status) {
   status.shifts.forEach(function (s) {
     if (!byStart.has(s.start)) { byStart.set(s.start, {}); starts.push(s.start); }
     byStart.get(s.start)[s.rotation] = s.who === '' ? '-' : s.who;
+    if (s.unmet && s.unmet.length) unmetAt.set(s.start + '|' + s.rotation, s.unmet.map(function (u) { return u.relation + ' with ' + u.rotation; }).join('; '));
   });
   var nowRow = [statusInstant(at)].concat(names.map(function () { return NOW_MARK; }));
   var placed = !known;
   starts.forEach(function (start) {
     if (!placed && start > at) { dividerRows.push(rows.length); rows.push(nowRow); placed = true; }
     var cells = byStart.get(start);
-    names.forEach(function (n, i) { if (current[n] === start) currentCells.push({ row: rows.length, col: i + 1 }); });
+    names.forEach(function (n, i) {
+      if (current[n] === start) currentCells.push({ row: rows.length, col: i + 1 });
+      var note = unmetAt.get(start + '|' + n);
+      if (note) errorCells.push({ row: rows.length, col: i + 1, note: note });
+    });
     rows.push([statusInstant(start)].concat(names.map(function (n) { return cells[n] || ''; })));
   });
   if (!placed) { dividerRows.push(rows.length); rows.push(nowRow); }
-  return { rows: rows, headerRows: [0], dividerRows: dividerRows, currentCells: currentCells };
+  return { rows: rows, headerRows: [0], dividerRows: dividerRows, currentCells: currentCells, errorCells: errorCells };
 }

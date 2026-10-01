@@ -171,9 +171,9 @@ class SheetsStorage {
     writeTextCells(sheet, row, rows);
   }
 
-  // Bold grey header rows, a green divider, red error rows, orange warning rows and yellow current cells,
-  // from the 0-based indexes the status module reports in table { headerRows, dividerRows, errorRows,
-  // warningRows, currentCells }.
+  // Bold grey header rows, a green divider, red error rows, orange warning rows, yellow current cells and
+  // red error cells with a note, from the 0-based indexes the status module reports in table { headerRows,
+  // dividerRows, errorRows, warningRows, currentCells, errorCells }. Red wins over yellow on a cell.
   formatTableRows(sheet, width, table) {
     var paint = function (indexes, color) {
       (indexes || []).forEach(function (i) { sheet.getRange(i + 1, 1, 1, width).setBackground(color); });
@@ -184,6 +184,7 @@ class SheetsStorage {
     paint(table.errorRows, COLOR_ERROR);
     paint(table.warningRows, COLOR_WARNING);
     (table.currentCells || []).forEach(function (c) { sheet.getRange(c.row + 1, c.col + 1).setBackground(COLOR_CURRENT_CELL); });
+    (table.errorCells || []).forEach(function (c) { sheet.getRange(c.row + 1, c.col + 1).setBackground(COLOR_ERROR).setNote(c.note); });
   }
 
   // Rows below the header of a ledger-shaped tab. A preview goes to '#Preview <name>', rewritten with a fresh

@@ -59,7 +59,8 @@ test('status: shifts view lists every shift by start then rotation order', () =>
     ['2026-10-19T09:00', 'primary', 'carol'],
     ['2026-10-19T09:00', 'secondary', 'dave'],
   ]);
-  assert.deepEqual(Object.keys(status.shifts[0]), ['start', 'end', 'rotation', 'who']);
+  assert.deepEqual(Object.keys(status.shifts[0]), ['start', 'end', 'rotation', 'who', 'unmet']);
+  assert.deepEqual(status.shifts[0].unmet, []);
   assert.equal(status.shifts[0].end, dt('2026-10-12T09:00'));
 });
 

@@ -431,3 +431,51 @@ test('attract!: parses and sorts like attract, marks +!, widens the band to the 
   assert.deepEqual(plain(rest.status.warnings.filter((w) => /widened/.test(w.message))), []);
   assert.ok(rest.status.warnings.some((w) => /min_distance relaxed/.test(w.message)), 'the rest itself is relaxed by the ladder, not by attract!');
 });
+
+test('unmet relations: red cells in #All shifts for repel overlap, repel! overlap only, attract mismatch; vacations and one-sided rows', () => {
+  const SETW = (md = 0) => R('', '2026-10-05T09:00', 'set', `period=1w, horizon=6w, tolerance=0, min_distance=${md}, skip_weekends=false, skip_holidays=false, autopin=a:0`);
+  const six = (name, team, extra = [], md = 0) => ({ name, rows: rows([SETW(md), R('', '2026-10-05T09:00', 'team', team), ...extra]), snapshotAt: MON });
+  const dated = (rotations, global) => U.regenerate({ rotations, holidays: [], global: rows(global), now: MON });
+  const cellsOfOut = (out) => {
+    const table = U.shiftsRows(out.status);
+    const names = plain(table.rows[0]).slice(1);
+    return plain(table.errorCells).map((c) => [plain(table.rows[c.row])[0], names[c.col - 1], c.note]);
+  };
+  // repel that had to be dropped: alice alone in both rotations holds both every week, both cells red.
+  const overlap = dated([six('primary', 'alice'), six('secondary', 'alice')], [REL('repel', '2026-10-05T09:00', 'primary, secondary')]);
+  const red = cellsOfOut(overlap);
+  assert.equal(red.length, 12);
+  assert.deepEqual(red.slice(0, 2), [['2026-10-05T09:00', 'primary', 'repel with secondary'], ['2026-10-05T09:00', 'secondary', 'repel with primary']]);
+  assert.deepEqual(plain(U.shiftsRows(overlap.status).currentCells), [{ row: 1, col: 1 }, { row: 1, col: 2 }], 'the current cells are listed too; the adapter paints red last');
+  // A respected repel paints nothing.
+  const respected = dated([six('primary', 'alice, bob'), six('secondary', 'alice, bob')], [REL('repel', '2026-10-05T09:00', 'primary, secondary')]);
+  assert.deepEqual(cellsOfOut(respected), []);
+  // repel!: alice alone in secondary reads primary (alice, bob, carol) with a 1w rest window; only the weeks
+  // where she holds both rotations are painted, the rest-window misses next to them are not.
+  const strong = dated([six('primary', 'alice, bob, carol', [], '1sl'), six('secondary', 'alice', [REL('repel!', '2026-10-05T09:00', 'primary')], '1sl')], []);
+  const primaryAlice = shiftsOf(strong, 'primary').filter((s) => s[1] === 'alice').map((s) => s[0]);
+  assert.deepEqual(primaryAlice, ['2026-10-05T09:00', '2026-10-26T09:00']);
+  const strongCells = cellsOfOut(strong);
+  assert.ok(strongCells.every((c) => c[1] === 'secondary' && c[2] === 'repel! with primary'), 'one-sided: only the reader is painted');
+  assert.deepEqual(strongCells.map((c) => c[0]), primaryAlice, 'same person in both cells; 10-12, 10-19 and 11-02 inside the rest window are not painted');
+  // attract: the desynced pair of the attract! test. Week 3 (carol excluded in tickets, dave takes it) paints
+  // nothing on either side; week 4 (dave in alerts, carol in tickets) is red on both sides; weeks 5 and 6
+  // realign and are clean.
+  const excl = [R('', '2026-10-19T09:00', 'exclude', 'carol', '', '1w')];
+  const soft = dated([six('alerts', 'alice, bob, carol, dave'), six('tickets', 'alice, bob, carol, dave', excl)], [REL('attract', '2026-10-05T09:00', 'alerts, tickets')]);
+  assert.deepEqual(whoOf(soft, 'tickets'), ['alice', 'bob', 'dave', 'carol', 'alice', 'bob']);
+  assert.deepEqual(cellsOfOut(soft), [
+    ['2026-10-26T09:00', 'alerts', 'attract with tickets'], ['2026-10-26T09:00', 'tickets', 'attract with alerts'],
+  ]);
+  // attract! follows from week 4, so only the vacation week differs and nothing is painted.
+  const followed = dated([six('alerts', 'alice, bob, carol, dave'), six('tickets', 'alice, bob, carol, dave', excl)], [REL('attract!', '2026-10-05T09:00', 'alerts, tickets')]);
+  assert.deepEqual(cellsOfOut(followed), []);
+  // One-sided attract in tickets' tab: only tickets' cells are painted; a member who is not on the reader's
+  // roster does not count (zed holds alerts alone, tickets cannot follow him).
+  const oneSided = dated([six('alerts', 'alice, bob, carol, dave'), six('tickets', 'alice, bob, carol, dave', excl.concat([REL('attract', '2026-10-05T09:00', 'alerts')]))], []);
+  assert.ok(cellsOfOut(oneSided).length > 0 && cellsOfOut(oneSided).every((c) => c[1] === 'tickets'));
+  const foreign = dated([six('alerts', 'zed'), six('tickets', 'alice, bob')], [REL('attract', '2026-10-05T09:00', 'alerts, tickets')]);
+  assert.deepEqual(cellsOfOut(foreign), []);
+  // No status cells without now either way; the CLI text has no cell metadata.
+  assert.deepEqual(plain(U.shiftsRows(regen([six('primary', 'alice'), six('secondary', 'alice')], [REL('repel', '2026-10-05T09:00', 'primary, secondary')]).status).errorCells).length, 12);
+});

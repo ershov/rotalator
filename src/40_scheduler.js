@@ -100,12 +100,12 @@ function resolvedExcludeEnds(rows) {
   return ends;
 }
 
-// Roster size over time from the snapshot roster and the team/join/leave rows after it, for ts intervals
-// that must be resolved before the sweep. Row errors are left to the sweep.
-function rosterSizeAt(rows, previousAt, previousWhat) {
+// Roster members over time from the snapshot roster and the team/join/leave rows after it: a function of t
+// returning the member names at t. Row errors are left to the sweep.
+function rosterNamesAt(rows, previousAt, previousWhat) {
   var roster = new Roster();
   roster.fromSnapshotWhat(previousWhat);
-  var initial = roster.size();
+  var initial = roster.names();
   var points = [];
   rows.forEach(function (row) {
     if (row.start === null || (previousAt !== null && row.start < previousAt)) return;
@@ -113,13 +113,19 @@ function rosterSizeAt(rows, previousAt, previousWhat) {
     else if (row.type === 'join') roster.join(whatItems(row), 'median');
     else if (row.type === 'leave') roster.leave(whatNames(row));
     else return;
-    points.push({ t: row.start, size: roster.size() });
+    points.push({ t: row.start, names: roster.names() });
   });
   return function (t) {
-    var size = initial;
-    points.forEach(function (p) { if (p.t <= t) size = p.size; });
-    return size;
+    var names = initial;
+    points.forEach(function (p) { if (p.t <= t) names = p.names; });
+    return names;
   };
+}
+
+// Roster size over time, for ts intervals that must be resolved before the sweep.
+function rosterSizeAt(rows, previousAt, previousWhat) {
+  var namesAt = rosterNamesAt(rows, previousAt, previousWhat);
+  return function (t) { return namesAt(t).length; };
 }
 
 // sl/ts durations become an end on the grid effective at the row's start (DESIGN 3.3).
@@ -171,7 +177,8 @@ function prepareRotation(input, index, holidays, frozen, globalSetRows, now) {
   rot.previousAt = previous ? previous.start : null;
   rot.previousWhat = previous ? previous.what : '';
   rot.S = S;
-  rot.sizeAt = rosterSizeAt(rows, rot.previousAt, rot.previousWhat);
+  rot.namesAt = rosterNamesAt(rows, rot.previousAt, rot.previousWhat);
+  rot.sizeAt = function (t) { return rot.namesAt(t).length; };
   resolveDurations(rows, timeline, rot.sizeAt);
   var P = rot.previousAt;
   var historyEnd = now === null || now === undefined ? S : now;
@@ -556,6 +563,7 @@ function regenerate(input) {
   if (hasErrors()) return errorOutput(rots, global, input.now);
   sweep(mergeItems(rots), rots, holidays, ctx);
   if (hasErrors()) return errorOutput(rots, global, input.now);
+  markUnmetRelations(rots, ctx);
   // Problems with a row (rejected relation rows) are errors in the status; unassignable slots are warnings.
   var problems = collectErrors(rots, 'problems');
   var rowProblems = problems.filter(function (p) { return p.rowIndex !== null; });

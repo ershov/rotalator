@@ -220,6 +220,48 @@ function strongPartners(ctx, rot, a, localDistance) {
   return partners;
 }
 
+// Whether `who` holds a decided shift of rot overlapping [from, to).
+function holdsOverlapping(rot, who, from, to) {
+  return rot.entries.some(function (e) { return e.who === who && e.start < to && e.end > from; });
+}
+
+// Whether `who` could hold a shift [a, b) of rot: on its roster at a and not excluded then.
+function couldHold(rot, who, a, b) {
+  return rot.namesAt(a).indexOf(who) >= 0 && !rot.roster.isExcluded(who, a, b);
+}
+
+// Marks every decided shift of every rotation with the relations in force at its start that it does not meet
+// (DESIGN 7, Unmet relations): e.unmet = [{ relation, rotation }], for the #All shifts view. The reader's own
+// cell is marked (mutual states on both sides). repel and repel!: the holder also holds an overlapping shift
+// in the partner (the rest window of repel! is not checked); attract and attract!: the partner's overlapping
+// shift is held by someone else who could hold this one while this holder could hold the partner's, so a
+// vacation on either side does not count. Nobody shifts are never marked.
+function markUnmetRelations(rots, ctx) {
+  rots.forEach(function (rot) {
+    if (rot.errors.length || !rot.entries) return;
+    rot.entries.forEach(function (e) {
+      e.unmet = [];
+      if (e.who === null) return;
+      var a = e.start, b = e.end;
+      Object.keys(ctx.byName).forEach(function (other) {
+        var target = ctx.byName[other];
+        if (target === rot || !target.entries) return;
+        var kind = ctx.relations.kindFor(rot.name, other, a);
+        if (kind === null) return;
+        var unmet = false;
+        if (kind === 'repel' || kind === 'repel!') {
+          unmet = holdsOverlapping(target, e.who, a, b);
+        } else if (kind === 'attract' || kind === 'attract!') {
+          unmet = target.entries.some(function (t) {
+            return t.who !== null && t.who !== e.who && t.start < b && t.end > a && couldHold(rot, t.who, a, b) && couldHold(target, e.who, a, b);
+          });
+        }
+        if (unmet) e.unmet.push({ relation: kind, rotation: other });
+      });
+    });
+  });
+}
+
 // Members repelled from slot [a, b) of rot: holders of overlapping shifts in plain repel partners, and holders
 // of shifts in repel! partners overlapping the slot widened by the pair's window less `shrink` (never below
 // zero) along rot's grid. Map member -> rotation names.

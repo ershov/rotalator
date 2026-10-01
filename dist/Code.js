@@ -1286,12 +1286,12 @@ function resolvedExcludeEnds(rows) {
   return ends;
 }
 
-// Roster size over time from the snapshot roster and the team/join/leave rows after it, for ts intervals
-// that must be resolved before the sweep. Row errors are left to the sweep.
-function rosterSizeAt(rows, previousAt, previousWhat) {
+// Roster members over time from the snapshot roster and the team/join/leave rows after it: a function of t
+// returning the member names at t. Row errors are left to the sweep.
+function rosterNamesAt(rows, previousAt, previousWhat) {
   var roster = new Roster();
   roster.fromSnapshotWhat(previousWhat);
-  var initial = roster.size();
+  var initial = roster.names();
   var points = [];
   rows.forEach(function (row) {
     if (row.start === null || (previousAt !== null && row.start < previousAt)) return;
@@ -1299,13 +1299,19 @@ function rosterSizeAt(rows, previousAt, previousWhat) {
     else if (row.type === 'join') roster.join(whatItems(row), 'median');
     else if (row.type === 'leave') roster.leave(whatNames(row));
     else return;
-    points.push({ t: row.start, size: roster.size() });
+    points.push({ t: row.start, names: roster.names() });
   });
   return function (t) {
-    var size = initial;
-    points.forEach(function (p) { if (p.t <= t) size = p.size; });
-    return size;
+    var names = initial;
+    points.forEach(function (p) { if (p.t <= t) names = p.names; });
+    return names;
   };
+}
+
+// Roster size over time, for ts intervals that must be resolved before the sweep.
+function rosterSizeAt(rows, previousAt, previousWhat) {
+  var namesAt = rosterNamesAt(rows, previousAt, previousWhat);
+  return function (t) { return namesAt(t).length; };
 }
 
 // sl/ts durations become an end on the grid effective at the row's start (DESIGN 3.3).
@@ -1357,7 +1363,8 @@ function prepareRotation(input, index, holidays, frozen, globalSetRows, now) {
   rot.previousAt = previous ? previous.start : null;
   rot.previousWhat = previous ? previous.what : '';
   rot.S = S;
-  rot.sizeAt = rosterSizeAt(rows, rot.previousAt, rot.previousWhat);
+  rot.namesAt = rosterNamesAt(rows, rot.previousAt, rot.previousWhat);
+  rot.sizeAt = function (t) { return rot.namesAt(t).length; };
   resolveDurations(rows, timeline, rot.sizeAt);
   var P = rot.previousAt;
   var historyEnd = now === null || now === undefined ? S : now;
@@ -1742,6 +1749,7 @@ function regenerate(input) {
   if (hasErrors()) return errorOutput(rots, global, input.now);
   sweep(mergeItems(rots), rots, holidays, ctx);
   if (hasErrors()) return errorOutput(rots, global, input.now);
+  markUnmetRelations(rots, ctx);
   // Problems with a row (rejected relation rows) are errors in the status; unassignable slots are warnings.
   var problems = collectErrors(rots, 'problems');
   var rowProblems = problems.filter(function (p) { return p.rowIndex !== null; });
@@ -1838,13 +1846,13 @@ function rotationStatus(rot, now) {
   };
 }
 
-// Every shift of every rotation with its scored extent, by start then rotation order. who is '' for a nobody
-// shift.
+// Every shift of every rotation with its scored extent and the relations it does not meet (7), by start then
+// rotation order. who is '' for a nobody shift.
 function shiftsView(rots) {
   var out = [];
   rots.forEach(function (rot) {
     rot.entries.forEach(function (e) {
-      out.push({ start: e.start, end: e.end, rotation: rot.name, who: e.who === null ? '' : e.who });
+      out.push({ start: e.start, end: e.end, rotation: rot.name, who: e.who === null ? '' : e.who, unmet: e.unmet || [] });
     });
   });
   return out.sort(function (a, b) { return a.start - b.start; });
@@ -2038,12 +2046,15 @@ function statusRowsVertical(status) {
 // Rows of the #All shifts grid: header start | <rotation> ..., one row per distinct shift start with the
 // assignee starting then in each rotation's column ('-' for nobody), and a now row marked in every rotation
 // column after any row with the same start. currentCells [{ row, col }] (0-based) are the cells of each
-// rotation's shift covering now; both are empty when status.at is unknown.
+// rotation's shift covering now; both are empty when status.at is unknown. errorCells [{ row, col, note }]
+// are the shifts that break a relation in force (7), the note naming each relation and partner.
 function shiftsRows(status) {
   var names = status.rotations.map(function (r) { return r.name; });
   var rows = [SHIFTS_HEADER.concat(names)];
   var dividerRows = [];
   var currentCells = [];
+  var errorCells = [];
+  var unmetAt = new Map();
   var at = status.at;
   var known = at !== null && at !== undefined;
   var current = {};
@@ -2053,17 +2064,22 @@ function shiftsRows(status) {
   status.shifts.forEach(function (s) {
     if (!byStart.has(s.start)) { byStart.set(s.start, {}); starts.push(s.start); }
     byStart.get(s.start)[s.rotation] = s.who === '' ? '-' : s.who;
+    if (s.unmet && s.unmet.length) unmetAt.set(s.start + '|' + s.rotation, s.unmet.map(function (u) { return u.relation + ' with ' + u.rotation; }).join('; '));
   });
   var nowRow = [statusInstant(at)].concat(names.map(function () { return NOW_MARK; }));
   var placed = !known;
   starts.forEach(function (start) {
     if (!placed && start > at) { dividerRows.push(rows.length); rows.push(nowRow); placed = true; }
     var cells = byStart.get(start);
-    names.forEach(function (n, i) { if (current[n] === start) currentCells.push({ row: rows.length, col: i + 1 }); });
+    names.forEach(function (n, i) {
+      if (current[n] === start) currentCells.push({ row: rows.length, col: i + 1 });
+      var note = unmetAt.get(start + '|' + n);
+      if (note) errorCells.push({ row: rows.length, col: i + 1, note: note });
+    });
     rows.push([statusInstant(start)].concat(names.map(function (n) { return cells[n] || ''; })));
   });
   if (!placed) { dividerRows.push(rows.length); rows.push(nowRow); }
-  return { rows: rows, headerRows: [0], dividerRows: dividerRows, currentCells: currentCells };
+  return { rows: rows, headerRows: [0], dividerRows: dividerRows, currentCells: currentCells, errorCells: errorCells };
 }
 
 // ---- 60_relations.js ----
@@ -2289,6 +2305,48 @@ function strongPartners(ctx, rot, a, localDistance) {
   return partners;
 }
 
+// Whether `who` holds a decided shift of rot overlapping [from, to).
+function holdsOverlapping(rot, who, from, to) {
+  return rot.entries.some(function (e) { return e.who === who && e.start < to && e.end > from; });
+}
+
+// Whether `who` could hold a shift [a, b) of rot: on its roster at a and not excluded then.
+function couldHold(rot, who, a, b) {
+  return rot.namesAt(a).indexOf(who) >= 0 && !rot.roster.isExcluded(who, a, b);
+}
+
+// Marks every decided shift of every rotation with the relations in force at its start that it does not meet
+// (DESIGN 7, Unmet relations): e.unmet = [{ relation, rotation }], for the #All shifts view. The reader's own
+// cell is marked (mutual states on both sides). repel and repel!: the holder also holds an overlapping shift
+// in the partner (the rest window of repel! is not checked); attract and attract!: the partner's overlapping
+// shift is held by someone else who could hold this one while this holder could hold the partner's, so a
+// vacation on either side does not count. Nobody shifts are never marked.
+function markUnmetRelations(rots, ctx) {
+  rots.forEach(function (rot) {
+    if (rot.errors.length || !rot.entries) return;
+    rot.entries.forEach(function (e) {
+      e.unmet = [];
+      if (e.who === null) return;
+      var a = e.start, b = e.end;
+      Object.keys(ctx.byName).forEach(function (other) {
+        var target = ctx.byName[other];
+        if (target === rot || !target.entries) return;
+        var kind = ctx.relations.kindFor(rot.name, other, a);
+        if (kind === null) return;
+        var unmet = false;
+        if (kind === 'repel' || kind === 'repel!') {
+          unmet = holdsOverlapping(target, e.who, a, b);
+        } else if (kind === 'attract' || kind === 'attract!') {
+          unmet = target.entries.some(function (t) {
+            return t.who !== null && t.who !== e.who && t.start < b && t.end > a && couldHold(rot, t.who, a, b) && couldHold(target, e.who, a, b);
+          });
+        }
+        if (unmet) e.unmet.push({ relation: kind, rotation: other });
+      });
+    });
+  });
+}
+
 // Members repelled from slot [a, b) of rot: holders of overlapping shifts in plain repel partners, and holders
 // of shifts in repel! partners overlapping the slot widened by the pair's window less `shrink` (never below
 // zero) along rot's grid. Map member -> rotation names.
@@ -2407,7 +2465,7 @@ var HELP_TEXT = [
   'repel: nobody holds overlapping shifts in both rotations; repel!: also keeps a member off the other rotation for half the combined min_distance before and after their shift; attract: prefer the member already on call in the other rotation when within tolerance; attract!: also widen the tolerance up to one team round to follow them; detach: ends an earlier relation',
   '',
   'MENU:',
-  'Run: regenerates every rotation and rewrites #Status and #All shifts; the nightly trigger runs this',
+  'Run: regenerates every rotation and rewrites #Status and #All shifts (a red cell there is a shift that breaks a relation in force; its note names the relation and the other rotation); the nightly trigger runs this',
   'Run - preview: writes #Preview <rotation> tabs instead of the ledgers, plus #Status and #All shifts; #Global is read but not written',
   'Run for current rotation / Run for current rotation - preview: the same for the active tab only',
   'Abort run: asks the run in progress to stop its calendar export or clean at the next event; one run at a time holds the script lock, others wait 5 s and give up',
@@ -3215,9 +3273,9 @@ class SheetsStorage {
     writeTextCells(sheet, row, rows);
   }
 
-  // Bold grey header rows, a green divider, red error rows, orange warning rows and yellow current cells,
-  // from the 0-based indexes the status module reports in table { headerRows, dividerRows, errorRows,
-  // warningRows, currentCells }.
+  // Bold grey header rows, a green divider, red error rows, orange warning rows, yellow current cells and
+  // red error cells with a note, from the 0-based indexes the status module reports in table { headerRows,
+  // dividerRows, errorRows, warningRows, currentCells, errorCells }. Red wins over yellow on a cell.
   formatTableRows(sheet, width, table) {
     var paint = function (indexes, color) {
       (indexes || []).forEach(function (i) { sheet.getRange(i + 1, 1, 1, width).setBackground(color); });
@@ -3228,6 +3286,7 @@ class SheetsStorage {
     paint(table.errorRows, COLOR_ERROR);
     paint(table.warningRows, COLOR_WARNING);
     (table.currentCells || []).forEach(function (c) { sheet.getRange(c.row + 1, c.col + 1).setBackground(COLOR_CURRENT_CELL); });
+    (table.errorCells || []).forEach(function (c) { sheet.getRange(c.row + 1, c.col + 1).setBackground(COLOR_ERROR).setNote(c.note); });
   }
 
   // Rows below the header of a ledger-shaped tab. A preview goes to '#Preview <name>', rewritten with a fresh

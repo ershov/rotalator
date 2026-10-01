@@ -636,7 +636,11 @@ each rotation block's first row, the warnings and errors headers and the
 error and warning rows extension blocks report (8); `shiftsRows` adds
 `currentCells`,
 the `{ row, col }` (0-based) of each rotation's shift covering `now` (the
-same rule as `current`), empty when `now` is unknown. Adapters format them
+same rule as `current`), empty when `now` is unknown, and `errorCells`, the
+`{ row, col, note }` of the shifts that do not meet a relation in force (7,
+Unmet relations), the note naming each relation and partner (`repel with
+P`; several joined with `; `); the adapter paints them like error rows, red
+winning over the current cell's yellow, and sets the note. Adapters format them
 without knowing the layout while the CLI prints rows only. Both tabs are
 rewritten in full on every run, previews included.
 
@@ -857,6 +861,27 @@ nothing for it (its errors still reach `#Status`). The
 sweep already walks all rotations in one merged time order, so relations add
 only the pair states, the order and two candidate filters. The `#All shifts`
 tab is the all-rotations view.
+
+### Unmet relations in `#All shifts`
+
+After the sweep every decided shift is checked against the pair states in
+force at its start (`markUnmetRelations`), kept shifts and history before
+the stored snapshot included, and the shifts that break one are painted red
+in `#All shifts` with a note naming the relation and the partner (5.8). For
+a shift of rotation R held by `h` over `[a, scored end)` and a pair (R, P)
+whose relation is in force at `a` for R as reader (a one-sided row marks the
+reader's cell only; a mutual one lets each side evaluate and mark its own
+cell): `repel` and `repel!` are not met when `h` holds a shift in P
+overlapping the interval, the same name in both cells (a `repel!` rest
+window miss is not painted); `attract` and `attract!` when an overlapping shift
+in P is held by `p != h` while `p` could hold R's shift (on R's roster at
+`a`, not excluded there) and `h` could hold P's (on P's roster at `a`, not
+excluded there), so a vacation on either side does not paint; the roster is
+replayed from the stored snapshot forward, so shifts before it are judged
+against the roster at the snapshot. Shifts for
+nobody are never painted. The relations are the ledger's own rule set, so
+the cells point at the places where a relaxation, a pin or a hand edit made
+the schedule deviate; nothing is written to `#Status` for them.
 
 ## 8. Code layout
 

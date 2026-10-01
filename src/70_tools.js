@@ -103,7 +103,7 @@ var HELP_TEXT = [
   'repel: nobody holds overlapping shifts in both rotations; repel!: also keeps a member off the other rotation for half the combined min_distance before and after their shift; attract: prefer the member already on call in the other rotation when within tolerance; attract!: also widen the tolerance up to one team round to follow them; detach: ends an earlier relation',
   '',
   'MENU:',
-  'Run: regenerates every rotation and rewrites #Status and #All shifts; the nightly trigger runs this',
+  'Run: regenerates every rotation and rewrites #Status and #All shifts (a red cell there is a shift that breaks a relation in force; its note names the relation and the other rotation); the nightly trigger runs this',
   'Run - preview: writes #Preview <rotation> tabs instead of the ledgers, plus #Status and #All shifts; #Global is read but not written',
   'Run for current rotation / Run for current rotation - preview: the same for the active tab only',
   'Abort run: asks the run in progress to stop its calendar export or clean at the next event; one run at a time holds the script lock, others wait 5 s and give up',
