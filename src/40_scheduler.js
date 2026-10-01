@@ -373,7 +373,7 @@ function assignSlot(rot, entry, holidays, ctx) {
   ladder.slice(1).forEach(function (d) { attempt(unrepelled, d, { cross: 0, repelDropped: false }); });
   // Dropping repel only adds repelled members back, so a pick made here is always a repelled one.
   if (repelled.size) ladder.forEach(function (d) { attempt(members, d, { cross: 0, repelDropped: true }); });
-  var notes = [];
+  var warnings = [];
   if (pick) {
     var lowest = Math.min.apply(null, pick.eligible.map(function (m) { return m.score; }));
     var tolerance = toleranceUnits(settings.get('tolerance'), grid, a, roster.size(), options);
@@ -383,14 +383,15 @@ function assignSlot(rot, entry, holidays, ctx) {
     entry.who = tiebreak(rot, entry, preferred.length ? preferred : candidates, settings);
     roster.credit(entry.who, units(a, entry.end, options));
     var inShifts = function (d) { return d === 0 ? '0' : formatScore(d / grid.period) + 'sl'; };
-    if (pick.cross < cross && windowed.has(entry.who)) notes.push('repel! relaxed to ' + inShifts(pick.cross));
-    if (pick.distance < minDistance) notes.push('min_distance relaxed to ' + inShifts(pick.distance));
-    if (pick.repelDropped) notes.push('repel relaxed: ' + entry.who + ' also on ' + (repelled.get(entry.who) || []).join(', '));
-    notes.forEach(function (n) { rot.warnings.push({ start: a, message: n }); });
+    if (pick.cross < cross && windowed.has(entry.who)) warnings.push('repel! relaxed to ' + inShifts(pick.cross));
+    if (pick.distance < minDistance) warnings.push('min_distance relaxed to ' + inShifts(pick.distance));
+    if (pick.repelDropped) warnings.push('repel relaxed: ' + entry.who + ' also on ' + (repelled.get(entry.who) || []).join(', '));
+    warnings.forEach(function (n) { rot.warnings.push({ start: a, message: n }); });
   } else {
     rot.problems.push({ start: a, message: 'no eligible member for shift ' + formatDateTime(a) + ' to ' + formatDateTime(b) });
   }
-  entry.generated = makeRow({ type: 'shift', start: a, what: entry.who === null ? '' : entry.who, note: notes.join('; ') });
+  // The note cell is the user's: relaxations are reported in #Status only (DESIGN 6).
+  entry.generated = makeRow({ type: 'shift', start: a, what: entry.who === null ? '' : entry.who });
 }
 
 function sweep(items, rots, holidays, ctx) {

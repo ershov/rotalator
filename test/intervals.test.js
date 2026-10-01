@@ -67,10 +67,11 @@ test('min_distance in sl, ts and clock units gives the same windows in calendar 
   // 1ts with two members is two weeks: from the third slot on it relaxes one shift length.
   const two = R('', '2026-10-05T09:00', 'team', 'alice, bob');
   const cycle = run([set('period=1w, horizon=3w, min_distance=1ts, tolerance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), two], '2026-10-05T10:00');
-  assert.deepEqual(shifts(cycle).map((s) => s[2]), ['', '', 'min_distance relaxed to 1sl']);
+  assert.deepEqual(shifts(cycle).map((s) => s[2]), ['', '', ''], 'notes stay empty');
+  assert.deepEqual(plain(cycle.status.warnings.map((w) => w.message)), ['min_distance relaxed to 1sl']);
   // A fractional distance keeps its remainder on the last step.
   const half = run([set('period=1w, horizon=3w, min_distance=1.5sl, tolerance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), two], '2026-10-05T10:00');
-  assert.deepEqual(shifts(half).map((s) => s[2]), ['', '', 'min_distance relaxed to 0.5sl']);
+  assert.deepEqual(plain(half.status.warnings.map((w) => w.message)), ['min_distance relaxed to 0.5sl']);
 });
 
 test('min_distance in counted mode: 2d equals 2sl on a daily grid and skips the weekend', () => {

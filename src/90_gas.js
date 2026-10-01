@@ -271,7 +271,7 @@ function runWith(preview, rotations) {
   var done = result.status ? what + ' ' + (preview ? 'previewed' : 'updated') + ' at ' + storage.nowText : result.errors[0];
   var warnings = result.status ? result.status.warnings.length : 0;
   var message = done + '; ' + finishedText(result.errors.length, warnings);
-  result.errors.forEach(function (e) { console.log(e); });
+  runLogLines(result).forEach(function (line) { console.log(line); });
   ss.toast(message, title, 10);
   return result;
 }

@@ -11,7 +11,7 @@ var COLUMN_NOTES = {
   what: 'Payload of the row: one member for shift; a list for team, join, leave, exclude, include, score; key=value settings for set.',
   end: 'YYYY-MM-DDTHH:MM. Optional. Not together with duration.',
   duration: '1w, 3d, 12h, 1d12h, 0.5d, 2sl (shift lengths), 1ts (team size x shift length). Optional. Not together with end.',
-  note: 'Free text. Kept on your rows; the script writes notes on generated rows.',
+  note: 'Free text, yours: the script never writes into it, and generated shifts have an empty note.',
   date: 'YYYY-MM-DD, one holiday per row. Counted by rotations with skip_holidays=true.',
 };
 
@@ -61,7 +61,7 @@ var HELP_TEXT = [
   'type: one of the row types below; an empty type makes the row a comment',
   'what: the payload of the row, see ROWS',
   'end / duration: optional extent of a shift or exclude; at most one of the two',
-  'note: free text on your rows; the script writes notes on generated rows',
+  'note: free text, yours; the script never writes into it, and generated shifts have an empty note',
   '',
   'ROWS:',
   'shift: one member, or nobody (empty, - or none)',

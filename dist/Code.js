@@ -1558,7 +1558,7 @@ function assignSlot(rot, entry, holidays, ctx) {
   ladder.slice(1).forEach(function (d) { attempt(unrepelled, d, { cross: 0, repelDropped: false }); });
   // Dropping repel only adds repelled members back, so a pick made here is always a repelled one.
   if (repelled.size) ladder.forEach(function (d) { attempt(members, d, { cross: 0, repelDropped: true }); });
-  var notes = [];
+  var warnings = [];
   if (pick) {
     var lowest = Math.min.apply(null, pick.eligible.map(function (m) { return m.score; }));
     var tolerance = toleranceUnits(settings.get('tolerance'), grid, a, roster.size(), options);
@@ -1568,14 +1568,15 @@ function assignSlot(rot, entry, holidays, ctx) {
     entry.who = tiebreak(rot, entry, preferred.length ? preferred : candidates, settings);
     roster.credit(entry.who, units(a, entry.end, options));
     var inShifts = function (d) { return d === 0 ? '0' : formatScore(d / grid.period) + 'sl'; };
-    if (pick.cross < cross && windowed.has(entry.who)) notes.push('repel! relaxed to ' + inShifts(pick.cross));
-    if (pick.distance < minDistance) notes.push('min_distance relaxed to ' + inShifts(pick.distance));
-    if (pick.repelDropped) notes.push('repel relaxed: ' + entry.who + ' also on ' + (repelled.get(entry.who) || []).join(', '));
-    notes.forEach(function (n) { rot.warnings.push({ start: a, message: n }); });
+    if (pick.cross < cross && windowed.has(entry.who)) warnings.push('repel! relaxed to ' + inShifts(pick.cross));
+    if (pick.distance < minDistance) warnings.push('min_distance relaxed to ' + inShifts(pick.distance));
+    if (pick.repelDropped) warnings.push('repel relaxed: ' + entry.who + ' also on ' + (repelled.get(entry.who) || []).join(', '));
+    warnings.forEach(function (n) { rot.warnings.push({ start: a, message: n }); });
   } else {
     rot.problems.push({ start: a, message: 'no eligible member for shift ' + formatDateTime(a) + ' to ' + formatDateTime(b) });
   }
-  entry.generated = makeRow({ type: 'shift', start: a, what: entry.who === null ? '' : entry.who, note: notes.join('; ') });
+  // The note cell is the user's: relaxations are reported in #Status only (DESIGN 6).
+  entry.generated = makeRow({ type: 'shift', start: a, what: entry.who === null ? '' : entry.who });
 }
 
 function sweep(items, rots, holidays, ctx) {
@@ -2292,7 +2293,7 @@ var COLUMN_NOTES = {
   what: 'Payload of the row: one member for shift; a list for team, join, leave, exclude, include, score; key=value settings for set.',
   end: 'YYYY-MM-DDTHH:MM. Optional. Not together with duration.',
   duration: '1w, 3d, 12h, 1d12h, 0.5d, 2sl (shift lengths), 1ts (team size x shift length). Optional. Not together with end.',
-  note: 'Free text. Kept on your rows; the script writes notes on generated rows.',
+  note: 'Free text, yours: the script never writes into it, and generated shifts have an empty note.',
   date: 'YYYY-MM-DD, one holiday per row. Counted by rotations with skip_holidays=true.',
 };
 
@@ -2342,7 +2343,7 @@ var HELP_TEXT = [
   'type: one of the row types below; an empty type makes the row a comment',
   'what: the payload of the row, see ROWS',
   'end / duration: optional extent of a shift or exclude; at most one of the two',
-  'note: free text on your rows; the script writes notes on generated rows',
+  'note: free text, yours; the script never writes into it, and generated shifts have an empty note',
   '',
   'ROWS:',
   'shift: one member, or nobody (empty, - or none)',
@@ -2944,6 +2945,17 @@ function runStorage(storage, nowText, options) {
   return run;
 }
 
+// One line per error and per warning of a run, for the Apps Script executions log and the CLI's stderr
+// (DESIGN 6): 'error: <text>' and 'warning: <rotation> <start>: <message>' (no start when the warning has none).
+function runLogLines(result) {
+  var lines = result.errors.map(function (e) { return 'error: ' + e; });
+  (result.status ? result.status.warnings : []).forEach(function (w) {
+    var where = w.rotation + (w.start === null || w.start === undefined ? '' : ' ' + formatDateTime(w.start));
+    lines.push('warning: ' + where + ': ' + w.message);
+  });
+  return lines;
+}
+
 // Closing words of a run's toast (DESIGN 10.4): the counts cover core and extension errors and warnings alike.
 function finishedText(errors, warnings) {
   return errors || warnings ? 'finished with ' + errors + ' error(s) and ' + warnings + ' warning(s)' : 'finished, no errors';
@@ -3281,7 +3293,7 @@ function runWith(preview, rotations) {
   var done = result.status ? what + ' ' + (preview ? 'previewed' : 'updated') + ' at ' + storage.nowText : result.errors[0];
   var warnings = result.status ? result.status.warnings.length : 0;
   var message = done + '; ' + finishedText(result.errors.length, warnings);
-  result.errors.forEach(function (e) { console.log(e); });
+  runLogLines(result).forEach(function (line) { console.log(line); });
   ss.toast(message, title, 10);
   return result;
 }

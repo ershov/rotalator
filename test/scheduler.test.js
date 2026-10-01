@@ -326,7 +326,7 @@ test('exclusion older than the snapshot is clipped and still applies', () => {
   assert.deepEqual(shifts(gone).map((s) => s[1]), ['alice', 'bob', 'alice', 'bob', 'alice', 'bob']);
 });
 
-test('min_distance keeps rest between shifts and is relaxed with a note', () => {
+test('min_distance keeps rest between shifts and is relaxed with a status warning, the note stays empty', () => {
   const out = run([
     R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=4w, min_distance=2sl, tolerance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'),
     R('', '2026-10-05T09:00', 'team', 'alice, bob'),
@@ -334,10 +334,13 @@ test('min_distance keeps rest between shifts and is relaxed with a note', () => 
   assert.deepEqual(shifts(out), [
     ['2026-10-05T09:00', 'alice', ''],
     ['2026-10-12T09:00', 'bob', ''],
-    ['2026-10-19T09:00', 'alice', 'min_distance relaxed to 1sl'],
-    ['2026-10-26T09:00', 'bob', 'min_distance relaxed to 1sl'],
+    ['2026-10-19T09:00', 'alice', ''],
+    ['2026-10-26T09:00', 'bob', ''],
   ]);
-  assert.deepEqual(plain(out.status.warnings.map((w) => w.message)), ['min_distance relaxed to 1sl', 'min_distance relaxed to 1sl']);
+  assert.deepEqual(plain(out.status.warnings.map((w) => [w.rotation, U.formatDateTime(w.start), w.message])), [
+    ['r', '2026-10-19T09:00', 'min_distance relaxed to 1sl'],
+    ['r', '2026-10-26T09:00', 'min_distance relaxed to 1sl'],
+  ]);
   assert.deepEqual(plain(out.errors), []);
   const three = run([
     R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=6w, min_distance=1sl, tolerance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'),

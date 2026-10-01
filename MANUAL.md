@@ -60,7 +60,7 @@ pin | start | type | what | end | duration | note
 | `what` | The row's payload: a member, a list of items, settings or a message, depending on `type`. |
 | `end` | Same format as `start`. Optional. Cannot be combined with `duration`. |
 | `duration` | An interval (see Intervals below): `1w`, `3d`, `12h`, `1d12h`, `0.5d`, `2sl`, `1ts`. Optional. |
-| `note` | Free text. Kept on user rows, written by the script on generated rows. |
+| `note` | Free text. Yours: the script never writes into it, and generated shifts have an empty note. |
 
 Every list in `what` uses one grammar: items separated by `,` or `;`, each
 item `name`, `name=value`, `name+=n` or `name-=n`. Member ids are any text
@@ -462,10 +462,10 @@ in its own units, so a daily rotation with `2sl` and a weekly one with
 `0.5ts` over four members give `(2d + 2w) / 2 = 8d`.
 
 `repel` is soft: when it leaves nobody, the `repel!` rest window shrinks
-first, one shift length per step, with the note `repel! relaxed to <rest>`;
-then `min_distance` is relaxed; then the repel is dropped and the shift gets
-the note `repel relaxed: <who> also on <rotation>`, which also appears in the
-`#Status` warnings; only when even that leaves nobody does the slot get an
+first, one shift length per step, with the `#Status` warning `repel!
+relaxed to <rest>`; then `min_distance` is relaxed; then the repel is dropped
+with the warning `repel relaxed: <who> also on <rotation>`; only when even
+that leaves nobody does the slot get an
 empty `shift` and an `error` row. Overlapping shifts in both rotations stay
 forbidden until the repel itself is dropped.
 `attract` only prefers someone who is already within `tolerance` of the
@@ -506,14 +506,18 @@ regenerated and no snapshot moves. Error rows are removed on every read, so
 fixing the cause and running again clears them. `#Status` lists every error
 and warning as well, error rows in red and warning rows in orange, and every
 run ends its toast with `finished with N error(s) and M warning(s)` or
-`finished, no errors`; the CLI prints errors to stderr. The few messages with
+`finished, no errors`. Every error and warning is also logged, one line each
+(`error: ...`, `warning: <rotation> <start>: ...`): in the Apps Script
+executions log for menu and trigger runs, on stderr for the CLI. The few
+messages with
 no row to attach to (a missing calendar extension, a comment whose date does
 not parse, an extension that failed, an aborted export) appear in `#Status`
 only.
 
 An unassignable slot (everyone excluded) produces a `shift` with nobody plus an
-`error` row at the slot start. A relaxed `min_distance` is recorded in the
-generated shift's `note`.
+`error` row at the slot start. A relaxed `min_distance` or repel is a
+`#Status` warning naming the rotation and the shift start; the `note` cells
+are yours and the script never writes into them.
 
 ## Limitations
 
@@ -711,7 +715,8 @@ side-by-side blocks. `--rotation NAME`, repeatable, regenerates only the named
 rotations: the others are read so that relations still see their shifts, but
 they are neither printed nor written, and the `tabs` block of the status shows
 which rotations were regenerated. An unknown name stops the run with nothing
-written. Errors go to stderr and set exit code 1.
+written. Errors and warnings go to stderr, one line each, whether or not
+`--status` is given; errors set exit code 1.
 
 `export` runs the scheduler without writing and prints the Google Calendar
 export plan of the rotations with a `cal` setting, from `gcal.csv`: the

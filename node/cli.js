@@ -258,7 +258,7 @@ function mainRun(argv) {
   });
   if (result.global) process.stdout.write(`# ${load().GLOBAL_TAB}\n` + ledgerCsv(result.global));
   if (args.status && result.status) process.stdout.write('\n' + statusText(result.status));
-  result.errors.forEach((e) => process.stderr.write(e + '\n'));
+  load().runLogLines(result).forEach((line) => process.stderr.write(line + '\n'));
   return result.errors.length ? 1 : 0;
 }
 

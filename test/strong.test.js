@@ -21,6 +21,9 @@ const REL = (type, start, what, end, duration) => R('', start, type, what, end, 
 const regen = (rotations, global = []) => U.regenerate({ rotations, holidays: [], global: rows(global), now: MON });
 const ABCD = 'alice, bob, carol, dave';
 
+// Relaxation warnings of a rotation per shift start, joined like the former notes; the note cell itself is empty.
+const notesOf = (out, name) => shiftsOf(out, name).map((s) => plain(out.status.warnings.filter((w) => w.rotation === name && U.formatDateTime(w.start) === s[0]).map((w) => w.message)).join('; '));
+
 test('repel! is a row type, epoch-capable, validated like repel and shown as -! in the relations matrix', () => {
   assert.equal(U.ROW_TYPES['repel!'].what, 'names');
   assert.ok(U.EPOCH_TYPES.indexOf('repel!') >= 0);
@@ -43,15 +46,18 @@ test('window from two min_distance values in their own units: daily reads weekly
   const daily = shiftsOf(out, 'backup');
   // alice holds alerts 10-05 to 10-12: kept off backup while [a - 8d, a + 1d + 8d) overlaps it, i.e. up to 10-19,
   // unless the two-day local rest leaves nobody else and the window has to shrink (noted on the shift).
-  const unrelaxed = daily.filter((s) => s[2] === '');
+  const notes = notesOf(out, 'backup');
+  assert.ok(daily.every((s) => s[2] === ''), 'generated notes stay empty');
+  const unrelaxed = daily.filter((s, i) => notes[i] === '');
   assert.ok(unrelaxed.filter((s) => s[1] === 'alice').every((s) => s[0] >= '2026-10-20'), 'alice off backup until 10-20');
-  assert.ok(daily.some((s) => s[1] === 'alice' && s[0].startsWith('2026-10-20') && s[2] === ''));
+  assert.ok(daily.some((s, i) => s[1] === 'alice' && s[0].startsWith('2026-10-20') && notes[i] === ''));
   // bob's alerts week 10-12 is decided at 10-12, so backup avoids him from 10-12 until 10-26 the same way.
   assert.ok(unrelaxed.filter((s) => s[1] === 'bob').every((s) => s[0] < '2026-10-12' || s[0] >= '2026-10-27'), 'bob off backup 10-12 to 10-26');
   // On 10-14 carol and dave are within their local rest and alice, bob are in the window: it shrinks to 2sl,
   // which is 2 days here, until alice's week no longer overlaps.
-  assert.deepEqual(daily.find((s) => s[0].startsWith('2026-10-14')).slice(1), ['alice', 'repel! relaxed to 2sl']);
-  assert.ok(daily.filter((s) => s[2] !== '').every((s) => /^repel! relaxed to \d+sl$/.test(s[2])));
+  const oct14 = daily.findIndex((s) => s[0].startsWith('2026-10-14'));
+  assert.deepEqual([daily[oct14][1], notes[oct14]], ['alice', 'repel! relaxed to 2sl']);
+  assert.ok(notes.filter((n) => n !== '').every((n) => /^repel! relaxed to \d+sl$/.test(n)));
   // The same rows with plain repel only exclude the overlapping week.
   const plainRows = { ...backup, rows: rows([set('2026-10-05T09:00', 'period=1d, horizon=3w, min_distance=2sl'), R('', '2026-10-05T09:00', 'team', ABCD), REL('repel', '2026-10-05T09:00', 'alerts')]) };
   const weak = regen([alerts, plainRows]);
@@ -83,14 +89,15 @@ test('relaxation order: repel! window first, then min_distance, then repel dropp
   assert.deepEqual(whoOf(out, 'primary'), ['alice', 'bob', 'alice']);
   assert.deepEqual(shiftsOf(out, 'secondary'), [
     ['2026-10-05T09:00', 'bob', ''],
-    ['2026-10-12T09:00', 'alice', 'repel! relaxed to 0'],
-    ['2026-10-19T09:00', 'bob', 'repel! relaxed to 0; min_distance relaxed to 1sl'],
+    ['2026-10-12T09:00', 'alice', ''],
+    ['2026-10-19T09:00', 'bob', ''],
   ]);
+  assert.deepEqual(notesOf(out, 'secondary'), ['', 'repel! relaxed to 0', 'repel! relaxed to 0; min_distance relaxed to 1sl']);
   // With alice alone in secondary (rest 2sl, so D = 1w) every stage shows up: the window goes first, then the
   // local rest, and where alice also holds primary the repel itself is dropped last.
   const lone = rotation('secondary', 'period=1w, horizon=3w, min_distance=2sl', 'alice', [REL('repel!', '2026-10-05T09:00', 'primary')]);
   const dropped = regen([primary, lone]);
-  assert.deepEqual(shiftsOf(dropped, 'secondary').map((s) => s[2]), [
+  assert.deepEqual(notesOf(dropped, 'secondary'), [
     'repel! relaxed to 0; repel relaxed: alice also on primary',
     'repel! relaxed to 0; min_distance relaxed to 0',
     'repel! relaxed to 0; min_distance relaxed to 0; repel relaxed: alice also on primary',
@@ -100,7 +107,7 @@ test('relaxation order: repel! window first, then min_distance, then repel dropp
   // window never excluded alice, so only her own rest is reported.
   const zed = rotation('primary', 'period=1w, horizon=3w, min_distance=0', 'zed');
   const untouched = regen([zed, lone]);
-  assert.deepEqual(shiftsOf(untouched, 'secondary').map((s) => s[2]), ['', 'min_distance relaxed to 0', 'min_distance relaxed to 0']);
+  assert.deepEqual(notesOf(untouched, 'secondary'), ['', 'min_distance relaxed to 0', 'min_distance relaxed to 0']);
   assert.ok(untouched.status.warnings.every((w) => !/repel!/.test(w.message)));
 });
 

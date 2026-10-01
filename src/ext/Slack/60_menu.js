@@ -192,7 +192,8 @@ function slackSendTest() {
     var data = slackStatusData(plan);
     var delivery = slackDeliver(plan, data, result.ext.slack, result.status.now, SLACK_TEST_PREFIX);
     slackWriteDelivery(storage, result.ext.slack, delivery);
-    data.errors.forEach(function (e) { console.log(e.where + ': ' + e.message); });
+    data.errors.forEach(function (e) { console.log('error: Slack ' + e.where + ': ' + e.message); });
+    if (data.note) console.log('warning: Slack: ' + data.note);
     toast('test message of ' + name + ' for ' + test.rotation + ': ' + delivery.posted.length + ' sent, ' + data.errors.length + ' failed' + (data.errors.length ? ': ' + data.errors[0].message : ''), SLACK_TOAST_TITLE);
     return data;
   });
@@ -206,7 +207,7 @@ function slackTick() {
   return withLock(function () {
     var storage = new SheetsStorage(SpreadsheetApp.getActiveSpreadsheet());
     var result = runStorage(storage, storage.nowText, SLACK_TICK_OPTIONS);
-    result.errors.forEach(function (e) { console.log(e); });
+    runLogLines(result).forEach(function (line) { console.log(line); });
     return result;
   });
 }

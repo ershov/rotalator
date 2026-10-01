@@ -97,7 +97,8 @@ pin | start | type | what | end | duration | note
   message, depending on `type`. One item grammar for every list, see 3.3.
 - `end`: `YYYY-MM-DDTHH:MM`. Optional. Mutually exclusive with `duration`.
 - `duration`: e.g. `2d`, `12h`, `1d12h`, `1w`. Optional.
-- `note`: free text, preserved on user rows, script-written on generated rows.
+- `note`: free text, preserved on user rows and empty on generated rows; the
+  script never writes into it (6).
 
 The header row is fixed and is how the script recognises a ledger tab. Rows
 are kept sorted by `start`; the script re-sorts on every write.
@@ -523,9 +524,10 @@ that extend past it are clipped.
    eligible, drop repel and walk `D` down again; a member chosen this way gets
    the warning `repel relaxed: <who> also on <rotation>`. Still nobody: emit a
    `shift` with nobody and an `error` row at `a`. Exclusions are never
-   violated. Any relaxation used is recorded in the generated shift's `note`
-   (`repel! relaxed to 1sl`, `min_distance relaxed to 1sl`: the remaining
-   distance in shift lengths) and in the `#Status` warnings.
+   violated. Any relaxation used is reported in the `#Status` warnings with
+   the rotation and the slot start (`repel! relaxed to 1sl`, `min_distance
+   relaxed to 1sl`: the remaining distance in shift lengths); the generated
+   shift's `note` stays empty.
 
 With `tolerance = 0` and `tiebreak = order` this is plain lowest-score-first
 with a stable order for ties.
@@ -645,9 +647,18 @@ rewritten in full on every run, previews included.
 The script writes diagnostics into the ledger tabs as `error` rows. They are
 removed on the next read, so fixing the cause and rerunning clears them. The
 same rule holds for every tab the script reads (section 1): `#Global` and,
-through its extension, `#GCal`. Every run ends with the counts in the toast
+through its extension, `#GCal`. User-editable cells carry user input only:
+the script never writes into the `note` or `what` of a user row, and
+generated shifts get an empty `note`; its only rewrites are error rows, the
+canonical form of `start`, `end` and `duration`, the inherited `start` (3.4)
+and the `autopin` marker in an empty `pin` cell (5.8). Warnings therefore
+live in `#Status` only. Every run ends with the counts in the toast
 (`finished with N error(s) and M warning(s)`, or `finished, no errors`),
-covering core and extension errors alike (10.4).
+covering core and extension errors alike (10.4), and logs one line per error
+and per warning (`error: <text>`, `warning: <rotation> <start>: <message>`;
+`runLogLines`): to the Apps Script executions log from the menu and the
+trigger, to stderr from the CLI `run`, whether or not `--status` is given.
+The extension menu actions log their errors and stop notes the same way.
 
 - Validation errors: the run writes every tab back with its rows unchanged,
   with an `error` row for each offending row using the same `start`, so it
@@ -656,8 +667,8 @@ covering core and extension errors alike (10.4).
   tab.
 - Unassignable slot: a `shift` with nobody plus an `error` row at the slot
   start. The empty shift keeps the interval rules intact.
-- Relaxation used: text in the generated shift's `note` and in the `#Status`
-  warnings table.
+- Relaxation used: a `#Status` warning naming the rotation and the slot
+  start; nothing in the ledger.
 - Relation row naming a missing or disabled rotation, itself, or a rotation
   twice, or part of an order cycle: `error` row above it in its own tab, row
   ignored, run continues.
@@ -675,10 +686,10 @@ place and where it is only reported in `#Status` (and why):
 | Relation row errors (unknown or disabled rotation, itself, twice, `#Global` shape, `relation order cycle`) | `error` row above the row in its own tab | errors |
 | Malformed global `set` row | `error` row in `#Global`; blocks regeneration | errors |
 | `no eligible member for shift <a> to <b>` | `error` row at the slot start, next to the `shift` with nobody | warnings |
-| `min_distance relaxed to ...`, `repel! relaxed to ...`, `repel relaxed: <who> also on <rotation>` | `note` of the generated shift | warnings |
+| `min_distance relaxed to ...`, `repel! relaxed to ...`, `repel relaxed: <who> also on <rotation>` | none: `#Status` warnings only (rotation and slot start); the `note` stays the user's | warnings |
 | `comment row N: unparseable start, treated as undated` | none: comments are never rewritten and the row stays where it is | warnings |
 | `calendar extension not installed; cal=... has no effect`, `slack extension not installed; slack=... has no effect` | none: no extension is there to write it | warnings |
-| `<Name> extension: <message>` (a hook threw, 8) | none: no source row; also logged | errors |
+| `<Name> extension: <message>` (a hook threw, 8) | none: no source row | errors |
 | `bad now`, `holidays row N: bad date`, `unknown rotation` | none: the run stops before writing; toast, log, CLI stderr | none (no status) |
 | `another Rotalator run is in progress` | none; toast and log | none |
 | `#GCal` preset errors (13.1) | `error` row above the offending `#GCal` row | Calendar block errors |
@@ -762,8 +773,8 @@ rotation with `min_distance=0` cancel the rest of the other entirely.
 
 When the window leaves no candidate, relaxation proceeds in this order: the
 window shrinks by one period of A per step down to zero, `min_distance`
-staying in force, and the shift gets the note `repel! relaxed to <remaining>`
-in shift lengths (`0` at plain repel); then `min_distance` is relaxed as in
+staying in force, with the warning `repel! relaxed to <remaining>` in shift
+lengths (`0` at plain repel); then `min_distance` is relaxed as in
 5.7; then repel is dropped with its warning; then nobody. Overlapping shifts
 across the two rotations therefore stay forbidden until the third step, like
 plain `repel`.
@@ -790,8 +801,8 @@ counts as part of them. The `#Status` relations matrix marks `attract` `+`,
 walks the `repel!` window down (above), then `min_distance` down to zero with
 repel in force, then the `min_distance` ladder once more without repel, and
 only then gives up with a `shift` for nobody and an `error` row (5.7). A
-member chosen without repel gets the note and `#Status` warning `repel
-relaxed: <who> also on <rotation>`. Exclusions are never relaxed. `attract`
+member chosen without repel gets the `#Status` warning `repel relaxed:
+<who> also on <rotation>`. Exclusions are never relaxed. `attract`
 needs no relaxation.
 
 ### Errors
@@ -1323,7 +1334,8 @@ without `writeTabRows` only reads. The inputs keep the cleaned rows
 
 `gcalFormat(template, values)` is the core's `formatTemplate` (8,
 Extensions) with GCal's placeholders. It substitutes `{who}`, `{rotation}`,
-`{note}`, `{pin}`, `{start}` and `{end}`, names case-insensitive; the two instants take
+`{note}`, `{pin}`, `{start}` and `{end}` (`{note}` is the user's note; a
+generated shift has none), names case-insensitive; the two instants take
 an optional strftime format after a colon, `{start:%a %e %b}`, and without
 one give the sheet's datetime form (`2026-10-05`, `2026-10-05T09:00`). The
 directives are `%Y %m %d %e %H %M %a %A %b %B %j %u` and `%%`, with English

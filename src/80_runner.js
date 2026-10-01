@@ -99,6 +99,17 @@ function runStorage(storage, nowText, options) {
   return run;
 }
 
+// One line per error and per warning of a run, for the Apps Script executions log and the CLI's stderr
+// (DESIGN 6): 'error: <text>' and 'warning: <rotation> <start>: <message>' (no start when the warning has none).
+function runLogLines(result) {
+  var lines = result.errors.map(function (e) { return 'error: ' + e; });
+  (result.status ? result.status.warnings : []).forEach(function (w) {
+    var where = w.rotation + (w.start === null || w.start === undefined ? '' : ' ' + formatDateTime(w.start));
+    lines.push('warning: ' + where + ': ' + w.message);
+  });
+  return lines;
+}
+
 // Closing words of a run's toast (DESIGN 10.4): the counts cover core and extension errors and warnings alike.
 function finishedText(errors, warnings) {
   return errors || warnings ? 'finished with ' + errors + ' error(s) and ' + warnings + ' warning(s)' : 'finished, no errors';

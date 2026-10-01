@@ -211,23 +211,27 @@ test('different periods: weekly reads daily and daily reads weekly, overlap on i
   assert.deepEqual(plain(weeklyReads.status.shifts.slice(0, 2).map((s) => s.rotation)), ['weekly', 'daily']);
 });
 
-test('soft repel: min_distance relaxes first, then repel with a warning and note, then nobody', () => {
+// Relaxation warnings of a rotation per shift start, joined; the note cell of a generated shift stays empty.
+const notesOf = (out, name) => shiftsOf(out, name).map((s) => plain(out.status.warnings.filter((w) => w.rotation === name && U.formatDateTime(w.start) === s[0]).map((w) => w.message)).join('; '));
+
+test('soft repel: min_distance relaxes first, then repel with a warning, then nobody; notes stay empty', () => {
   // secondary has only alice, who also holds primary: repel cannot be honoured.
   const out = regen([rotation('primary', 'alice'), rotation('secondary', 'alice')], [REL('repel', '2026-10-05T09:00', 'primary, secondary')]);
   assert.deepEqual(plain(out.errors), []);
   assert.deepEqual(shiftsOf(out, 'secondary'), [
-    ['2026-10-05T09:00', 'alice', 'repel relaxed: alice also on primary'],
-    ['2026-10-12T09:00', 'alice', 'repel relaxed: alice also on primary'],
-    ['2026-10-19T09:00', 'alice', 'repel relaxed: alice also on primary'],
+    ['2026-10-05T09:00', 'alice', ''],
+    ['2026-10-12T09:00', 'alice', ''],
+    ['2026-10-19T09:00', 'alice', ''],
   ]);
-  assert.deepEqual(plain(out.status.warnings.map((w) => [w.rotation, w.message])), new Array(3).fill(['secondary', 'repel relaxed: alice also on primary']));
+  assert.deepEqual(plain(out.status.warnings.map((w) => [w.rotation, U.formatDateTime(w.start), w.message])), ['2026-10-05T09:00', '2026-10-12T09:00', '2026-10-19T09:00'].map((t) => ['secondary', t, 'repel relaxed: alice also on primary']));
   // With min_distance=1sl and two members, the distance is relaxed before repel is dropped.
   const tight = { name: 'secondary', rows: rows([R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w, min_distance=1sl, tolerance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), R('', '2026-10-05T09:00', 'team', 'alice, bob'), R('', '2026-10-05T09:00', 'exclude', 'bob', '', '3w')]), snapshotAt: MON };
   const relaxed = regen([rotation('primary', 'alice, bob'), tight], [REL('repel', '2026-10-05T09:00', 'primary, secondary')]);
-  assert.deepEqual(shiftsOf(relaxed, 'secondary').map((s) => [s[1], s[2]]), [
-    ['alice', 'repel relaxed: alice also on primary'],
-    ['alice', 'min_distance relaxed to 0'],
-    ['alice', 'min_distance relaxed to 0; repel relaxed: alice also on primary'],
+  assert.deepEqual(shiftsOf(relaxed, 'secondary').map((s) => s[1]), ['alice', 'alice', 'alice']);
+  assert.deepEqual(notesOf(relaxed, 'secondary'), [
+    'repel relaxed: alice also on primary',
+    'min_distance relaxed to 0',
+    'min_distance relaxed to 0; repel relaxed: alice also on primary',
   ]);
   // Exclusions are never relaxed: nobody plus an error row.
   const stuck = regen([rotation('primary', 'alice'), rotation('secondary', 'alice', [R('', '2026-10-05T09:00', 'exclude', 'alice', '', '3w')])], [REL('repel', '2026-10-05T09:00', 'primary, secondary')]);
