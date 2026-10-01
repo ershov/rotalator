@@ -1180,8 +1180,9 @@ light green, `detach` light grey, `error` light red, comments light yellow.
 `#GCal` gets
 the same palette from its extension (13.5). Generated tabs
 (`#Status`,
-`#All shifts`, previews) are cleared with their formats and rewritten on every
-run; the adapter then
+`#All shifts`, previews, `#Help`) are cleared with their formats and notes
+(`Sheet.clear()` leaves notes, so `clearNotes()` follows it; `clearGenerated`)
+and rewritten on every run; the adapter then
 applies bold and the light grey background to the `headerRows`, light green
 to the `dividerRows`, light red to the `errorRows`, light orange to the
 `warningRows` and light yellow to the `currentCells` reported with the rows

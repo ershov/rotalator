@@ -194,7 +194,7 @@ class SheetsStorage {
     var sheet;
     if (this.preview) {
       sheet = this.previewSheet(name);
-      sheet.clear();
+      clearGenerated(sheet);
       this.writeTextRows(sheet, 1, [LEDGER_HEADER]);
     } else {
       sheet = this.ss.getSheetByName(name);
@@ -215,10 +215,11 @@ class SheetsStorage {
     if (!this.preview) this.writeLedgerRows(GLOBAL_TAB, rows);
   }
 
-  // Generated tabs are cleared with their formats and rewritten; table: { rows, headerRows, dividerRows, currentCells }.
+  // Generated tabs are cleared with their formats and notes and rewritten; table: { rows, headerRows, dividerRows,
+  // errorRows, warningRows, currentCells, errorCells }.
   writeTable(name, table) {
     var sheet = this.sheetNamed(name);
-    sheet.clear();
+    clearGenerated(sheet);
     this.writeTextRows(sheet, 1, table.rows);
     if (table.rows.length) this.formatTableRows(sheet, table.rows[0].length, table);
   }
@@ -366,6 +367,13 @@ function toast(message, title) {
   SpreadsheetApp.getActiveSpreadsheet().toast(message, title || 'Rotalator', 10);
 }
 
+// Empties a generated tab before it is refilled (DESIGN 10.1): Sheet.clear() removes contents and formats but
+// leaves notes, so a stale cell note (an unmet-relation note in #All shifts) would survive the rewrite.
+function clearGenerated(sheet) {
+  sheet.clear();
+  sheet.clearNotes();
+}
+
 function isEmptySheet(sheet) {
   return sheet.getLastRow() === 0 && sheet.getLastColumn() === 0;
 }
@@ -508,7 +516,7 @@ function orderGlobalBeforeHolidays(ss) {
 // #Help: helpText() in column A, first line and headings bold, moved to the last position; the active tab is kept.
 function writeHelpTab(ss) {
   var sheet = ss.getSheetByName(HELP_TAB) || ss.insertSheet(HELP_TAB);
-  sheet.clear();
+  clearGenerated(sheet);
   var lines = helpText();
   var range = sheet.getRange(1, 1, lines.length, 1);
   range.setNumberFormat('@');
