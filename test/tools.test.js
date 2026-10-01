@@ -61,7 +61,7 @@ test('HELP_TEXT covers every row type, setting, interval unit and menu item', ()
   assert.ok(U.HELP_TEXT.length > 20 && U.HELP_TEXT.length < 80);
   for (const type of Object.keys(U.ROW_TYPES)) assert.match(text, new RegExp(`(^|[^a-z_])${type}([^a-z_]|$)`, 'm'), type);
   for (const key of Object.keys(U.SETTINGS)) assert.match(text, new RegExp(`^${key}(=|:)`, 'm'), key);
-  for (const word of ['comment', 'sl:', 'ts:', 'Run - preview', 'Set Up Spreadsheet', 'Set Up Tab', 'Fill Shifts Grid', 'Install nightly trigger', 'README.md', 'INSTALL.md']) assert.ok(text.includes(word), word);
+  for (const word of ['comment', 'sl:', 'ts:', 'Run - preview', 'Set Up Spreadsheet', 'Set Up Tab', 'Fill Shifts Grid', 'Install nightly trigger', 'MANUAL.md', 'INSTALL.md']) assert.ok(text.includes(word), word);
   assert.equal(U.HELP_TEXT[0], 'ROTALATOR');
   const headings = structuredClone(U.helpHeadingRows());
   assert.equal(headings[0], 0);

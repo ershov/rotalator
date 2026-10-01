@@ -166,7 +166,8 @@ script, then reload.
    the header and the sample row, on `#Global` the header, help rows and a
    `set` row of defaults; on tabs the script writes it does nothing.
    Settings shared by every rotation can go into a `set` row in `#Global`
-   instead of each tab (see the README); a rotation's own `set` row still
+   instead of each tab (MANUAL.md, "Global defaults and relations between
+   rotations"); a rotation's own `set` row still
    wins for the keys it names. A rotation that takes everything from
    `#Global` starts with an empty `set` row dated at its first shift; avoid a
    bare `anchor` there, which would pin the anchor locally.
@@ -197,7 +198,8 @@ menu gains the re-export and clean items. Then:
    trigger as its installer). A calendar the running account cannot write
    is reported in `#Status` as not found and skipped.
 3. Replace `FILL IN WITH CALENDAR ID` in `preset-1` with the calendar id,
-   add a preset per further calendar (README, "Google Calendar export"), and
+   add a preset per further calendar (MANUAL.md, "Google Calendar export"),
+   and
    add `cal=<preset names>` to a `set` row of each rotation to export, or to
    `#Global`.
 4. **Run - preview** shows the counts in the `Calendar` block of `#Status`
@@ -433,8 +435,8 @@ Everything **Set Up Spreadsheet** and **Set Up Tab** do can be typed by hand.
    the `set` and `team` rows so they apply from the beginning and add a third
    row `set anchor` dated at the first shift.
 5. Add a `#Holidays` tab with the header `date | note` in row 1, and
-   optionally a `#Global` tab with the same seven-cell header as a ledger (see
-   the README for global `set` rows and relation rows).
+   optionally a `#Global` tab with the same seven-cell header as a ledger
+   (MANUAL.md, "Global defaults and relations between rotations").
 6. Optional: freeze row 1 (**View > Freeze > 1 row**) and add a checkbox to
    the `pin` column (**Insert > Checkbox**). An unticked checkbox counts as
    empty.
@@ -453,5 +455,5 @@ Weekly shifts from Monday 2026-06-01 at midnight on the plain calendar grid,
 twelve weeks ahead, four members round robin. Midnight is the default
 hand-over time of the templates and is written as the bare date; write
 `2026-06-01T09:00` instead for a 09:00 hand-over. Add
-`skip_weekends=true`, `grid=counted` or other keys from the README settings
-table to the `set` row as needed.
+`skip_weekends=true`, `grid=counted` or other keys from the settings table
+of MANUAL.md to the `set` row as needed.

@@ -854,7 +854,8 @@ test/
   *.test.js           unit tests
   fixtures/<case>/    golden scenarios
 dist/                 built bundles and manifest, committed; must match src/
-README.md             features from the user's point of view
+README.md             project page: pitch, example, quick start, doc map
+MANUAL.md             user manual: tabs, rows, settings, menu, tasks, CLI
 INSTALL.md            spreadsheet setup, clasp and manual deployment
 DESIGN.md             this document
 .PLAN.md              work plan

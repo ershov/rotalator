@@ -2397,7 +2397,7 @@ var HELP_TEXT = [
   '',
   'ONE GRID STEP: a shift without end or duration ends at the earlier of the next shift start and the next grid boundary, so it counts as at most one period. Give hand-entered history that spans several periods a duration or an end.',
   '',
-  'MORE: README.md (features and everyday tasks) and INSTALL.md (setup, deployment, troubleshooting) in the Rotalator repository.',
+  'MORE: MANUAL.md (features and everyday tasks) and INSTALL.md (setup, deployment, troubleshooting) in the Rotalator repository.',
 ];
 
 // The #Help lines: HELP_TEXT followed by the lines each installed extension returns from <prefix>_help(lines)
