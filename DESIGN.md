@@ -774,7 +774,15 @@ rotation rows in tab order, so the last one wins. Two rotation tabs that start
 the same one-sided relation on each other at the same instant make the pair
 mutual from that instant.
 
-A relation applies to a slot when it is in force at the slot's start. Overlap
+A relation applies to a slot when it is in force at the slot's start, or
+when it comes into force inside the slot (the state just before the slot's
+end then counts; `kindForSlot`): a `repel` row dated mid-week on a fresh
+setup therefore applies to the slot containing `now`, whose shift is
+regenerated anyway, and not only from the next slot on; a relation that ends
+inside a slot still applied at its start, and one that replaces another
+inside a slot (`attract` at the start, `repel` from Wednesday) leaves the
+start's kind in charge of that slot and applies from the next slot on. The
+same rule marks unmet relations (below). Overlap
 is tested on `[start, scored end)` intervals, so rotations with different
 periods combine. A rotation only sees shifts already decided when its slot is
 chosen: kept shifts, and generated shifts of rotations decided earlier at the

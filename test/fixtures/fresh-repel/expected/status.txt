@@ -1,0 +1,91 @@
+Rotalator  preview  2026-10-07T12:00
+
+Tabs
+rotations    Rotation 1 Primary, Rotation 2 Secondary
+regenerated  Rotation 1 Primary, Rotation 2 Secondary
+holidays     1
+global       2
+ignored
+
+Relations             Rotation 1 Primary  Rotation 2 Secondary
+Rotation 1 Primary                        -
+Rotation 2 Secondary  -
+
+rotation  Rotation 1 Primary
+snapshot  2026-10-05
+horizon   2027-02-22
+current   alice               until 2026-10-12
+next      bob                 from 2026-10-12
+
+  member  current  score  projected  last shift  next shift  exclusions
+  alice   x        0      35         2026-10-05  2026-10-26
+  bob              0      35                     2026-10-12
+  carol            0      30                     2026-10-19
+
+  settings       as of 2026-10-07T12:00  source
+  period         1w                      rotation
+  anchor         2026-10-05              rotation
+  grid           calendar                rotation
+  horizon        20w                     rotation
+  skip_weekends  true                    rotation
+  skip_holidays  true                    rotation
+  tolerance      0.5sl                   rotation
+  min_distance   0.5ts                   rotation
+  tiebreak       order                   rotation
+  seed           0                       rotation
+  baseline       median                  rotation
+  precredit      1ts                     rotation
+  autopin        a:2sl                   rotation
+  cal                                    default
+  slack                                  default
+
+rotation  Rotation 2 Secondary
+snapshot  2026-10-05
+horizon   2027-02-22
+current   bob                   until 2026-10-12
+next      carol                 from 2026-10-12
+
+  member  current  score  projected  last shift  next shift  exclusions
+  alice            0      30                     2026-10-19
+  bob     x        0      35         2026-10-05  2026-10-26
+  carol            0      35                     2026-10-12
+
+  settings       as of 2026-10-07T12:00  source
+  period         1w                      rotation
+  anchor         2026-10-05              rotation
+  grid           calendar                rotation
+  horizon        20w                     rotation
+  skip_weekends  true                    rotation
+  skip_holidays  true                    rotation
+  tolerance      0.5sl                   rotation
+  min_distance   0.5ts                   rotation
+  tiebreak       order                   rotation
+  seed           0                       rotation
+  baseline       median                  rotation
+  precredit      1ts                     rotation
+  autopin        a:2sl                   rotation
+  cal                                    default
+  slack                                  default
+
+start             Rotation 1 Primary  Rotation 2 Secondary
+2026-10-05        alice               bob
+2026-10-07T12:00  --now--             --now--
+2026-10-12        bob                 carol
+2026-10-19        carol               alice
+2026-10-26        alice               bob
+2026-11-02        bob                 carol
+2026-11-09        carol               alice
+2026-11-16        alice               bob
+2026-11-23        bob                 carol
+2026-11-30        carol               alice
+2026-12-07        alice               bob
+2026-12-14        bob                 carol
+2026-12-21        carol               alice
+2026-12-28        alice               bob
+2027-01-04        bob                 carol
+2027-01-11        carol               alice
+2027-01-18        alice               bob
+2027-01-25        bob                 carol
+2027-02-01        carol               alice
+2027-02-08        alice               bob
+2027-02-15        bob                 carol

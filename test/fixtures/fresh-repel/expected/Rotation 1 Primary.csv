@@ -1,0 +1,33 @@
+pin,start,type,what,end,duration,note
+,,,,,,ROWS:
+,,,,,,"shift: one member, or nobody"
+,,,,,,"team / score: name, name=baseline, name=number, name+=n, name-=n [, ...]"
+,,,,,,"join: name, name=baseline, name=number [, ...]"
+,,,,,,"leave: name [, name ...]"
+,,,,,,"exclude / include: name [, name ...]"
+,,,,,,"set: key, key=value"
+,,,,,,"set / team without start: take the date of the nearest dated row above, or apply from the beginning at the top; the dated set anchor row fixes where shifts start"
+,,set,"period=1w, grid=calendar, horizon=20w, skip_weekends=true, skip_holidays=true, tolerance=0.5sl, min_distance=0.5ts, tiebreak=order, seed=0, baseline=median, precredit=1ts, autopin=a:2sl",,,
+,,team,"alice, bob, carol",,,
+,2026-10-05,set,anchor,,,
+,2026-10-05,snapshot,"alice=0, bob=0, carol=0",,,
+a,2026-10-05,shift,alice,,,
+a,2026-10-12,shift,bob,,,
+a,2026-10-19,shift,carol,,,
+,2026-10-26,shift,alice,,,
+,2026-11-02,shift,bob,,,
+,2026-11-09,shift,carol,,,
+,2026-11-16,shift,alice,,,
+,2026-11-23,shift,bob,,,
+,2026-11-30,shift,carol,,,
+,2026-12-07,shift,alice,,,
+,2026-12-14,shift,bob,,,
+,2026-12-21,shift,carol,,,
+,2026-12-28,shift,alice,,,
+,2027-01-04,shift,bob,,,
+,2027-01-11,shift,carol,,,
+,2027-01-18,shift,alice,,,
+,2027-01-25,shift,bob,,,
+,2027-02-01,shift,carol,,,
+,2027-02-08,shift,alice,,,
+,2027-02-15,shift,bob,,,

@@ -479,3 +479,37 @@ test('unmet relations: red cells in #All shifts for repel overlap, repel! overla
   // No status cells without now either way; the CLI text has no cell metadata.
   assert.deepEqual(plain(U.shiftsRows(regen([six('primary', 'alice'), six('secondary', 'alice')], [REL('repel', '2026-10-05T09:00', 'primary, secondary')]).status).errorCells).length, 12);
 });
+
+test('a relation dated inside a slot applies to that slot (fresh setup, repel typed mid-week), for generation and marking', () => {
+  // Two rotations exactly like the templates (epoch set and team, dated set anchor at the Monday), now mid-week.
+  const monday = U.recentMonday(dt('2026-10-07T12:00'));
+  const fresh = (name) => ({ name, rows: rows(U.templateRows(monday).slice(1)), snapshotAt: null });
+  const run = (global) => U.regenerate({ rotations: [fresh('Rotation 1 Primary'), fresh('Rotation 2 Secondary')], holidays: [], global: rows(global), now: dt('2026-10-07T12:00') });
+  const firsts = (out) => [whoOf(out, 'Rotation 1 Primary')[0], whoOf(out, 'Rotation 2 Secondary')[0]];
+  // Undated and dated at the Monday worked before; dated at now (inside the current slot) now works too.
+  assert.deepEqual(firsts(run([R('', '', 'repel', 'Rotation 1 Primary, Rotation 2 Secondary')])), ['alice', 'bob']);
+  assert.deepEqual(firsts(run([R('', '2026-10-05', 'repel', 'Rotation 1 Primary, Rotation 2 Secondary')])), ['alice', 'bob']);
+  const midWeek = run([R('', '2026-10-07T12:00', 'repel', 'Rotation 1 Primary, Rotation 2 Secondary')]);
+  assert.deepEqual(firsts(midWeek), ['alice', 'bob']);
+  assert.deepEqual(plain(U.shiftsRows(midWeek.status).errorCells), []);
+  assert.deepEqual(plain(midWeek.status.warnings), []);
+  // Marking uses the same rule: a mid-week repel that generation could not honour (alice alone in both) is red
+  // on the first slot too.
+  const lone = (name) => ({ name, rows: rows([R('', '', 'set', 'period=1w, horizon=2w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), R('', '', 'team', 'alice'), R('', '2026-10-05', 'set', 'anchor')]), snapshotAt: null });
+  const both = U.regenerate({ rotations: [lone('primary'), lone('secondary')], holidays: [], global: rows([R('', '2026-10-07T12:00', 'repel', 'primary, secondary')]), now: dt('2026-10-07T12:00') });
+  assert.deepEqual(plain(U.shiftsRows(both.status).errorCells).map((c) => [c.row, c.col]), [[1, 1], [1, 2], [3, 1], [3, 2]]);
+  // A relation that ends inside a slot still applied at the slot's start; one starting at the next boundary does not.
+  const ending = run([R('', '2026-10-05', 'repel', 'Rotation 1 Primary, Rotation 2 Secondary', '2026-10-07T12:00')]);
+  assert.deepEqual(firsts(ending), ['alice', 'bob']);
+  const later = run([R('', '2026-10-12', 'repel', 'Rotation 1 Primary, Rotation 2 Secondary')]);
+  assert.deepEqual(firsts(later), ['alice', 'alice']);
+  assert.deepEqual(plain(U.shiftsRows(later.status).errorCells), [], 'not in force for the first slot on either side');
+  // attract! dated mid-week applies to the current slot as well.
+  const pulled = run([R('', '2026-10-07T12:00', 'attract!', 'Rotation 1 Primary, Rotation 2 Secondary')]);
+  assert.deepEqual(firsts(pulled), ['alice', 'alice']);
+  const rel = new U.Relations();
+  rel.add({ row: U.makeRow({ type: 'repel', start: dt('2026-10-07T12:00') }), reader: null, names: ['a', 'b'] });
+  assert.equal(rel.kindForSlot('a', 'b', dt('2026-10-05'), dt('2026-10-12')), 'repel');
+  assert.equal(rel.kindForSlot('a', 'b', dt('2026-09-28'), dt('2026-10-05')), null);
+  assert.equal(rel.kindForSlot('a', 'b', dt('2026-10-05'), null), null, 'without an end only the start counts');
+});

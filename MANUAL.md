@@ -420,7 +420,8 @@ at which any rotation changes hands: the cell holds who starts then, `-` for
 a shift with nobody, and stays empty for rotations that do not change at that
 instant. A `--now--` row separates past from future, and the cell of each
 rotation's current shift is highlighted. A red cell is a shift that breaks a
-relation in force at its start: the same person on both sides of a `repel`
+relation in force at its start or starting during it: the same person on
+both sides of a `repel`
 or `repel!` (the rest window of `repel!` is not checked), or different
 people on the two sides of an `attract` although either could have taken the
 other's shift; hover the cell for the relation and the other rotation. A

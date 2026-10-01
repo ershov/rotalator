@@ -109,6 +109,15 @@ class Relations {
     return state.kind;
   }
 
+  // The kind that applies to a slot [a, b) (DESIGN 7): the state in force at the slot's start, else the one in
+  // force just before its end, so a relation row dated inside a slot (a repel typed mid-week on a fresh setup)
+  // applies to the slot containing it; a relation ending inside the slot still applied at its start.
+  kindForSlot(reader, other, a, b) {
+    var kind = this.kindFor(reader, other, a);
+    if (kind !== null || b === null || b === undefined || b <= a) return kind;
+    return this.kindFor(reader, other, b - 1);
+  }
+
   // Order edges { from, to, entry } (from is decided before to) of the one-sided states that are or will be in
   // force from t on: per pair the last event at or before t and every event after it. Mutual states add none.
   orderEdges(t) {
@@ -201,18 +210,18 @@ function relatedHolders(ctx, rot, kind, a, b) {
   var holders = new Map();
   Object.keys(ctx.byName).forEach(function (other) {
     var target = ctx.byName[other];
-    if (target !== rot && ctx.relations.kindFor(rot.name, other, a) === kind) addHolders(holders, target, a, b);
+    if (target !== rot && ctx.relations.kindForSlot(rot.name, other, a, b) === kind) addHolders(holders, target, a, b);
   });
   return holders;
 }
 
-// repel! partners of rot at a with the pair's rest window in minutes: D = (D_rot + D_partner) / 2, each
-// min_distance resolved in its own grid space with its roster at a (DESIGN 7). localDistance: D_rot.
-function strongPartners(ctx, rot, a, localDistance) {
+// repel! partners of rot for the slot [a, b) with the pair's rest window in minutes: D = (D_rot + D_partner)
+// / 2, each min_distance resolved in its own grid space with its roster at a (DESIGN 7). localDistance: D_rot.
+function strongPartners(ctx, rot, a, b, localDistance) {
   var partners = [];
   Object.keys(ctx.byName).forEach(function (other) {
     var target = ctx.byName[other];
-    if (target === rot || ctx.relations.kindFor(rot.name, other, a) !== 'repel!') return;
+    if (target === rot || ctx.relations.kindForSlot(rot.name, other, a, b) !== 'repel!') return;
     var grid = target.timeline.gridAt(a);
     var theirs = grid ? resolveInterval(target.timeline.at(a).get('min_distance'), grid, target.roster.size()) : 0;
     partners.push({ rot: target, distance: (localDistance + theirs) / 2 });
@@ -246,7 +255,7 @@ function markUnmetRelations(rots, ctx) {
       Object.keys(ctx.byName).forEach(function (other) {
         var target = ctx.byName[other];
         if (target === rot || !target.entries) return;
-        var kind = ctx.relations.kindFor(rot.name, other, a);
+        var kind = ctx.relations.kindForSlot(rot.name, other, a, b);
         if (kind === null) return;
         var unmet = false;
         if (kind === 'repel' || kind === 'repel!') {

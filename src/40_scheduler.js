@@ -362,7 +362,7 @@ function assignSlot(rot, entry, holidays, ctx) {
   var options = settings.unitsOptions(holidays);
   var minDistance = resolveInterval(settings.get('min_distance'), grid, roster.size());
   var ladder = distanceLadder(minDistance, grid.period);
-  var partners = strongPartners(ctx, rot, a, minDistance);
+  var partners = strongPartners(ctx, rot, a, b, minDistance);
   var cross = partners.reduce(function (max, p) { return Math.max(max, p.distance); }, 0);
   var windowed = repelledHolders(ctx, rot, a, b, grid, partners, 0);
   var repelled = repelledHolders(ctx, rot, a, b, grid, partners, cross);
