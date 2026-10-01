@@ -87,8 +87,9 @@ row it corrects.
 | `error` | message | | script | Diagnostic. Removed on every read. |
 | (empty) | free text | | users | Comment. Ignored by the script, kept in place. |
 
-A `set`, `team`, `repel`, `repel!` or `attract` row without a `start` takes
-the date of the nearest dated row above it: type `team` with the new roster
+A `set`, `team`, `repel`, `repel!`, `attract` or `attract!` row without a
+`start` takes the date of the nearest dated row above it: type `team` with
+the new roster
 right under the current shift and it applies from that shift on; the script
 fills the `start` in on the next run. Several such rows may follow one
 another and keep their order. Do not type one at the very bottom of the tab:
@@ -390,7 +391,8 @@ same header, widths and row colours.
 number of holidays and `#Global` rows read, and the tabs ignored (a disabled
 `#<rotation>` appears there). With several rotations and at least one
 relation in force now, a `Relations` matrix follows: one row and one column
-per rotation, `+` where the row's rotation attracts the column's, `-` where
+per rotation, `+` where the row's rotation attracts the column's (`+!` for
+`attract!`), `-` where
 it repels it; a mutual relation marks both cells, a one-sided one only the
 row of the rotation whose tab holds it. Then one block per rotation, laid
 out side by side: on the left `rotation`, `snapshot`, `horizon`, `current`
@@ -427,7 +429,8 @@ tabs.
 |---|---|---|---|
 | repel | rotation names | optional | Nobody holds overlapping shifts in both rotations. |
 | repel! | rotation names | optional | As `repel`, plus a rest: a member stays off one rotation for half the combined `min_distance` before and after their shift in the other. |
-| attract | rotation names | optional | The same person is preferred for overlapping shifts. |
+| attract | rotation names | optional | The same person is preferred for overlapping shifts, within `tolerance`. |
+| attract! | rotation names | optional | As `attract`, and the tolerance band may widen up to one team round to follow the person on call in the other rotation. |
 | detach | rotation names | optional | The rotations are no longer related. |
 
 A relation row sets the state of every pair of rotations it names from its
@@ -469,7 +472,15 @@ that leaves nobody does the slot get an
 empty `shift` and an `error` row. Overlapping shifts in both rotations stay
 forbidden until the repel itself is dropped.
 `attract` only prefers someone who is already within `tolerance` of the
-lowest score; otherwise the usual selection applies. Rotations may use
+lowest score; otherwise the usual selection applies, and two rotations drift
+apart after an exclusion or a pin until the scores realign. `attract!`
+follows the other rotation further: when nobody attracted is within
+`tolerance`, the band widens to the person on call there, as long as their
+score is at most one full team round (`1ts`) above the lowest plus
+`tolerance`; `#Status` warns `tolerance widened to <n>sl for attract! with
+<rotation>` at that shift. Exclusions, `min_distance` and repel are never
+relaxed for it, and the member left behind stays lowest and catches up on
+the next shifts the relation allows. Rotations may use
 different periods; overlaps are compared on the actual intervals, but a
 rotation only sees the shifts already decided when its slot comes up, so a
 weekly rotation reading a daily one may still collide with the daily shifts

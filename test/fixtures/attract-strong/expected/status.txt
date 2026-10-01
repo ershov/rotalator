@@ -1,0 +1,85 @@
+Rotalator  preview  2026-10-05T10:00
+
+Tabs
+rotations    alerts, tickets
+regenerated  alerts, tickets
+holidays     1
+global       1
+ignored
+
+Relations  alerts  tickets
+alerts             +!
+tickets    +!
+
+rotation  alerts
+snapshot  2026-10-05T09:00
+horizon   2026-11-16T09:00
+current   alice             until 2026-10-12T09:00
+next      bob               from 2026-10-12T09:00
+
+  member  current  score  projected  last shift        next shift        exclusions
+  alice   x               14         2026-10-05T09:00  2026-11-02T09:00
+  bob                     14                           2026-10-12T09:00
+  carol                   7                            2026-10-19T09:00
+  dave                    7                            2026-10-26T09:00
+
+  settings       as of 2026-10-05T10:00  source
+  period         1w                      rotation
+  anchor         2026-10-05T09:00        rotation
+  grid           calendar                default
+  horizon        6w                      rotation
+  skip_weekends  false                   rotation
+  skip_holidays  false                   rotation
+  tolerance      0                       rotation
+  min_distance   0                       rotation
+  tiebreak       order                   default
+  seed           0                       default
+  baseline       median                  default
+  precredit      1ts                     default
+  autopin        a:0                     rotation
+  cal                                    default
+  slack                                  default
+
+rotation  tickets
+snapshot  2026-10-05T09:00
+horizon   2026-11-16T09:00
+current   alice             until 2026-10-12T09:00
+next      bob               from 2026-10-12T09:00
+
+  member  current  score  projected  last shift        next shift        exclusions
+  alice   x               14         2026-10-05T09:00  2026-11-02T09:00
+  bob                     14                           2026-10-12T09:00
+  carol                   0
+  dave                    14                           2026-10-19T09:00
+
+  settings       as of 2026-10-05T10:00  source
+  period         1w                      rotation
+  anchor         2026-10-05T09:00        rotation
+  grid           calendar                default
+  horizon        6w                      rotation
+  skip_weekends  false                   rotation
+  skip_holidays  false                   rotation
+  tolerance      0                       rotation
+  min_distance   0                       rotation
+  tiebreak       order                   default
+  seed           0                       default
+  baseline       median                  default
+  precredit      1ts                     default
+  autopin        a:0                     rotation
+  cal                                    default
+  slack                                  default
+
+warnings
+rotation  start             message
+tickets   2026-10-26T09:00  tolerance widened to 1sl for attract! with alerts
+tickets   2026-11-02T09:00  tolerance widened to 1sl for attract! with alerts
+tickets   2026-11-09T09:00  tolerance widened to 1sl for attract! with alerts
+
+start             alerts   tickets
+2026-10-05T09:00  alice    alice
+2026-10-05T10:00  --now--  --now--
+2026-10-12T09:00  bob      bob
+2026-10-19T09:00  carol    dave
+2026-10-26T09:00  dave     dave
+2026-11-02T09:00  alice    alice
+2026-11-09T09:00  bob      bob

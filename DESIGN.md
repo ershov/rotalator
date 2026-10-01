@@ -146,6 +146,7 @@ are kept sorted by `start`; the script re-sorts on every write.
 | score | same forms as team | | users |
 | set | `key`, `key=value` | | users |
 | attract | rotation names, one or more | optional | users |
+| attract! | rotation names, one or more | optional | users |
 | repel | rotation names, one or more | optional | users |
 | repel! | rotation names, one or more | optional | users |
 | detach | rotation names, one or more | optional | users |
@@ -153,8 +154,9 @@ are kept sorted by `start`; the script re-sorts on every write.
 | error | message | | script |
 | (empty) | free text | | users |
 
-Undated rows: a `set`, `team`, `repel`, `repel!` or `attract` row with an
-empty `start` takes the `start` of the nearest dated row above it in the tab
+Undated rows: a `set`, `team`, `repel`, `repel!`, `attract` or `attract!`
+row with an empty `start` takes the `start` of the nearest dated row above
+it in the tab
 as read, in document order; error rows (dropped on read), comments and other
 undated rows are skipped while scanning upward. This is the first step on
 read (`inheritStarts`), before validation, the prune and the sort (3.6), and
@@ -183,8 +185,9 @@ before the snapshot, and an epoch relation row is relation state from the
 beginning (`#Global` mutual, rotation tab one-sided). Other undated typed
 rows are errors; undated untyped rows are comments.
 
-**attract / repel / detach.** Relations between rotations, see 7. In a rotation
-tab the row relates that rotation to each listed rotation one-sidedly; in
+**attract / attract! / repel / repel! / detach.** Relations between
+rotations, see 7. In a rotation tab the row relates that rotation to each
+listed rotation one-sidedly; in
 `#Global` it relates all listed rotations mutually. `end` or `duration` revert
 the pairs to neutral at that instant. The rows are configuration like `set`:
 always read, never replayed, pruned or moved.
@@ -329,8 +332,9 @@ rotation that hands over during the day sets its own time in the `set` row.
 
 ### 3.6 Same-instant ordering
 
-Rows with equal `start` sort as: comment, `error`, `set`, `attract`, `repel`,
-`repel!`, `detach`, `snapshot`, `team`, `score`, `join`, `leave`, `exclude`,
+Rows with equal `start` sort as: comment, `error`, `set`, `attract`,
+`attract!`, `repel`, `repel!`, `detach`, `snapshot`, `team`, `score`, `join`,
+`leave`, `exclude`,
 `include`, `shift`. State changes at an instant therefore apply before the shift
 starting at it, and a `score` correction applies right after the `team` row
 of the same instant. Sorting is stable, so user order is kept otherwise, so
@@ -512,7 +516,13 @@ that extend past it are clipped.
    and addition run along the grid's timeline.
 2. Candidates: eligible members with `score <= min(score) + tolerance`, the
    tolerance resolved at `a` (3.5); when some of them are attracted (7), only
-   those.
+   those. When none is but an eligible `attract!` holder scores at most
+   `min(score) + tolerance + 1ts` (`1ts` resolved at `a` like `tolerance`),
+   the band widens to the score of the lowest such holder and the candidates
+   are the eligible members inside the widened band, the attracted ones
+   preferred (7, Widening for `attract!`); the warning `tolerance widened to
+   <n>sl for attract! with <rotation>` records the widened width in shift
+   lengths.
 3. Tiebreak `order`: walk the roster cyclically starting after the assignee of
    the previous shift in this rotation and take the first candidate. With no
    previous shift, start at the top.
@@ -686,6 +696,7 @@ place and where it is only reported in `#Status` (and why):
 | Relation row errors (unknown or disabled rotation, itself, twice, `#Global` shape, `relation order cycle`) | `error` row above the row in its own tab | errors |
 | Malformed global `set` row | `error` row in `#Global`; blocks regeneration | errors |
 | `no eligible member for shift <a> to <b>` | `error` row at the slot start, next to the `shift` with nobody | warnings |
+| `tolerance widened to <n>sl for attract! with <rotation>` | none: `#Status` warnings only (rotation and slot start) | warnings |
 | `min_distance relaxed to ...`, `repel! relaxed to ...`, `repel relaxed: <who> also on <rotation>` | none: `#Status` warnings only (rotation and slot start); the `note` stays the user's | warnings |
 | `comment row N: unparseable start, treated as undated` | none: comments are never rewritten and the row stays where it is | warnings |
 | `calendar extension not installed; cal=... has no effect`, `slack extension not installed; slack=... has no effect` | none: no extension is there to write it | warnings |
@@ -727,6 +738,8 @@ tabs. Four types, `what` a plain list of rotation names:
   (below).
 - `attract`: among the candidates inside the tolerance band, members holding
   an overlapping shift in a related rotation are preferred.
+- `attract!`: like `attract`, and when no preferred member is inside the band
+  the band may widen to reach one (below).
 - `detach`: the pairs return to neutral.
 
 ### State per pair
@@ -753,6 +766,32 @@ same instant. A one-sided `repel` is therefore complete only when the reading
 rotation's grid is at least as fine as the grid it reads: a weekly rotation
 reading a daily one sees, for its Monday slot, only the Monday of the daily
 rotation and may still collide with its Tuesday.
+
+### Widening for `attract!`
+
+`attract` keeps fairness first: it only chooses among the members the
+tolerance band already allows, so two rotations drift apart as soon as an
+exclusion or a pin desynchronises them, and the preference then misses
+until the scores happen to realign. `attract!` lets the band give way, within
+a cap: once eligibility (exclusions, `min_distance` at the current ladder
+step, the repel filters) and the band are known and no preferred candidate
+is in band, the eligible `attract!` holders whose projected score is at most
+`lowest eligible + tolerance + 1ts` are considered, `1ts` resolved in this
+rotation's grid at the slot start like `min_distance`; the band widens
+directly to the score of the lowest-scoring such holder (no stepping
+constant) and the pick proceeds inside the widened band with the usual
+preference and tiebreak. With no eligible `attract!` holder, `attract!`
+behaves as `attract`. Widening never relaxes exclusions, `min_distance` or
+repel: it is a preference step and takes part in the relaxation ladder
+exactly where the `attract` preference does. The cap is relative to the
+configured tolerance and amounts to one extra team round: the holder may be
+at most a full cycle ahead of the lowest member, the debt is repaid
+afterwards because the member left behind stays lowest and gets the next
+shifts the relation allows. The simulation behind the feature cut attract
+misses by 50 to 100 percent at a spread cost of at most 0.06 shift lengths.
+The warning `tolerance widened to <n>sl for attract! with <rotation>` names
+the related rotation of the holder the band widened for and the widened band
+width in shift lengths (5.7).
 
 ### Rest across rotations (`repel!`)
 
@@ -793,7 +832,7 @@ gets an `error` row above it (`relation order cycle among ...; use a #Global
 row`), its relations are ignored, and the order is computed without them. The
 cycle test is coarse: a rotation on a dependency path between two cycles
 counts as part of them. The `#Status` relations matrix marks `attract` `+`,
-`repel` `-` and `repel!` `-!`.
+`attract!` `+!`, `repel` `-` and `repel!` `-!`.
 
 ### Soft repel
 
@@ -1085,11 +1124,13 @@ are replaced (not appended to) by the script's set, so a user rule on these
 tabs does not survive Set Up. Each rule is a custom formula over the whole
 columns `A:G` keyed on the `type` cell. Rotation tabs: `error` light red,
 `set` and `score` light blue, `team`, `join`, `leave`, `include` and
-`exclude` light teal, `snapshot` light green, `attract` and `repel` light
-green, `detach` light grey, comment rows (empty type with content,
+`exclude` light teal, `snapshot` light green, `attract`, `attract!` and
+`repel` light green, `detach` light grey, comment rows (empty type with
+content,
 `=AND($C1="", COUNTA($A1:$G1)>0)`) light yellow, `shift` no colour.
-`#Global`: `set` and `score` light blue, `attract` and `repel` light green,
-`detach` light grey, `error` light red, comments light yellow. `#GCal` gets
+`#Global`: `set` and `score` light blue, `attract`, `attract!` and `repel`
+light green, `detach` light grey, `error` light red, comments light yellow.
+`#GCal` gets
 the same palette from its extension (13.5). Generated tabs
 (`#Status`,
 `#All shifts`, previews) are cleared with their formats and rewritten on every
@@ -1140,9 +1181,9 @@ help rows
 
 ```
 ROWS:
-repel / attract / detach: Rotation1, Rotation2
+repel / repel! / attract / attract! / detach: Rotation1, Rotation2
 set: key, key=value
-set / repel / attract without start: apply from the beginning
+set / repel / repel! / attract / attract! without start: take the date of the nearest dated row above, or apply from the beginning at the top
 ```
 
 and an epoch `set` row of the same defaults.

@@ -378,3 +378,56 @@ test('global period and anchor: a rotation may have neither and gets the grid fr
   assert.equal(bad.regenerated, false);
   assert.deepEqual(plain(bad.errors), [{ rotation: '#Global', rowIndex: 2, start: MON, message: 'bad value for tolerance: "abc"; use a number of days or an interval like 2sl, 1ts, 3d or 0' }]);
 });
+
+test('attract!: parses and sorts like attract, marks +!, widens the band to the holder within one team round', () => {
+  // Row type, epoch handling and the relations matrix mark.
+  assert.equal(U.ROW_TYPES['attract!'].what, 'names');
+  assert.ok(U.EPOCH_TYPES.includes('attract!') && U.RELATION_TYPES.includes('attract!'));
+  assert.ok(U.isEpochRow(U.rowFromArray(R('', '', 'attract!', 'x'), 2)));
+  assert.deepEqual(plain(U.sortRows([U.makeRow({ type: 'repel', start: MON, what: 'x' }), U.makeRow({ type: 'attract!', start: MON, what: 'x' }), U.makeRow({ type: 'attract', start: MON, what: 'x' })]).map((r) => r.type)), ['attract', 'attract!', 'repel']);
+  const parsed = U.parseGlobal(rows([REL('attract!', '2026-10-05T09:00', 'alerts, tickets')]), ['alerts', 'tickets']);
+  assert.deepEqual(plain(parsed.errors), []);
+  assert.equal(parsed.relationRows.length, 1);
+  const SETW = (md = 0) => R('', '2026-10-05T09:00', 'set', `period=1w, horizon=6w, tolerance=0, min_distance=${md}, skip_weekends=false, skip_holidays=false, autopin=a:0`);
+  const six = (name, team, extra = [], md = 0) => ({ name, rows: rows([SETW(md), R('', '2026-10-05T09:00', 'team', team), ...extra]), snapshotAt: MON });
+  // Desync: carol is excluded from tickets for the third week. With attract the two rotations drift apart;
+  // with attract! tickets widens the band (dave at 7 against carol at 0: 1sl) and follows alerts again.
+  const excl = [R('', '2026-10-19T09:00', 'exclude', 'carol', '', '1w')];
+  const soft = regen([six('alerts', 'alice, bob, carol, dave'), six('tickets', 'alice, bob, carol, dave', excl)], [REL('attract', '2026-10-05T09:00', 'alerts, tickets')]);
+  assert.deepEqual(whoOf(soft, 'alerts'), ['alice', 'bob', 'carol', 'dave', 'alice', 'bob']);
+  assert.deepEqual(whoOf(soft, 'tickets'), ['alice', 'bob', 'dave', 'carol', 'alice', 'bob'], 'attract misses the week after the exclusion');
+  assert.deepEqual(plain(soft.status.warnings), []);
+  const strong = regen([six('alerts', 'alice, bob, carol, dave'), six('tickets', 'alice, bob, carol, dave', excl)], [REL('attract!', '2026-10-05T09:00', 'alerts, tickets')]);
+  assert.deepEqual(plain(strong.errors), []);
+  assert.deepEqual(whoOf(strong, 'tickets'), ['alice', 'bob', 'dave', 'dave', 'alice', 'bob'], 'attract! follows alerts from the fourth week on');
+  assert.deepEqual(plain(strong.status.warnings.map((w) => [w.rotation, U.formatDateTime(w.start), w.message])), [
+    ['tickets', '2026-10-26T09:00', 'tolerance widened to 1sl for attract! with alerts'],
+    ['tickets', '2026-11-02T09:00', 'tolerance widened to 1sl for attract! with alerts'],
+    ['tickets', '2026-11-09T09:00', 'tolerance widened to 1sl for attract! with alerts'],
+  ]);
+  assert.ok(shiftsOf(strong, 'tickets').every((s) => s[2] === ''), 'notes stay empty');
+  // The relations view and the matrix need now.
+  const dated = U.regenerate({ rotations: [six('alerts', 'alice, bob, carol, dave'), six('tickets', 'alice, bob, carol, dave', excl)], holidays: [], global: rows([REL('attract!', '2026-10-05T09:00', 'alerts, tickets')]), now: MON });
+  assert.deepEqual(plain(dated.status.relations).filter((r) => r.reader === 'tickets'), [{ reader: 'tickets', target: 'alerts', kind: 'attract!' }]);
+  assert.ok(plain(U.statusRows(dated.status).rows).some((r) => r[0] === 'tickets' && r[1] === '+!'), 'matrix marks attract! with +!');
+  // Cap: zed holds alerts alone; in tickets he starts at 14 (score row) against alice and bob at 0, and the cap
+  // is lowest + 0 + 1ts = 21 with three members. He is followed at 14 (2sl) and 21 (3sl), not at 28 against
+  // a lowest of 0, again at 28 once the lowest is 7 (cap 28), not at 35. attract alone never follows him early.
+  const capped = regen([six('alerts', 'zed'), six('tickets', 'alice, bob, zed', [R('', '2026-10-05T09:00', 'score', 'zed=14')])], [REL('attract!', '2026-10-05T09:00', 'alerts, tickets')]);
+  assert.deepEqual(whoOf(capped, 'tickets'), ['zed', 'zed', 'alice', 'bob', 'zed', 'alice']);
+  assert.deepEqual(plain(capped.status.warnings.map((w) => [U.formatDateTime(w.start), w.message])), [
+    ['2026-10-05T09:00', 'tolerance widened to 2sl for attract! with alerts'],
+    ['2026-10-12T09:00', 'tolerance widened to 3sl for attract! with alerts'],
+    ['2026-11-02T09:00', 'tolerance widened to 3sl for attract! with alerts'],
+  ]);
+  const plainAttract = regen([six('alerts', 'zed'), six('tickets', 'alice, bob, zed', [R('', '2026-10-05T09:00', 'score', 'zed=14')])], [REL('attract', '2026-10-05T09:00', 'alerts, tickets')]);
+  assert.deepEqual(whoOf(plainAttract, 'tickets'), ['alice', 'bob', 'alice', 'bob', 'zed', 'alice']);
+  assert.deepEqual(plain(plainAttract.status.warnings), []);
+  // Widening never relaxes min_distance: with min_distance=2sl and two members, bob is within his own rest
+  // when alerts holds him, so he is not an eligible holder and the band is not widened for him.
+  const rest = regen([six('alerts', 'alice, bob', [], '2sl'), six('tickets', 'bob, alice', [R('', '2026-10-05T09:00', 'exclude', 'alice', '', '1w')], '2sl')], [REL('attract!', '2026-10-05T09:00', 'alerts, tickets')]);
+  assert.deepEqual(whoOf(rest, 'alerts'), ['alice', 'bob', 'alice', 'bob', 'alice', 'bob']);
+  assert.deepEqual(whoOf(rest, 'tickets'), ['bob', 'alice', 'bob', 'alice', 'bob', 'alice']);
+  assert.deepEqual(plain(rest.status.warnings.filter((w) => /widened/.test(w.message))), []);
+  assert.ok(rest.status.warnings.some((w) => /min_distance relaxed/.test(w.message)), 'the rest itself is relaxed by the ladder, not by attract!');
+});

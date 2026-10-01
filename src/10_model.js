@@ -45,24 +45,25 @@ var ROW_TYPES = {
   error:    { order: 0,  what: 'text',   required: true,  extent: false },
   set:      { order: 1,  what: 'set',    required: false, extent: false },
   attract:  { order: 2,  what: 'names',  required: true,  extent: true },
-  repel:    { order: 3,  what: 'names',  required: true,  extent: true },
-  'repel!': { order: 4,  what: 'names',  required: true,  extent: true },
-  detach:   { order: 5,  what: 'names',  required: true,  extent: true },
-  snapshot: { order: 6,  what: 'scores', required: false, extent: false },
-  team:     { order: 7,  what: 'team',   required: true,  extent: false },
-  score:    { order: 8,  what: 'team',   required: true,  extent: false },
-  join:     { order: 9,  what: 'join',   required: true,  extent: false },
-  leave:    { order: 10, what: 'names',  required: true,  extent: false },
-  exclude:  { order: 11, what: 'names',  required: true,  extent: true },
-  include:  { order: 12, what: 'names',  required: true,  extent: false },
-  shift:    { order: 13, what: 'shift',  required: false, extent: true },
+  'attract!': { order: 3, what: 'names', required: true,  extent: true },
+  repel:    { order: 4,  what: 'names',  required: true,  extent: true },
+  'repel!': { order: 5,  what: 'names',  required: true,  extent: true },
+  detach:   { order: 6,  what: 'names',  required: true,  extent: true },
+  snapshot: { order: 7,  what: 'scores', required: false, extent: false },
+  team:     { order: 8,  what: 'team',   required: true,  extent: false },
+  score:    { order: 9,  what: 'team',   required: true,  extent: false },
+  join:     { order: 10, what: 'join',   required: true,  extent: false },
+  leave:    { order: 11, what: 'names',  required: true,  extent: false },
+  exclude:  { order: 12, what: 'names',  required: true,  extent: true },
+  include:  { order: 13, what: 'names',  required: true,  extent: false },
+  shift:    { order: 14, what: 'shift',  required: false, extent: true },
 };
 
-// Undated set, team, repel, repel! and attract rows (DESIGN 3.4) take the start of the nearest dated row above
+// Undated set, team, repel, repel!, attract and attract! rows (DESIGN 3.4) take the start of the nearest dated row above
 // them as read (inheritStarts); with none above they are epoch rows that apply from the beginning of the
 // timeline, start -Infinity internally so they sort and compare before every dated row.
 var EPOCH = -Infinity;
-var EPOCH_TYPES = ['set', 'team', 'repel', 'repel!', 'attract'];
+var EPOCH_TYPES = ['set', 'team', 'repel', 'repel!', 'attract', 'attract!'];
 
 function isEpochRow(row) {
   return row.start === EPOCH;

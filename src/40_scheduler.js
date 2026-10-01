@@ -344,7 +344,9 @@ function distanceLadder(distance, period) {
 
 // DESIGN 5.7 and 7. Exclusions are never violated. Relaxation order: the repel! cross window shrinks one
 // period per step to zero (plain repel) with min_distance in force, then min_distance steps down, then repel
-// is dropped (warning and note), then nobody. attract holders are preferred inside the band.
+// is dropped (warning), then nobody. attract and attract! holders are preferred inside the band; with no
+// preferred candidate in band, the band widens to the lowest eligible attract! holder within one team round
+// (lowest + tolerance + 1ts) and the pick proceeds inside it.
 function assignSlot(rot, entry, holidays, ctx) {
   var settings = rot.timeline.at(entry.start);
   var roster = rot.roster;
@@ -379,10 +381,28 @@ function assignSlot(rot, entry, holidays, ctx) {
     var tolerance = toleranceUnits(settings.get('tolerance'), grid, a, roster.size(), options);
     var candidates = pick.eligible.filter(function (m) { return m.score <= lowest + tolerance; });
     var attracted = relatedHolders(ctx, rot, 'attract', a, b);
+    var strong = relatedHolders(ctx, rot, 'attract!', a, b);
+    strong.forEach(function (names, who) { attracted.set(who, (attracted.get(who) || []).concat(names)); });
     var preferred = candidates.filter(function (m) { return attracted.has(m.name); });
+    var widened = null;
+    if (!preferred.length && strong.size) {
+      var cap = lowest + tolerance + toleranceUnits({ unit: 'ts', amount: 1 }, grid, a, roster.size(), options);
+      var holders = pick.eligible.filter(function (m) { return strong.has(m.name) && m.score <= cap; });
+      if (holders.length) {
+        var holder = holders.reduce(function (low, m) { return m.score < low.score ? m : low; }, holders[0]);
+        widened = { score: holder.score, partners: strong.get(holder.name) };
+        candidates = pick.eligible.filter(function (m) { return m.score <= widened.score; });
+        preferred = candidates.filter(function (m) { return attracted.has(m.name); });
+      }
+    }
     entry.who = tiebreak(rot, entry, preferred.length ? preferred : candidates, settings);
     roster.credit(entry.who, units(a, entry.end, options));
     var inShifts = function (d) { return d === 0 ? '0' : formatScore(d / grid.period) + 'sl'; };
+    if (widened !== null) {
+      var shiftUnits = units(a, grid.offset(a, grid.period), options);
+      var width = shiftUnits > 0 ? (widened.score - lowest) / shiftUnits : 0;
+      warnings.push('tolerance widened to ' + formatScore(width) + 'sl for attract! with ' + widened.partners.join(', '));
+    }
     if (pick.cross < cross && windowed.has(entry.who)) warnings.push('repel! relaxed to ' + inShifts(pick.cross));
     if (pick.distance < minDistance) warnings.push('min_distance relaxed to ' + inShifts(pick.distance));
     if (pick.repelDropped) warnings.push('repel relaxed: ' + entry.who + ' also on ' + (repelled.get(entry.who) || []).join(', '));

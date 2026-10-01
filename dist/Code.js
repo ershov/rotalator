@@ -320,24 +320,25 @@ var ROW_TYPES = {
   error:    { order: 0,  what: 'text',   required: true,  extent: false },
   set:      { order: 1,  what: 'set',    required: false, extent: false },
   attract:  { order: 2,  what: 'names',  required: true,  extent: true },
-  repel:    { order: 3,  what: 'names',  required: true,  extent: true },
-  'repel!': { order: 4,  what: 'names',  required: true,  extent: true },
-  detach:   { order: 5,  what: 'names',  required: true,  extent: true },
-  snapshot: { order: 6,  what: 'scores', required: false, extent: false },
-  team:     { order: 7,  what: 'team',   required: true,  extent: false },
-  score:    { order: 8,  what: 'team',   required: true,  extent: false },
-  join:     { order: 9,  what: 'join',   required: true,  extent: false },
-  leave:    { order: 10, what: 'names',  required: true,  extent: false },
-  exclude:  { order: 11, what: 'names',  required: true,  extent: true },
-  include:  { order: 12, what: 'names',  required: true,  extent: false },
-  shift:    { order: 13, what: 'shift',  required: false, extent: true },
+  'attract!': { order: 3, what: 'names', required: true,  extent: true },
+  repel:    { order: 4,  what: 'names',  required: true,  extent: true },
+  'repel!': { order: 5,  what: 'names',  required: true,  extent: true },
+  detach:   { order: 6,  what: 'names',  required: true,  extent: true },
+  snapshot: { order: 7,  what: 'scores', required: false, extent: false },
+  team:     { order: 8,  what: 'team',   required: true,  extent: false },
+  score:    { order: 9,  what: 'team',   required: true,  extent: false },
+  join:     { order: 10, what: 'join',   required: true,  extent: false },
+  leave:    { order: 11, what: 'names',  required: true,  extent: false },
+  exclude:  { order: 12, what: 'names',  required: true,  extent: true },
+  include:  { order: 13, what: 'names',  required: true,  extent: false },
+  shift:    { order: 14, what: 'shift',  required: false, extent: true },
 };
 
-// Undated set, team, repel, repel! and attract rows (DESIGN 3.4) take the start of the nearest dated row above
+// Undated set, team, repel, repel!, attract and attract! rows (DESIGN 3.4) take the start of the nearest dated row above
 // them as read (inheritStarts); with none above they are epoch rows that apply from the beginning of the
 // timeline, start -Infinity internally so they sort and compare before every dated row.
 var EPOCH = -Infinity;
-var EPOCH_TYPES = ['set', 'team', 'repel', 'repel!', 'attract'];
+var EPOCH_TYPES = ['set', 'team', 'repel', 'repel!', 'attract', 'attract!'];
 
 function isEpochRow(row) {
   return row.start === EPOCH;
@@ -1529,7 +1530,9 @@ function distanceLadder(distance, period) {
 
 // DESIGN 5.7 and 7. Exclusions are never violated. Relaxation order: the repel! cross window shrinks one
 // period per step to zero (plain repel) with min_distance in force, then min_distance steps down, then repel
-// is dropped (warning and note), then nobody. attract holders are preferred inside the band.
+// is dropped (warning), then nobody. attract and attract! holders are preferred inside the band; with no
+// preferred candidate in band, the band widens to the lowest eligible attract! holder within one team round
+// (lowest + tolerance + 1ts) and the pick proceeds inside it.
 function assignSlot(rot, entry, holidays, ctx) {
   var settings = rot.timeline.at(entry.start);
   var roster = rot.roster;
@@ -1564,10 +1567,28 @@ function assignSlot(rot, entry, holidays, ctx) {
     var tolerance = toleranceUnits(settings.get('tolerance'), grid, a, roster.size(), options);
     var candidates = pick.eligible.filter(function (m) { return m.score <= lowest + tolerance; });
     var attracted = relatedHolders(ctx, rot, 'attract', a, b);
+    var strong = relatedHolders(ctx, rot, 'attract!', a, b);
+    strong.forEach(function (names, who) { attracted.set(who, (attracted.get(who) || []).concat(names)); });
     var preferred = candidates.filter(function (m) { return attracted.has(m.name); });
+    var widened = null;
+    if (!preferred.length && strong.size) {
+      var cap = lowest + tolerance + toleranceUnits({ unit: 'ts', amount: 1 }, grid, a, roster.size(), options);
+      var holders = pick.eligible.filter(function (m) { return strong.has(m.name) && m.score <= cap; });
+      if (holders.length) {
+        var holder = holders.reduce(function (low, m) { return m.score < low.score ? m : low; }, holders[0]);
+        widened = { score: holder.score, partners: strong.get(holder.name) };
+        candidates = pick.eligible.filter(function (m) { return m.score <= widened.score; });
+        preferred = candidates.filter(function (m) { return attracted.has(m.name); });
+      }
+    }
     entry.who = tiebreak(rot, entry, preferred.length ? preferred : candidates, settings);
     roster.credit(entry.who, units(a, entry.end, options));
     var inShifts = function (d) { return d === 0 ? '0' : formatScore(d / grid.period) + 'sl'; };
+    if (widened !== null) {
+      var shiftUnits = units(a, grid.offset(a, grid.period), options);
+      var width = shiftUnits > 0 ? (widened.score - lowest) / shiftUnits : 0;
+      warnings.push('tolerance widened to ' + formatScore(width) + 'sl for attract! with ' + widened.partners.join(', '));
+    }
     if (pick.cross < cross && windowed.has(entry.who)) warnings.push('repel! relaxed to ' + inShifts(pick.cross));
     if (pick.distance < minDistance) warnings.push('min_distance relaxed to ' + inShifts(pick.distance));
     if (pick.repelDropped) warnings.push('repel relaxed: ' + entry.who + ' also on ' + (repelled.get(entry.who) || []).join(', '));
@@ -1926,11 +1947,11 @@ function verticalBlock(rot) {
   return { rows: rows, headers: [0, g.keys.length + 1, g.keys.length + g.members.length + 2] };
 }
 
-// Relations matrix rows: header with every rotation, then per reader a row with + (attract), - (repel) or
-// -! (repel!).
+// Relations matrix rows: header with every rotation, then per reader a row with + (attract), +! (attract!),
+// - (repel) or -! (repel!).
 function relationsMatrix(status) {
   var names = status.rotations.map(function (r) { return r.name; });
-  var marks = { attract: '+', repel: '-', 'repel!': '-!' };
+  var marks = { attract: '+', 'attract!': '+!', repel: '-', 'repel!': '-!' };
   var rows = [['Relations'].concat(names)];
   names.forEach(function (reader) {
     rows.push([reader].concat(names.map(function (target) {
@@ -2047,9 +2068,10 @@ function shiftsRows(status) {
 
 // ---- 60_relations.js ----
 // #Global tab (DESIGN 3.5 and 7): spreadsheet-wide set rows, relation rows between rotations, and comments.
-// Relation rows (attract, repel, repel!, detach) also appear in rotation tabs, where they are one-sided.
+// Relation rows (attract, attract!, repel, repel!, detach) also appear in rotation tabs, where they are
+// one-sided.
 
-var RELATION_TYPES = ['attract', 'repel', 'repel!', 'detach'];
+var RELATION_TYPES = ['attract', 'attract!', 'repel', 'repel!', 'detach'];
 
 function isRelationRow(row) {
   return RELATION_TYPES.indexOf(row.type) >= 0;
@@ -2326,9 +2348,9 @@ var ROTATION_HELP = [
 ];
 var GLOBAL_HELP = [
   'ROWS:',
-  'repel / repel! / attract / detach: Rotation1, Rotation2',
+  'repel / repel! / attract / attract! / detach: Rotation1, Rotation2',
   'set: key, key=value',
-  'set / repel / repel! / attract without start: take the date of the nearest dated row above, or apply from the beginning at the top',
+  'set / repel / repel! / attract / attract! without start: take the date of the nearest dated row above, or apply from the beginning at the top',
 ];
 var HOLIDAYS_SAMPLE_NOTE = 'New Year';
 
@@ -2339,7 +2361,7 @@ var HELP_TEXT = [
   '',
   'COLUMNS: pin | start | type | what | end | duration | note',
   'pin: any value pins the row; the script never modifies or deletes a pinned row',
-  'start: YYYY-MM-DD or YYYY-MM-DDTHH:MM in the spreadsheet time zone; mandatory except on comments and on set, team, repel, repel! and attract rows that apply from the beginning',
+  'start: YYYY-MM-DD or YYYY-MM-DDTHH:MM in the spreadsheet time zone; mandatory except on comments and on set, team, repel, repel!, attract and attract! rows that apply from the beginning',
   'type: one of the row types below; an empty type makes the row a comment',
   'what: the payload of the row, see ROWS',
   'end / duration: optional extent of a shift or exclude; at most one of the two',
@@ -2352,9 +2374,9 @@ var HELP_TEXT = [
   'leave: name [, name ...]',
   'exclude / include: name [, name ...]; exclude takes end or duration, otherwise it lasts until an include',
   'set: key, key=value',
-  'undated set / team / repel / repel! / attract: take the date of the nearest dated row above them, or apply from the beginning of the timeline when nothing dated is above; anchor needs a dated set row',
+  'undated set / team / repel / repel! / attract / attract!: take the date of the nearest dated row above them, or apply from the beginning of the timeline when nothing dated is above; anchor needs a dated set row',
   'undated row at the bottom of the tab: it takes the date of the last generated shift near the horizon, not today; type it under the current shift instead',
-  'repel / repel! / attract / detach: Rotation1, Rotation2 (mutual in #Global; in a rotation tab one-sided, naming the other rotation)',
+  'repel / repel! / attract / attract! / detach: Rotation1, Rotation2 (mutual in #Global; in a rotation tab one-sided, naming the other rotation)',
   'snapshot: written by the script at the start of the current shift with the roster and scores; delete it to replay the whole history',
   'error: written by the script above the row it describes; removed on the next run',
   'comment: any row with an empty type; kept in place, never replayed; an undated comment sticks to the row below it',
@@ -2382,7 +2404,7 @@ var HELP_TEXT = [
   '0 is the zero interval; with grid=counted intervals count counted days, so 2d is two working days',
   '',
   'RELATIONS between rotations (rows in #Global, or one-sided in a rotation tab):',
-  'repel: nobody holds overlapping shifts in both rotations; repel!: also keeps a member off the other rotation for half the combined min_distance before and after their shift; attract: prefer the member already on call in the other rotation; detach: ends an earlier relation',
+  'repel: nobody holds overlapping shifts in both rotations; repel!: also keeps a member off the other rotation for half the combined min_distance before and after their shift; attract: prefer the member already on call in the other rotation when within tolerance; attract!: also widen the tolerance up to one team round to follow them; detach: ends an earlier relation',
   '',
   'MENU:',
   'Run: regenerates every rotation and rewrites #Status and #All shifts; the nightly trigger runs this',
@@ -3064,14 +3086,14 @@ var LEDGER_FORMAT_RULES = [
   { formula: '=OR($C1="set", $C1="score")', color: COLOR_SETTINGS },
   { formula: '=OR($C1="team", $C1="join", $C1="leave", $C1="include", $C1="exclude")', color: COLOR_ROSTER },
   { formula: '=$C1="snapshot"', color: COLOR_SNAPSHOT },
-  { formula: '=OR($C1="attract", $C1="repel", $C1="repel!")', color: COLOR_RELATION },
+  { formula: '=OR($C1="attract", $C1="attract!", $C1="repel", $C1="repel!")', color: COLOR_RELATION },
   { formula: '=$C1="detach"', color: COLOR_DETACH },
   { formula: COMMENT_FORMULA, color: COLOR_COMMENT },
 ];
 var GLOBAL_FORMAT_RULES = [
   { formula: '=$C1="error"', color: COLOR_ERROR },
   { formula: '=OR($C1="set", $C1="score")', color: COLOR_SETTINGS },
-  { formula: '=OR($C1="attract", $C1="repel", $C1="repel!")', color: COLOR_RELATION },
+  { formula: '=OR($C1="attract", $C1="attract!", $C1="repel", $C1="repel!")', color: COLOR_RELATION },
   { formula: '=$C1="detach"', color: COLOR_DETACH },
   { formula: COMMENT_FORMULA, color: COLOR_COMMENT },
 ];

@@ -1,7 +1,8 @@
 // #Global tab (DESIGN 3.5 and 7): spreadsheet-wide set rows, relation rows between rotations, and comments.
-// Relation rows (attract, repel, repel!, detach) also appear in rotation tabs, where they are one-sided.
+// Relation rows (attract, attract!, repel, repel!, detach) also appear in rotation tabs, where they are
+// one-sided.
 
-var RELATION_TYPES = ['attract', 'repel', 'repel!', 'detach'];
+var RELATION_TYPES = ['attract', 'attract!', 'repel', 'repel!', 'detach'];
 
 function isRelationRow(row) {
   return RELATION_TYPES.indexOf(row.type) >= 0;

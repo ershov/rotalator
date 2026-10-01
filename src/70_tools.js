@@ -44,9 +44,9 @@ var ROTATION_HELP = [
 ];
 var GLOBAL_HELP = [
   'ROWS:',
-  'repel / repel! / attract / detach: Rotation1, Rotation2',
+  'repel / repel! / attract / attract! / detach: Rotation1, Rotation2',
   'set: key, key=value',
-  'set / repel / repel! / attract without start: take the date of the nearest dated row above, or apply from the beginning at the top',
+  'set / repel / repel! / attract / attract! without start: take the date of the nearest dated row above, or apply from the beginning at the top',
 ];
 var HOLIDAYS_SAMPLE_NOTE = 'New Year';
 
@@ -57,7 +57,7 @@ var HELP_TEXT = [
   '',
   'COLUMNS: pin | start | type | what | end | duration | note',
   'pin: any value pins the row; the script never modifies or deletes a pinned row',
-  'start: YYYY-MM-DD or YYYY-MM-DDTHH:MM in the spreadsheet time zone; mandatory except on comments and on set, team, repel, repel! and attract rows that apply from the beginning',
+  'start: YYYY-MM-DD or YYYY-MM-DDTHH:MM in the spreadsheet time zone; mandatory except on comments and on set, team, repel, repel!, attract and attract! rows that apply from the beginning',
   'type: one of the row types below; an empty type makes the row a comment',
   'what: the payload of the row, see ROWS',
   'end / duration: optional extent of a shift or exclude; at most one of the two',
@@ -70,9 +70,9 @@ var HELP_TEXT = [
   'leave: name [, name ...]',
   'exclude / include: name [, name ...]; exclude takes end or duration, otherwise it lasts until an include',
   'set: key, key=value',
-  'undated set / team / repel / repel! / attract: take the date of the nearest dated row above them, or apply from the beginning of the timeline when nothing dated is above; anchor needs a dated set row',
+  'undated set / team / repel / repel! / attract / attract!: take the date of the nearest dated row above them, or apply from the beginning of the timeline when nothing dated is above; anchor needs a dated set row',
   'undated row at the bottom of the tab: it takes the date of the last generated shift near the horizon, not today; type it under the current shift instead',
-  'repel / repel! / attract / detach: Rotation1, Rotation2 (mutual in #Global; in a rotation tab one-sided, naming the other rotation)',
+  'repel / repel! / attract / attract! / detach: Rotation1, Rotation2 (mutual in #Global; in a rotation tab one-sided, naming the other rotation)',
   'snapshot: written by the script at the start of the current shift with the roster and scores; delete it to replay the whole history',
   'error: written by the script above the row it describes; removed on the next run',
   'comment: any row with an empty type; kept in place, never replayed; an undated comment sticks to the row below it',
@@ -100,7 +100,7 @@ var HELP_TEXT = [
   '0 is the zero interval; with grid=counted intervals count counted days, so 2d is two working days',
   '',
   'RELATIONS between rotations (rows in #Global, or one-sided in a rotation tab):',
-  'repel: nobody holds overlapping shifts in both rotations; repel!: also keeps a member off the other rotation for half the combined min_distance before and after their shift; attract: prefer the member already on call in the other rotation; detach: ends an earlier relation',
+  'repel: nobody holds overlapping shifts in both rotations; repel!: also keeps a member off the other rotation for half the combined min_distance before and after their shift; attract: prefer the member already on call in the other rotation when within tolerance; attract!: also widen the tolerance up to one team round to follow them; detach: ends an earlier relation',
   '',
   'MENU:',
   'Run: regenerates every rotation and rewrites #Status and #All shifts; the nightly trigger runs this',
