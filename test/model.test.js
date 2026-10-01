@@ -411,3 +411,24 @@ test('inheritStarts: undated rows take the nearest dated row above, skipping err
   assert.ok(U.isEpochRow(epoch[2]));
   assert.deepEqual(plain(U.rowToArray(epoch[2])), R('', '', 'set', 'period=1w'));
 });
+
+test('# prefix: a type starting with # is a comment kept as typed; no validation, sorts like a comment', () => {
+  const commented = U.rowFromArray(R('a', '2026-10-05T09:00', '#shift', 'alice', '', '', 'on leave'), 2);
+  assert.equal(commented.type, 'comment');
+  assert.equal(commented.typeText, '#shift');
+  assert.deepEqual(plain(U.rowToArray(commented)), R('a', '2026-10-05T09:00', '#shift', 'alice', '', '', 'on leave'), 'written back verbatim');
+  assert.equal(U.rowFromArray(R('', '', '# Team', 'x'), 2).type, 'comment');
+  assert.equal(U.rowFromArray(R('', '', '#', 'bare'), 2).type, 'comment');
+  assert.equal(U.rowFromArray(R('', '', '  #set ', 'x'), 2).typeText, '#set', 'trimmed');
+  assert.equal(U.isCommentType('#shift') && U.isCommentType(''), true);
+  assert.equal(U.isCommentType('shift'), false);
+  // A commented-out row raises no error and does not count as a typed row; the empty type still writes ''.
+  assert.deepEqual(messagesOf([SET, TEAM, R('', '2026-10-05T09:00', '#shift', 'alice'), R('', '', '#join', 'zed=1')]), []);
+  assert.deepEqual(plain(U.rowToArray(U.rowFromArray(R('', '', '', 'plain comment'), 2))), R('', '', '', 'plain comment'));
+  // Dated: at its start, first among the rows there; undated: attached to the next dated row below it.
+  const rows = U.rowsFromCells([SET, TEAM, R('', '2026-10-12T09:00', 'shift', 'bob'), R('', '', '#shift', 'commented'), R('', '2026-10-19T09:00', 'shift', 'carol'), R('', '2026-10-12T09:00', '#team', 'dated comment')]);
+  const sorted = plain(U.validateLedger(rows, 'r').rows.map((r) => [r.type, r.type === 'comment' ? r.typeText : r.what]));
+  assert.deepEqual(sorted.slice(2), [['comment', '#team'], ['shift', 'bob'], ['comment', '#shift'], ['shift', 'carol']]);
+  assert.equal(rows[3].attachedStart, U.parseDateTime('2026-10-19T09:00'), 'the undated #shift attaches to the next dated row');
+  assert.ok(!U.isEpochRow(rows[3]), 'an undated #team is a comment, not an epoch row');
+});

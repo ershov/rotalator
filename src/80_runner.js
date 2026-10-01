@@ -59,8 +59,9 @@ function runStorage(storage, nowText, options) {
   var now = parseDateTime(nowText ?? '');
   if (now === null) errors.push('bad now "' + (nowText ?? '') + '"');
   var holidays = [];
+  // A date cell starting with '#' is a commented-out holiday (DESIGN 3.4).
   storage.readHolidays().forEach(function (text, i) {
-    if (text === null) return;
+    if (text === null || text.charAt(0) === '#') return;
     var day = parseDay(text);
     if (day === null) errors.push('holidays row ' + (i + 2) + ': bad date "' + text + '"');
     else holidays.push(day);

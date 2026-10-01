@@ -62,8 +62,10 @@ function slackFormatRules() {
   return [
     { formula: '=$B1="' + PRESET_ERROR_TYPE + '"', color: COLOR_ERROR },
     { formula: '=LOWER($B1)="' + SLACK_ID_TYPE + '"', color: COLOR_DETACH },
+    { formula: PRESET_DISABLED_BLOCK_FORMULA, color: COLOR_COMMENT },
+    { formula: PRESET_DISABLED_ROW_FORMULA, color: COLOR_COMMENT },
     { formula: '=AND($A1<>"", ROW()>1)', color: COLOR_SETTINGS },
-    { formula: '=AND($A1="", $B1="", $C1<>"")', color: COLOR_COMMENT },
+    { formula: PRESET_COMMENT_FORMULA, color: COLOR_COMMENT },
   ];
 }
 

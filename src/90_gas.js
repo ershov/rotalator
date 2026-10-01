@@ -35,8 +35,9 @@ var COLOR_CURRENT_CELL = COLOR_COMMENT;
 var COLOR_RELATION = '#d9ead3';
 var COLOR_DETACH = '#efefef';
 
-// Conditional formatting over A:G, keyed on the type cell; comment rows have content but no type.
-var COMMENT_FORMULA = '=AND($C1="", COUNTA($A1:$G1)>0)';
+// Conditional formatting over A:G, keyed on the type cell; comment rows have content but no type, or a type
+// starting with # (a commented-out row, DESIGN 3.4).
+var COMMENT_FORMULA = '=OR(AND($C1="", COUNTA($A1:$G1)>0), LEFT(TRIM($C1), 1)="#")';
 var LEDGER_FORMAT_RULES = [
   { formula: '=$C1="error"', color: COLOR_ERROR },
   { formula: '=OR($C1="set", $C1="score")', color: COLOR_SETTINGS },

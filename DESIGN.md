@@ -192,13 +192,25 @@ listed rotation one-sidedly; in
 the pairs to neutral at that instant. The rows are configuration like `set`:
 always read, never replayed, pruned or moved.
 
-A row with an empty `type` is a comment (internal type `comment`). It is never
-validated beyond parsing `start`, never replayed, never pruned and never
-rewritten except for sorting (3.6) and the canonical form of `start`, `end`
-and `duration`; replay, generation, status and the `#All shifts` view ignore
-it. A comment whose `start` does not parse counts as undated and produces a
-`#Status` warning naming the row. An entirely blank row is dropped on read; a
-comment needs content in some cell. `#Global` accepts comments the same way.
+A row with an empty `type`, or a `type` that starts with `#` after trimming
+(`#shift`, `#team`, `# set`, a bare `#`), is a comment (internal type
+`comment`). The `#` prefix comments a row out the way it disables a tab: the
+row is kept verbatim, type text included, so removing the `#` restores it. A
+comment is never validated beyond parsing `start` (a `#shift` raises no
+unknown-type error), never replayed, never pruned and never rewritten except
+for sorting (3.6) and the canonical form of `start`, `end` and `duration`;
+replay, generation, status, the `#All shifts` view and Fill Shifts Grid
+ignore it, so commenting out a row has exactly the effect of deleting it: a
+past `shift` before the stored snapshot changes nothing until the snapshot
+is deleted (12), one after it leaves a span the generator fills again. A
+comment whose `start` does not parse
+counts as undated and produces a `#Status` warning naming the row. An
+entirely blank row is dropped on read; a comment needs content in some cell.
+`#Global` accepts comments the same way. In the other tabs the script reads
+the same prefix comments a row out: in a preset tab (13.1) a `#` at the
+start of the preset column disables the whole block and one at the start of
+the setting column that row; in `#Holidays` a date cell starting with `#` is
+a comment, not a bad date.
 
 **shift.** Assigns the member in `what` from `start`. Its scored interval ends
 at the explicit `end`, else at the earlier of the next `shift` row's start and
@@ -705,7 +717,7 @@ place and where it is only reported in `#Status` (and why):
 | `comment row N: unparseable start, treated as undated` | none: comments are never rewritten and the row stays where it is | warnings |
 | `calendar extension not installed; cal=... has no effect`, `slack extension not installed; slack=... has no effect` | none: no extension is there to write it | warnings |
 | `<Name> extension: <message>` (a hook threw, 8) | none: no source row | errors |
-| `bad now`, `holidays row N: bad date`, `unknown rotation` | none: the run stops before writing; toast, log, CLI stderr | none (no status) |
+| `bad now`, `holidays row N: bad date` (a `#` date cell is a comment, not a bad date), `unknown rotation` | none: the run stops before writing; toast, log, CLI stderr | none (no status) |
 | `another Rotalator run is in progress` | none; toast and log | none |
 | `#GCal` preset errors (13.1) | `error` row above the offending `#GCal` row | Calendar block errors |
 | `unknown preset "p" in cal; add it to #GCal` | `error` row above the `set` row carrying `cal` at `now`: in the rotation tab, or in `#Global` prefixed with the rotation | Calendar block errors, run errors |
@@ -1151,8 +1163,10 @@ columns `A:G` keyed on the `type` cell. Rotation tabs: `error` light red,
 `set` and `score` light blue, `team`, `join`, `leave`, `include` and
 `exclude` light teal, `snapshot` light green, `attract`, `attract!` and
 `repel` light green, `detach` light grey, comment rows (empty type with
-content,
-`=AND($C1="", COUNTA($A1:$G1)>0)`) light yellow, `shift` no colour.
+content, or a type starting with `#`:
+`=OR(AND($C1="", COUNTA($A1:$G1)>0), LEFT(TRIM($C1), 1)="#")`) light yellow,
+`shift` no colour; the exact-match rules of the real types do not match
+`#shift`.
 `#Global`: `set` and `score` light blue, `attract`, `attract!` and `repel`
 light green, `detach` light grey, `error` light red, comments light yellow.
 `#GCal` gets
@@ -1223,7 +1237,8 @@ not a comment is dated; a dated row with nothing but its `start` (and `pin`)
 gets `type` = `shift`. `what`, `end` and `duration` are never written; the
 other cells of existing rows travel with their rows. An undated row is either
 an empty grid position (blank, or `type` = `shift` and nothing else), a
-comment (empty `type` with other content), an undated `set`, `team` or
+comment (empty `type` with other content, or a `type` starting with `#`), an
+undated `set`, `team` or
 relation row, which takes the date of the nearest dated `set`, `shift` or
 other typed row above it, in the selection or in the tab above the selection
 (3.4, so the tool and the next run agree), or stays in place before
@@ -1346,9 +1361,14 @@ the menu and the credentials, tested against a mock `CalendarApp`.
 `#GCal` (CSV: `gcal.csv`) has the header `preset | setting | value`. A row
 with a non-empty column A starts a preset named A, column C its free-text
 note; a row with an empty A and a non-empty B is a setting of the current
-preset, C the whole value; a row with A and B empty is a comment. Preset
-names follow the `cal` rule (letters, digits, `-`, `_`), so every preset can
-be named in a `cal` value. Settings:
+preset, C the whole value; a row with A and B empty is a comment. A `#` at
+the start of column A disables the whole block: that row and every following
+row with an empty preset cell, up to the next preset row, with no `setting
+before any preset` or duplicate errors for any of them; a `cal` or `slack`
+setting naming a disabled preset gets the usual unknown-preset error. A `#`
+at the start of column B disables that row only. Preset names follow the
+`cal` rule (letters, digits, `-`, `_`), so every preset can be named in a
+`cal` value. Settings:
 
 | setting | default | meaning |
 |---|---|---|
@@ -1588,9 +1608,14 @@ placement is the core's `placeTabAfter`):
 script font, wrap text and top-left alignment on the whole sheet, plain text,
 bold grey frozen header, widths 140, 120, 700, spare columns removed, grey
 tab colour, and conditional row colours consistent with the ledgers (10.1),
-replacing the tab's rules: error rows (`=$B1="error"`) light red, preset
-rows (column A non-empty, below the header) light blue like `set`, comment
-rows (A and B empty, C non-empty) light yellow. `gcal_setupTab(sheet)` gives
+replacing the tab's rules: error rows (`=$B1="error"`) light red, disabled
+blocks (every row whose last non-empty preset cell at or above it starts
+with `#`: `=LEFT(LOOKUP(2, 1/($A$1:$A1<>""), $A$1:$A1), 1)="#"`, a Sheets
+array formula to be confirmed on a live spreadsheet) and disabled setting
+rows (`=AND($A1="", LEFT($B1, 1)="#")`) light yellow, preset rows (column A
+non-empty, below the header) light blue like `set`, comment rows (A and B
+empty, C non-empty) light yellow; the formulas are shared constants of
+`72_presets.js`. `gcal_setupTab(sheet)` gives
 `Set Up Tab` the same template on an empty `#GCal` (and refuses a filled
 one), returning `true` for that tab only.
 `gcal_help` returns the `CALENDAR` lines appended to `#Help` (8,
@@ -1641,7 +1666,9 @@ one-off trigger per handover, Slack's scheduled posts) is left for later
 `#Slack` (CSV: `slack.csv`) has the header `preset | setting | value` and the
 grammar of `#GCal` (13.1) through the core's `parsePresetTab`: a non-empty
 column A starts a preset, an empty A with a non-empty B is a setting, A and
-B empty is a comment, `| error | <message>` rows are the script's own and
+B empty is a comment, a `#` prefix in A disables the block and in B the row
+(13.1; an id row whose name starts with `#` is blanked and not cached),
+`| error | <message>` rows are the script's own and
 are dropped on read and rewritten above the offending rows. One more kind of
 script-owned row is specific to this tab: `<name> | id | <Slack id>` caches
 a resolved id (14.4) and is kept, never parsed as a preset. A preset is one
@@ -1882,7 +1909,9 @@ the person three days before`) with `to` `{who}`, `when` `-3d` and `text`
 and `placeTabAfter`: script font, wrap, frozen bold grey
 header, widths 140, 120, 700, grey tab colour, error rows light red, `| id
 |` rows light grey (this rule before the preset rule, since both match a
-non-empty column A), preset rows light blue, comment rows light yellow.
+non-empty column A), disabled blocks and disabled setting rows light yellow
+(the shared formulas of 13.5), preset rows light blue, comment rows light
+yellow.
 `slack_setupTab` fills an empty `#Slack` the same way and refuses a filled
 one. `#Slack state` is created by the adapter through `writeTabRows`, not
 by Set Up: bold grey header, frozen, script-owned; Set Up only colours an

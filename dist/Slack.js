@@ -81,12 +81,13 @@ function slackIsIdRow(cells) {
 }
 
 // { presets, errors, ids }: the core grammar over the rows with the id rows blanked so row numbers hold, and
-// the id rows as a name to id map.
+// the id rows as a name to id map. An id row whose name starts with '#' is commented out (3.4): blanked,
+// not cached.
 function parseSlackPresets(rows) {
   var ids = {};
   var cleaned = (rows || []).map(function (cells) {
     if (!slackIsIdRow(cells)) return cells;
-    ids[cellText(cells[0])] = cellText(cells[2]);
+    if (cellText(cells[0]).charAt(0) !== '#') ids[cellText(cells[0])] = cellText(cells[2]);
     return ['', '', ''];
   });
   var out = parsePresetTab(cleaned, SLACK_SETTINGS, { tab: SLACK_TAB, placeholders: SLACK_PLACEHOLDERS, check: slackCheckPreset });
@@ -615,8 +616,10 @@ function slackFormatRules() {
   return [
     { formula: '=$B1="' + PRESET_ERROR_TYPE + '"', color: COLOR_ERROR },
     { formula: '=LOWER($B1)="' + SLACK_ID_TYPE + '"', color: COLOR_DETACH },
+    { formula: PRESET_DISABLED_BLOCK_FORMULA, color: COLOR_COMMENT },
+    { formula: PRESET_DISABLED_ROW_FORMULA, color: COLOR_COMMENT },
     { formula: '=AND($A1<>"", ROW()>1)', color: COLOR_SETTINGS },
-    { formula: '=AND($A1="", $B1="", $C1<>"")', color: COLOR_COMMENT },
+    { formula: PRESET_COMMENT_FORMULA, color: COLOR_COMMENT },
   ];
 }
 

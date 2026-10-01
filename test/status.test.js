@@ -290,3 +290,10 @@ test('All shifts grid: shared start rows, nobody as -, now row after an equal st
   const noNow = U.regenerate({ rotations: Object.keys(mixed).map((name) => ({ name, rows: U.rowsFromCells(mixed[name]), snapshotAt: null })), holidays: [], global: [] });
   assert.deepEqual(structuredClone(U.shiftsRows(noNow.status).currentCells), []);
 });
+
+test('#Holidays: a date cell starting with # is a comment, not a bad date', () => {
+  const { status, errors } = runStorage(new MemoryStorage({ ledgers, holidays: ['2026-12-25', '#2026-12-26', '# not yet decided', null] }), NOW);
+  assert.deepEqual(errors, []);
+  assert.equal(status.tabs.holidays, 1);
+  assert.deepEqual(runStorage(new MemoryStorage({ ledgers, holidays: ['soon'] }), NOW).errors, ['holidays row 2: bad date "soon"']);
+});

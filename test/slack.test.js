@@ -824,3 +824,10 @@ test('test message: plan for the first rotation naming the preset, posted with t
     assert.equal(storage.tabs['#Slack'].length, tabs.length + 3, 'nothing new, nothing written');
   } finally { removeSlack(); }
 });
+
+test('# prefix: a commented-out id row is neither cached nor a preset', () => {
+  const out = plain(U.parseSlackPresets([['#team', 'id', 'C0001'], ['team', '', ''], ['', 'to', '#oncall'], ['other', 'id', 'U0002']]));
+  assert.deepEqual(out.ids, { other: 'U0002' });
+  assert.deepEqual(out.errors, []);
+  assert.deepEqual(out.presets.map((p) => p.name), ['team']);
+});

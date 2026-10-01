@@ -39,7 +39,8 @@ function extensionTabOwner(name) {
 
 // order: same-instant sort (DESIGN 3.6). what: item grammar of the column (see validateWhat).
 // required: what must not be empty (a set row may be empty: the minimal first row when #Global supplies the
-// settings). extent: end/duration allowed. A row with an empty type is a comment (internal type 'comment',
+// settings). extent: end/duration allowed. A row with an empty type, or a type starting with '#', is a comment
+// (internal type 'comment',
 // order -1): never validated, replayed or generated, only sorted.
 var ROW_TYPES = {
   error:    { order: 0,  what: 'text',   required: true,  extent: false },
@@ -67,6 +68,12 @@ var EPOCH_TYPES = ['set', 'team', 'repel', 'repel!', 'attract', 'attract!'];
 
 function isEpochRow(row) {
   return row.start === EPOCH;
+}
+
+// A '#' prefix comments a row out the way it disables a tab (DESIGN 3.4): '#shift' is a comment kept as
+// typed, so removing the '#' restores the row. An empty type is a comment too.
+function isCommentType(typeText) {
+  return typeText === '' || typeText.charAt(0) === '#';
 }
 
 // First step on read: every undated row of an EPOCH_TYPE takes the start of the nearest row above it, in
@@ -275,7 +282,8 @@ function rowFromArray(cells, rowIndex) {
   var startText = cellText(cells[1]);
   var endText = cellText(cells[4]);
   var durationText = cellText(cells[5]);
-  var type = cellText(cells[2]).toLowerCase() || 'comment';
+  var typeText = cellText(cells[2]);
+  var type = isCommentType(typeText) ? 'comment' : typeText.toLowerCase();
   var start = parseDateTime(startText);
   if (start === null && startText === '' && EPOCH_TYPES.indexOf(type) >= 0) start = EPOCH;
   var end = parseDateTime(endText);
@@ -289,6 +297,7 @@ function rowFromArray(cells, rowIndex) {
     start: start,
     startText: startText,
     type: type,
+    typeText: typeText,
     what: cellText(cells[3]),
     end: end,
     endText: endText,
@@ -301,7 +310,7 @@ function rowFromArray(cells, rowIndex) {
 
 function makeRow(fields) {
   var row = {
-    rowIndex: null, pin: '', pinned: false, start: null, startText: '', type: '', what: '',
+    rowIndex: null, pin: '', pinned: false, start: null, startText: '', type: '', typeText: '', what: '',
     end: null, endText: '', duration: null, durationInterval: null, durationText: '', note: '',
   };
   for (var k in fields) row[k] = fields[k];
@@ -318,7 +327,7 @@ function rowToArray(row) {
   return [
     row.pin,
     row.start !== null && isFinite(row.start) ? formatDateTime(row.start) : row.startText,
-    row.type === 'comment' ? '' : row.type,
+    row.type === 'comment' ? row.typeText || '' : row.type,
     row.what,
     end,
     duration,

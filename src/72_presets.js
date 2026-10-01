@@ -21,7 +21,9 @@ function newPreset(name, note, row, settings) {
 
 // rows: cell rows below the header preset | setting | value, error rows already dropped: a non-empty column A
 // starts a preset (C is its note), an empty A with a non-empty B is a setting of the current preset (C is the
-// whole value), A and B empty is a comment. settings: { key: { parse, def, hint, template, required } }: parse
+// whole value), A and B empty is a comment. A '#' at the start of A disables the whole block (that row and
+// the setting rows below it up to the next preset row, no errors for any of them); a '#' at the start of B
+// disables that row only (DESIGN 13.1). settings: { key: { parse, def, hint, template, required } }: parse
 // returns null on a bad value, def is the value of an unset setting, hint names the accepted forms in errors,
 // a template setting parses to a string or an array of strings that are checked for unknown placeholders
 // (options.placeholders, or the setting's own placeholders list) and directives once, a required setting is
@@ -38,6 +40,7 @@ function parsePresetTab(rows, settings, options) {
   var presets = [];
   var errors = [];
   var current = null;
+  var disabled = false;
   var seen = {};
   var fail = function (row, preset, message) {
     errors.push({ row: row, where: null, message: message });
@@ -47,7 +50,10 @@ function parsePresetTab(rows, settings, options) {
     var name = cellText(cells[0]);
     var key = cellText(cells[1]).toLowerCase();
     var value = cellText(cells[2]);
+    if (name.charAt(0) === '#') { disabled = true; current = null; return; }
+    if (name === '' && (disabled || key.charAt(0) === '#')) return;
     if (name !== '') {
+      disabled = false;
       current = newPreset(name, value, i + 2, settings);
       presets.push(current);
       if (!isValidPresetName(name)) fail(i + 2, current, 'bad preset name "' + name + '"; use letters, digits, - and _ without spaces');
@@ -87,6 +93,13 @@ function parsePresetTab(rows, settings, options) {
   });
   return { presets: presets, errors: errors };
 }
+
+// Conditional formats of the commented-out rows of a preset tab (DESIGN 13.5): a disabled block, every row
+// whose last non-empty preset cell at or above it starts with '#' (a Sheets array formula; to be confirmed
+// on a live spreadsheet), and a disabled setting row.
+var PRESET_DISABLED_BLOCK_FORMULA = '=LEFT(LOOKUP(2, 1/($A$1:$A1<>""), $A$1:$A1), 1)="#"';
+var PRESET_DISABLED_ROW_FORMULA = '=AND($A1="", LEFT($B1, 1)="#")';
+var PRESET_COMMENT_FORMULA = '=AND($A1="", $B1="", $C1<>"")';
 
 function isPresetErrorRow(cells) {
   return cellText(cells[0]) === '' && cellText(cells[1]).toLowerCase() === PRESET_ERROR_TYPE;

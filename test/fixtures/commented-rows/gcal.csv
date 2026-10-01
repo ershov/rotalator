@@ -1,0 +1,8 @@
+preset,setting,value
+#old,,disabled block: nothing below counts until the next preset row
+,id,old@example.com
+,colour,red
+team,,Shared team calendar
+,id,team@group.calendar.google.com
+,#color,pale blue
+,invite,false

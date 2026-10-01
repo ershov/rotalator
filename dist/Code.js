@@ -314,7 +314,8 @@ function extensionTabOwner(name) {
 
 // order: same-instant sort (DESIGN 3.6). what: item grammar of the column (see validateWhat).
 // required: what must not be empty (a set row may be empty: the minimal first row when #Global supplies the
-// settings). extent: end/duration allowed. A row with an empty type is a comment (internal type 'comment',
+// settings). extent: end/duration allowed. A row with an empty type, or a type starting with '#', is a comment
+// (internal type 'comment',
 // order -1): never validated, replayed or generated, only sorted.
 var ROW_TYPES = {
   error:    { order: 0,  what: 'text',   required: true,  extent: false },
@@ -342,6 +343,12 @@ var EPOCH_TYPES = ['set', 'team', 'repel', 'repel!', 'attract', 'attract!'];
 
 function isEpochRow(row) {
   return row.start === EPOCH;
+}
+
+// A '#' prefix comments a row out the way it disables a tab (DESIGN 3.4): '#shift' is a comment kept as
+// typed, so removing the '#' restores the row. An empty type is a comment too.
+function isCommentType(typeText) {
+  return typeText === '' || typeText.charAt(0) === '#';
 }
 
 // First step on read: every undated row of an EPOCH_TYPE takes the start of the nearest row above it, in
@@ -550,7 +557,8 @@ function rowFromArray(cells, rowIndex) {
   var startText = cellText(cells[1]);
   var endText = cellText(cells[4]);
   var durationText = cellText(cells[5]);
-  var type = cellText(cells[2]).toLowerCase() || 'comment';
+  var typeText = cellText(cells[2]);
+  var type = isCommentType(typeText) ? 'comment' : typeText.toLowerCase();
   var start = parseDateTime(startText);
   if (start === null && startText === '' && EPOCH_TYPES.indexOf(type) >= 0) start = EPOCH;
   var end = parseDateTime(endText);
@@ -564,6 +572,7 @@ function rowFromArray(cells, rowIndex) {
     start: start,
     startText: startText,
     type: type,
+    typeText: typeText,
     what: cellText(cells[3]),
     end: end,
     endText: endText,
@@ -576,7 +585,7 @@ function rowFromArray(cells, rowIndex) {
 
 function makeRow(fields) {
   var row = {
-    rowIndex: null, pin: '', pinned: false, start: null, startText: '', type: '', what: '',
+    rowIndex: null, pin: '', pinned: false, start: null, startText: '', type: '', typeText: '', what: '',
     end: null, endText: '', duration: null, durationInterval: null, durationText: '', note: '',
   };
   for (var k in fields) row[k] = fields[k];
@@ -593,7 +602,7 @@ function rowToArray(row) {
   return [
     row.pin,
     row.start !== null && isFinite(row.start) ? formatDateTime(row.start) : row.startText,
-    row.type === 'comment' ? '' : row.type,
+    row.type === 'comment' ? row.typeText || '' : row.type,
     row.what,
     end,
     duration,
@@ -2420,7 +2429,7 @@ var HELP_TEXT = [
   'COLUMNS: pin | start | type | what | end | duration | note',
   'pin: any value pins the row; the script never modifies or deletes a pinned row',
   'start: YYYY-MM-DD or YYYY-MM-DDTHH:MM in the spreadsheet time zone; mandatory except on comments and on set, team, repel, repel!, attract and attract! rows that apply from the beginning',
-  'type: one of the row types below; an empty type makes the row a comment',
+  'type: one of the row types below; an empty type, or a type starting with # (#shift, #team), makes the row a comment',
   'what: the payload of the row, see ROWS',
   'end / duration: optional extent of a shift or exclude; at most one of the two',
   'note: free text, yours; the script never writes into it, and generated shifts have an empty note',
@@ -2437,7 +2446,7 @@ var HELP_TEXT = [
   'repel / repel! / attract / attract! / detach: Rotation1, Rotation2 (mutual in #Global; in a rotation tab one-sided, naming the other rotation)',
   'snapshot: written by the script at the start of the current shift with the roster and scores; delete it to replay the whole history',
   'error: written by the script above the row it describes; removed on the next run',
-  'comment: any row with an empty type; kept in place, never replayed; an undated comment sticks to the row below it',
+  'comment: any row with an empty type or a type starting with # (the row is kept as typed; remove the # to restore it; commenting a row out has exactly the effect of deleting it); kept in place, never replayed; an undated comment sticks to the row below it',
   '',
   'SETTINGS (set rows; a bare key drops the local value, falling back to #Global and then to the default):',
   'period=1w: regular shift length in clock units; required in the first set row of a rotation',
@@ -2665,7 +2674,9 @@ function newPreset(name, note, row, settings) {
 
 // rows: cell rows below the header preset | setting | value, error rows already dropped: a non-empty column A
 // starts a preset (C is its note), an empty A with a non-empty B is a setting of the current preset (C is the
-// whole value), A and B empty is a comment. settings: { key: { parse, def, hint, template, required } }: parse
+// whole value), A and B empty is a comment. A '#' at the start of A disables the whole block (that row and
+// the setting rows below it up to the next preset row, no errors for any of them); a '#' at the start of B
+// disables that row only (DESIGN 13.1). settings: { key: { parse, def, hint, template, required } }: parse
 // returns null on a bad value, def is the value of an unset setting, hint names the accepted forms in errors,
 // a template setting parses to a string or an array of strings that are checked for unknown placeholders
 // (options.placeholders, or the setting's own placeholders list) and directives once, a required setting is
@@ -2682,6 +2693,7 @@ function parsePresetTab(rows, settings, options) {
   var presets = [];
   var errors = [];
   var current = null;
+  var disabled = false;
   var seen = {};
   var fail = function (row, preset, message) {
     errors.push({ row: row, where: null, message: message });
@@ -2691,7 +2703,10 @@ function parsePresetTab(rows, settings, options) {
     var name = cellText(cells[0]);
     var key = cellText(cells[1]).toLowerCase();
     var value = cellText(cells[2]);
+    if (name.charAt(0) === '#') { disabled = true; current = null; return; }
+    if (name === '' && (disabled || key.charAt(0) === '#')) return;
     if (name !== '') {
+      disabled = false;
       current = newPreset(name, value, i + 2, settings);
       presets.push(current);
       if (!isValidPresetName(name)) fail(i + 2, current, 'bad preset name "' + name + '"; use letters, digits, - and _ without spaces');
@@ -2731,6 +2746,13 @@ function parsePresetTab(rows, settings, options) {
   });
   return { presets: presets, errors: errors };
 }
+
+// Conditional formats of the commented-out rows of a preset tab (DESIGN 13.5): a disabled block, every row
+// whose last non-empty preset cell at or above it starts with '#' (a Sheets array formula; to be confirmed
+// on a live spreadsheet), and a disabled setting row.
+var PRESET_DISABLED_BLOCK_FORMULA = '=LEFT(LOOKUP(2, 1/($A$1:$A1<>""), $A$1:$A1), 1)="#"';
+var PRESET_DISABLED_ROW_FORMULA = '=AND($A1="", LEFT($B1, 1)="#")';
+var PRESET_COMMENT_FORMULA = '=AND($A1="", $B1="", $C1<>"")';
 
 function isPresetErrorRow(cells) {
   return cellText(cells[0]) === '' && cellText(cells[1]).toLowerCase() === PRESET_ERROR_TYPE;
@@ -2985,8 +3007,9 @@ function runStorage(storage, nowText, options) {
   var now = parseDateTime(nowText ?? '');
   if (now === null) errors.push('bad now "' + (nowText ?? '') + '"');
   var holidays = [];
+  // A date cell starting with '#' is a commented-out holiday (DESIGN 3.4).
   storage.readHolidays().forEach(function (text, i) {
-    if (text === null) return;
+    if (text === null || text.charAt(0) === '#') return;
     var day = parseDay(text);
     if (day === null) errors.push('holidays row ' + (i + 2) + ': bad date "' + text + '"');
     else holidays.push(day);
@@ -3137,8 +3160,9 @@ var COLOR_CURRENT_CELL = COLOR_COMMENT;
 var COLOR_RELATION = '#d9ead3';
 var COLOR_DETACH = '#efefef';
 
-// Conditional formatting over A:G, keyed on the type cell; comment rows have content but no type.
-var COMMENT_FORMULA = '=AND($C1="", COUNTA($A1:$G1)>0)';
+// Conditional formatting over A:G, keyed on the type cell; comment rows have content but no type, or a type
+// starting with # (a commented-out row, DESIGN 3.4).
+var COMMENT_FORMULA = '=OR(AND($C1="", COUNTA($A1:$G1)>0), LEFT(TRIM($C1), 1)="#")';
 var LEDGER_FORMAT_RULES = [
   { formula: '=$C1="error"', color: COLOR_ERROR },
   { formula: '=OR($C1="set", $C1="score")', color: COLOR_SETTINGS },

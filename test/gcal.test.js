@@ -844,3 +844,32 @@ test('progress ticker: a step per event at loop start and after each event, thro
     assert.equal(U.gcalReconcile(plan, U.gcalStatusData(plan), { tz: 'UTC' }).errors.length, 0);
   } finally { removeMocks(); }
 });
+
+test('# prefix in a preset tab: a disabled block raises no errors, a disabled setting row is skipped', () => {
+  const rows = [
+    G('#old', '', 'kept for reference'),
+    G('', 'id', 'old@example.com'),
+    G('', 'colour', 'red'),
+    G('', 'id', 'twice'),
+    G('team', '', ''),
+    G('', 'id', 'team@example.com'),
+    G('', '#color', 'pale blue'),
+    G('', '# invite', 'false'),
+    G('', 'free', 'false'),
+    G('#', '', 'a bare # also disables a block'),
+    G('', 'to', 'nowhere'),
+    G('late', '', ''),
+    G('', 'id', 'late@example.com'),
+  ];
+  const out = plain(U.parseGCalPresets(rows));
+  assert.deepEqual(out.errors, []);
+  assert.deepEqual(out.presets.map((p) => [p.name, p.id, p.color, p.invite, p.free]), [['team', 'team@example.com', 'default', true, false], ['late', 'late@example.com', 'default', true, true]]);
+  assert.deepEqual(out.presets[0].setRows, { id: 7, free: 10 });
+  assert.equal(U.gcalPreset(out, 'old'), null);
+  assert.equal(U.gcalPreset(out, '#old'), null);
+  // A cal naming the disabled preset gets the usual unknown-preset error; rows are written back as typed.
+  const run = runStorage(new MemoryStorage({ ledgers: ledger(BASE + ', cal=old team'), tabs: { '#GCal': rows } }), NOW);
+  assert.deepEqual(run.errors, ['GCal primary: unknown preset "old" in cal; add it to #GCal']);
+  assert.deepEqual(plain(U.gcalRowsWithErrors(rows, [])), rows);
+  assert.equal(typeof U.PRESET_DISABLED_BLOCK_FORMULA, 'string');
+});

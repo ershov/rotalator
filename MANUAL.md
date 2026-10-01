@@ -30,7 +30,7 @@ Setup and deployment are in [INSTALL.md](INSTALL.md), the specification in
 | Tab | Who writes it | Purpose |
 |---|---|---|
 | `<rotation>` | users and script | One per rotation. The tab name is the rotation name. |
-| `#Holidays` | users | Column A date `YYYY-MM-DD`, column B note. Shared by all rotations. |
+| `#Holidays` | users | Column A date `YYYY-MM-DD` (a date starting with `#` is commented out), column B note. Shared by all rotations. |
 | `#Status` | script | Recognised tabs, scores, last and next shifts, exclusions, warnings. Rewritten on every run. |
 | `#All shifts` | script | Every shift of every rotation in one table. Rewritten on every run. |
 | `#Help` | script | Plain-text help on columns, rows, settings, intervals, relations and the menu. Rewritten by Set Up Spreadsheet and kept as the last tab. |
@@ -85,7 +85,7 @@ row it corrects.
 | `set` | `key`, `key=value` | | users | Settings from `start` onward. |
 | `snapshot` | `name=score` | | script | Replay boundary and score cache. One per rotation. |
 | `error` | message | | script | Diagnostic. Removed on every read. |
-| (empty) | free text | | users | Comment. Ignored by the script, kept in place. |
+| (empty) or `#...` | free text | | users | Comment. Ignored by the script, kept in place; `#shift` comments a shift out. |
 
 A `set`, `team`, `repel`, `repel!`, `attract` or `attract!` row without a
 `start` takes the date of the nearest dated row above it: type `team` with
@@ -163,8 +163,13 @@ Details per type:
   (except `set` rows and intervals that extend past it). Delete it to force a
   full replay from the top.
 - **error.** See Errors below.
-- **comment.** Any row with an empty `type` and something in another cell.
-  Never validated, replayed or regenerated. A dated comment sorts at its
+- **comment.** Any row with an empty `type` and something in another cell,
+  or with a `type` starting with `#`: `#shift` or `#team` comments the row
+  out the way `#` disables a tab, keeps it as typed, and removing the `#`
+  restores it. Commenting out a row has exactly the effect of deleting it:
+  for a past `shift` that means nothing before the stored snapshot (see
+  [Limitations](#limitations)) and a regenerated span after it. A comment is
+  never validated, replayed or regenerated. A dated comment sorts at its
   instant, first among the rows there. An undated comment stays directly
   above the next dated row below it, at that row's instant: a note above a
   generated shift stays above the shift at that instant run after run, even
@@ -571,8 +576,10 @@ personal |           | Timed events for the person on call
 ```
 
 A row with a name in the first column starts a preset (the third column is
-a note); the rows below it set `id` (required), `title` and `body`
-templates, `allday` (`auto`: all-day when the shift starts and ends at
+a note); a `#` in front of the name comments the whole block out, a `#` in
+front of a setting that row only. The rows below a preset set `id`
+(required), `title` and `body` templates, `allday` (`auto`: all-day when
+the shift starts and ends at
 midnight), `color` (`default` for the calendar's own colour, a Calendar
 colour name, its number 1 to 11, or `#RRGGBB` for the nearest of the eleven
 event colours), `free` (default true: the time shows as free), `invite`
@@ -636,7 +643,9 @@ The Slack extension is a second script file, `Slack.js`, installed next to
 the core. With it, every rotation whose `slack` setting names presets gets a
 message per shift to the channels and people those presets describe, and
 Slack user groups such as `@oncall` follow the people on call. Presets live
-in the `#Slack` tab with the grammar of `#GCal`:
+in the `#Slack` tab with the grammar of `#GCal`, `#` prefixes included: a
+`#` in front of a preset name comments the block out, in front of a setting
+that row, and in front of the name of an `id` row that cached id:
 
 ```
 preset   | setting | value

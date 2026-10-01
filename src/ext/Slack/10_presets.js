@@ -80,12 +80,13 @@ function slackIsIdRow(cells) {
 }
 
 // { presets, errors, ids }: the core grammar over the rows with the id rows blanked so row numbers hold, and
-// the id rows as a name to id map.
+// the id rows as a name to id map. An id row whose name starts with '#' is commented out (3.4): blanked,
+// not cached.
 function parseSlackPresets(rows) {
   var ids = {};
   var cleaned = (rows || []).map(function (cells) {
     if (!slackIsIdRow(cells)) return cells;
-    ids[cellText(cells[0])] = cellText(cells[2]);
+    if (cellText(cells[0]).charAt(0) !== '#') ids[cellText(cells[0])] = cellText(cells[2]);
     return ['', '', ''];
   });
   var out = parsePresetTab(cleaned, SLACK_SETTINGS, { tab: SLACK_TAB, placeholders: SLACK_PLACEHOLDERS, check: slackCheckPreset });
