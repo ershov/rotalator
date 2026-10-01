@@ -297,3 +297,41 @@ test('#Holidays: a date cell starting with # is a comment, not a bad date', () =
   assert.equal(status.tabs.holidays, 1);
   assert.deepEqual(runStorage(new MemoryStorage({ ledgers, holidays: ['soon'] }), NOW).errors, ['holidays row 2: bad date "soon"']);
 });
+
+test('All shifts grid: a red shift paints its continuation rows up to its end, skipping the now row', () => {
+  // A 2w rotation (biweekly) and a 1w rotation (weekly) share the grid; biweekly's first shift breaks a repel.
+  const W = 7 * 1440;
+  const t0 = dt('2026-10-05T09:00');
+  const at = (k) => t0 + k * W;
+  const shift = (rotation, k, len, who, unmet = []) => ({ start: at(k), end: at(k + len), rotation, who, unmet });
+  const repel = [{ relation: 'repel', rotation: 'weekly' }];
+  const status = {
+    at: dt('2026-10-13T12:00'),
+    rotations: [{ name: 'biweekly', current: { start: at(0), end: at(2) } }, { name: 'weekly', current: { start: at(1), end: at(2) } }],
+    shifts: [
+      shift('biweekly', 0, 2, 'alice', repel), shift('biweekly', 2, 2, 'bob'), shift('biweekly', 4, 2, 'alice', repel),
+      shift('weekly', 0, 1, 'carol'), shift('weekly', 1, 1, 'alice'), shift('weekly', 2, 1, 'carol'), shift('weekly', 3, 1, 'dave'), shift('weekly', 4, 1, 'alice'),
+      shift('weekly', 5, 1, 'carol'), shift('weekly', 6, 1, 'dave'), shift('weekly', 7, 1, 'erin'),
+    ].sort((a, b) => a.start - b.start),
+  };
+  const out = U.shiftsRows(status);
+  const rows = structuredClone(out.rows);
+  // Rows: header, 10-05, 10-12, now, 10-19, 10-26, 11-02, 11-09, 11-16, 11-23.
+  assert.deepEqual(rows.map((r) => r[0]), ['start', '2026-10-05T09:00', '2026-10-12T09:00', '2026-10-13T12:00', '2026-10-19T09:00', '2026-10-26T09:00', '2026-11-02T09:00', '2026-11-09T09:00', '2026-11-16T09:00', '2026-11-23T09:00']);
+  assert.deepEqual(rows.map((r) => r[1]), ['biweekly', 'alice', '', '--now--', 'bob', '', 'alice', '', '', '']);
+  const red = structuredClone(out.errorCells).map((c) => [rows[c.row][0], c.col, c.note]);
+  assert.deepEqual(red, [
+    // alice's first biweekly shift: head on 10-05, continuation on 10-12; the now row is skipped; bob's shift
+    // on 10-19 ends the run and is not red.
+    ['2026-10-05T09:00', 1, 'repel with weekly'],
+    ['2026-10-12T09:00', 1, 'repel with weekly'],
+    // alice's last shift (11-02 to 11-16): head and the 11-09 continuation; 11-16 is at its end and 11-23 is
+    // beyond it, both stay clean although weekly keeps adding rows.
+    ['2026-11-02T09:00', 1, 'repel with weekly'],
+    ['2026-11-09T09:00', 1, 'repel with weekly'],
+  ]);
+  // Current cells are unaffected; a shift ending at the bottom paints to the bottom.
+  assert.deepEqual(structuredClone(out.currentCells), [{ row: 1, col: 1 }, { row: 2, col: 2 }]);
+  const tail = U.shiftsRows({ at: null, rotations: [{ name: 'a' }, { name: 'b' }], shifts: [shift('a', 0, 3, 'x', repel), shift('b', 0, 1, 'y'), shift('b', 1, 1, 'y'), shift('b', 2, 1, 'y')] });
+  assert.deepEqual(structuredClone(tail.errorCells).map((c) => c.row), [1, 2, 3]);
+});

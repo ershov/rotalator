@@ -424,7 +424,9 @@ relation in force at its start or starting during it: the same person on
 both sides of a `repel`
 or `repel!` (the rest window of `repel!` is not checked), or different
 people on the two sides of an `attract` although either could have taken the
-other's shift; hover the cell for the relation and the other rotation. A
+other's shift; hover the cell for the relation and the other rotation. The
+red runs down the empty cells below the shift for as long as it lasts, so a
+two-week shift stays red on the rows another rotation adds in between. A
 relaxation, a pin or a hand edit are the usual causes; a vacation never
 paints. Columns are sized to their content, at least 120px wide. Both tabs
 are rewritten by every run, previews included.

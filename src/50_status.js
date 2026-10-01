@@ -277,18 +277,17 @@ function statusRowsVertical(status) {
   return statusRowsWith(status, verticalBlock);
 }
 
-// Rows of the #All shifts grid: header start | <rotation> ..., one row per distinct shift start with the
-// assignee starting then in each rotation's column ('-' for nobody), and a now row marked in every rotation
-// column after any row with the same start. currentCells [{ row, col }] (0-based) are the cells of each
-// rotation's shift covering now; both are empty when status.at is unknown. errorCells [{ row, col, note }]
-// are the shifts that break a relation in force (7), the note naming each relation and partner.
+// The #All shifts grid (DESIGN 5.8) from status.shifts, which arrive sorted by start. errorCells cover the
+// red shifts (7) and the empty continuation cells below each in its column while the row's start lies inside
+// the shift's scored interval; the now row is skipped and painting continues past it.
 function shiftsRows(status) {
   var names = status.rotations.map(function (r) { return r.name; });
   var rows = [SHIFTS_HEADER.concat(names)];
   var dividerRows = [];
   var currentCells = [];
   var errorCells = [];
-  var unmetAt = new Map();
+  var unmet = new Map();
+  var active = {};
   var at = status.at;
   var known = at !== null && at !== undefined;
   var current = {};
@@ -298,7 +297,7 @@ function shiftsRows(status) {
   status.shifts.forEach(function (s) {
     if (!byStart.has(s.start)) { byStart.set(s.start, {}); starts.push(s.start); }
     byStart.get(s.start)[s.rotation] = s.who === '' ? '-' : s.who;
-    if (s.unmet && s.unmet.length) unmetAt.set(s.start + '|' + s.rotation, s.unmet.map(function (u) { return u.relation + ' with ' + u.rotation; }).join('; '));
+    if (s.unmet && s.unmet.length) unmet.set(s.start + '|' + s.rotation, { end: s.end, note: s.unmet.map(function (u) { return u.relation + ' with ' + u.rotation; }).join('; ') });
   });
   var nowRow = [statusInstant(at)].concat(names.map(function () { return NOW_MARK; }));
   var placed = !known;
@@ -307,8 +306,12 @@ function shiftsRows(status) {
     var cells = byStart.get(start);
     names.forEach(function (n, i) {
       if (current[n] === start) currentCells.push({ row: rows.length, col: i + 1 });
-      var note = unmetAt.get(start + '|' + n);
-      if (note) errorCells.push({ row: rows.length, col: i + 1, note: note });
+      if (cells[n]) {
+        active[n] = unmet.get(start + '|' + n) || null;
+        if (active[n]) errorCells.push({ row: rows.length, col: i + 1, note: active[n].note });
+      } else if (active[n] && start < active[n].end) {
+        errorCells.push({ row: rows.length, col: i + 1, note: active[n].note });
+      }
     });
     rows.push([statusInstant(start)].concat(names.map(function (n) { return cells[n] || ''; })));
   });

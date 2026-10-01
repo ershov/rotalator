@@ -898,7 +898,10 @@ in P is held by `p != h` while `p` could hold R's shift (on R's roster at
 `a`, not excluded there) and `h` could hold P's (on P's roster at `a`, not
 excluded there), so a vacation on either side does not paint; the roster is
 replayed from the stored snapshot forward, so shifts before it are judged
-against the roster at the snapshot. Shifts for
+against the roster at the snapshot. In the grid a red shift paints its
+continuation too: the empty cells below it in its column at rows whose start
+lies inside `[start, scored end)`, with the same note, past the now row and
+up to the shift's own end, never into the next shift. Shifts for
 nobody are never painted. The relations are the ledger's own rule set, so
 the cells point at the places where a relaxation, a pin or a hand edit made
 the schedule deviate; nothing is written to `#Status` for them.
