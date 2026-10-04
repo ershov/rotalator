@@ -6,6 +6,8 @@ edit the ledger to express team changes, vacations, swaps and settings; the
 script runs nightly or from a menu, replays the history, and rewrites the
 future so that on-call load stays fair.
 
+[![Rotalator demo](https://img.youtube.com/vi/ksqgg9XLvBM/maxresdefault.jpg)](https://youtu.be/ksqgg9XLvBM)
+
 ## Why
 
 - **Fully self-contained, no dependencies.** One Apps Script project bound
