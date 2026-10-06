@@ -3719,7 +3719,18 @@ function setupSpreadsheetUnlocked() {
   var failed = [];
   callExtensionHooks('setup', [ss], function (h, e) { logExtensionError(h, e); failed.push(extensionErrorMessage(h, e)); });
   writeHelpTab(ss);
-  ss.getSheets().forEach(formatTab);
+  // Commit the inserts and moves before enumerating the tabs; a tab the service cannot format (a handle that
+  // no longer resolves, seen on a fresh copy of a spreadsheet) is skipped, logged and named in the toast.
+  SpreadsheetApp.flush();
+  ss.getSheets().forEach(function (sheet) {
+    try {
+      formatTab(sheet);
+    } catch (e) {
+      var message = 'formatting tab: ' + (e && e.message ? e.message : String(e));
+      console.log('error: ' + message);
+      failed.push(message);
+    }
+  });
   toast('Tabs, formatting and #Help are in place' + (failed.length ? '; ' + failed.join('; ') : ''));
 }
 

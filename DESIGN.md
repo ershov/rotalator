@@ -1143,7 +1143,9 @@ conditional rules, columns beyond A removed) and moves it to the last
 position, creates `#Global` before `#Holidays` and moves an existing
 `#Global` directly before `#Holidays` when it comes after it, calls each
 installed extension's `<prefix>_setup(ss)` (8, Extensions) before `#Help` is
-placed, and formats every rotation tab, `#Holidays`, `#Global`,
+placed, flushes the pending inserts and moves (`SpreadsheetApp.flush()`)
+before enumerating the tabs, and formats every rotation tab, `#Holidays`,
+`#Global`,
 `#All shifts` and empty non-`#` tabs: Roboto Mono and top-left alignment on
 the whole tab (every cell `setVerticalAlignment('top')` and
 `setHorizontalAlignment('left')`, re-applied by `writeTextCells` on every
@@ -1158,14 +1160,19 @@ explaining the column and empty columns beyond the last one deleted; plus a
 tab colour on `#` tabs (blue for the generated `#Status`, `#All shifts` and
 previews, grey for the editable `#Holidays`, `#Global` and `#GCal`). Tabs
 with content but no ledger header are left alone; `#GCal` is placed and
-formatted by the GCal extension (13.5). The runner keeps applying plain text to
-the ranges it writes. Preview tabs are created right after the tab they
-preview and never moved, and get the rotation tab formatting in full: the
-writer calls `formatTab` after writing a preview (`tabLayout` gives preview
-tabs the ledger layout) and Set Up formats them the same way, so plain text
-on `A:G`, the bold grey frozen header with widths and notes, trimmed spare
-columns and the rotation conditional row colours (`LEDGER_FORMAT_RULES`)
-apply on both paths, with the generated blue tab colour.
+formatted by the GCal extension (13.5). A tab the service cannot format (a
+`Sheet` handle that no longer resolves, `Sheet <id> not found`, seen on a
+freshly copied spreadsheet) is skipped: the message is logged with the
+`error:` prefix (6) and named in the final toast, and the rest of the setup
+completes; running Set Up Spreadsheet again formats it. The runner keeps
+applying plain text to the ranges it writes. Preview tabs are created right
+after the tab they preview and never moved, and get the rotation tab
+formatting in full: the writer calls `formatTab` after writing a preview
+(`tabLayout` gives preview tabs the ledger layout) and Set Up formats them
+the same way, so plain text on `A:G`, the bold grey frozen header with widths
+and notes, trimmed spare columns and the rotation conditional row colours
+(`LEDGER_FORMAT_RULES`) apply on both paths, with the generated blue tab
+colour.
 
 Rotation tabs and `#Global` also get conditional formatting: the tab's rules
 are replaced (not appended to) by the script's set, so a user rule on these

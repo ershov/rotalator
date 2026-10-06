@@ -377,6 +377,11 @@ rotation tab and run again.
 replace the conditional format rules of rotation tabs and `#Global` with the
 script's set. Keep custom rules on other tabs.
 
+**Set Up Spreadsheet ends with "formatting tab: Sheet ... not found".** On a
+freshly copied spreadsheet the service may hand the script a tab it cannot
+format in the same execution. The setup finishes without that tab and names
+it in the toast; run **Set Up Spreadsheet** again to format it.
+
 **Fill Shifts Grid says a row has content but no start.** An undated row has
 a `type` other than `shift`. Date it, clear its `type` to make it a comment,
 or clear the row, then run again.
