@@ -95,8 +95,8 @@ function parsePresetTab(rows, settings, options) {
 }
 
 // Conditional formats of the commented-out rows of a preset tab (DESIGN 13.5): a disabled block, every row
-// whose last non-empty preset cell at or above it starts with '#' (a Sheets array formula; to be confirmed
-// on a live spreadsheet), and a disabled setting row.
+// whose last non-empty preset cell at or above it starts with '#' (a Sheets array formula), and a disabled
+// setting row.
 var PRESET_DISABLED_BLOCK_FORMULA = '=LEFT(LOOKUP(2, 1/($A$1:$A1<>""), $A$1:$A1), 1)="#"';
 var PRESET_DISABLED_ROW_FORMULA = '=AND($A1="", LEFT($B1, 1)="#")';
 var PRESET_COMMENT_FORMULA = '=AND($A1="", $B1="", $C1<>"")';

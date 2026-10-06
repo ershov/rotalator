@@ -9,16 +9,19 @@ const vm = require('node:vm');
 // SpreadsheetApp for Set Up Spreadsheet.
 const SRC = path.join(__dirname, '..', 'src');
 
+// Formatting calls are recorded on the sheet as 'method' or 'method A:Z' for whole-column ranges.
 class Range {
-  constructor(sheet, r, c, n, w) { Object.assign(this, { sheet, r, c, n, w }); }
+  constructor(sheet, r, c, n, w, a1) { Object.assign(this, { sheet, r, c, n, w, a1 }); }
   getValues() { return this.sheet.values.slice(this.r - 1, this.r - 1 + this.n).map((row) => { const o = []; for (let j = this.c - 1; j < this.c - 1 + this.w; j++) o.push(row && row[j] !== undefined ? row[j] : ''); return o; }); }
   setValues(v) { for (let i = 0; i < this.n; i++) this.sheet.values[this.r - 1 + i] = v[i].slice(); return this; }
   clearContent() { return this; }
   getCell() { return this; }
 }
 for (const m of ['setNumberFormat', 'setFontFamily', 'setFontWeight', 'setBackground', 'setNote', 'setWrap', 'setVerticalAlignment', 'setHorizontalAlignment']) {
-  Range.prototype[m] = function () { this.sheet.calls.push(m); return this; };
+  Range.prototype[m] = function () { this.sheet.calls.push(this.a1 ? `${m} ${this.a1}` : m); return this; };
 }
+const columnIndex = (letters) => [...letters].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0);
+
 class Sheet {
   constructor(name, values = []) { this.name = name; this.values = values; this.calls = []; this.color = null; this.rules = []; }
   getName() { return this.name; }
@@ -28,7 +31,7 @@ class Sheet {
   getMaxRows() { return Math.max(this.values.length, 100); }
   getMaxColumns() { return Math.max(this.getLastColumn(), 26); }
   getRange(a, c, n, w) {
-    if (typeof a === 'string') { const cols = a.split(':'); return new Range(this, 1, cols[0].charCodeAt(0) - 64, this.getMaxRows(), cols[1].charCodeAt(0) - cols[0].charCodeAt(0) + 1); }
+    if (typeof a === 'string') { const [from, to] = a.split(':').map(columnIndex); return new Range(this, 1, from, this.getMaxRows(), to - from + 1, a); }
     return new Range(this, a, c, n ?? 1, w ?? 1);
   }
   clear() { this.values = []; return this; }
@@ -38,10 +41,13 @@ class Sheet {
   getIndex() { return this.ss.sheets.indexOf(this) + 1; }
 }
 
-// A spreadsheet with the given sheets, the services and the loaded adapter; returns { ss, log, flushes, run }.
-function spreadsheet(initial) {
+// A spreadsheet with the given sheets, the services and the loaded adapter; returns { ss, log, state, run }.
+// `theme` null stands for a spreadsheet without a theme.
+function spreadsheet(initial, theme = { font: null, setFontFamily(f) { this.font = f; return this; } }) {
   const ss = {
-    sheets: [], toasts: [], active: null,
+    sheets: [], toasts: [], active: null, theme, appliedTheme: null,
+    getSpreadsheetTheme() { return this.theme; },
+    setSpreadsheetTheme(t) { this.appliedTheme = t; },
     getSpreadsheetTimeZone: () => 'UTC',
     getSheets() { return this.sheets.slice(); },
     getNumSheets() { return this.sheets.length; },
@@ -75,7 +81,7 @@ function spreadsheet(initial) {
 }
 
 test('Set Up Spreadsheet survives a sheet that cannot be formatted: flushes first, skips it, logs and toasts it', () => {
-  const { ss, log, state, run } = spreadsheet([new Sheet('Notes', [['hello']])]);
+  const { ss, log, state, run } = spreadsheet([new Sheet('Notes', [['hello']])], null);
   // A stale handle: after the flush the service lists a tab that no longer resolves. Gating the ghost on the
   // flush documents the order flush-then-sweep; that the flush fixes the live failure is a hypothesis this
   // test does not prove.
@@ -90,7 +96,7 @@ test('Set Up Spreadsheet survives a sheet that cannot be formatted: flushes firs
   assert.ok(['#Global', '#Holidays', '#Status', '#All shifts'].every((n) => names.includes(n)));
   assert.equal(names.at(-1), '#Help');
   // Every other tab was formatted; the ghost was skipped and reported.
-  const formatted = (n) => ss.getSheetByName(n).calls.includes('setFontFamily');
+  const formatted = (n) => ss.getSheetByName(n).calls.includes('setFontFamily A:Z');
   assert.ok(['Rotation 1 Primary', '#Global', '#Holidays', '#Status', '#All shifts', '#Help'].every(formatted));
   assert.deepEqual(ghost.calls, []);
   assert.equal(ss.toasts.at(-1), 'Rotalator: Tabs, formatting and #Help are in place; formatting tab: Sheet 330418220 not found');
@@ -100,4 +106,22 @@ test('Set Up Spreadsheet survives a sheet that cannot be formatted: flushes firs
   clean.run('setupSpreadsheet()');
   assert.equal(clean.ss.toasts.at(-1), 'Rotalator: Tabs, formatting and #Help are in place');
   assert.deepEqual(clean.log, []);
+});
+
+test('Set Up Spreadsheet formats whole columns and sets the theme font, so rows added later inherit them', () => {
+  const { ss, run } = spreadsheet([]);
+  run('setupSpreadsheet()');
+  assert.equal(ss.appliedTheme, ss.theme);
+  assert.equal(ss.theme.font, 'Roboto Mono');
+  const calls = ss.getSheetByName('Rotation 1 Primary').calls;
+  // The template write also formats its own bounded range; the tab-wide formats must be whole-column.
+  for (const m of ['setFontFamily', 'setVerticalAlignment', 'setHorizontalAlignment']) {
+    assert.ok(calls.includes(`${m} A:Z`), `${m} on the whole columns`);
+  }
+  assert.ok(calls.includes('setNumberFormat A:G'));
+  // A spreadsheet without a theme is left alone and still set up.
+  const bare = spreadsheet([], null);
+  bare.run('setupSpreadsheet()');
+  assert.equal(bare.ss.appliedTheme, null);
+  assert.equal(bare.ss.toasts.at(-1), 'Rotalator: Tabs, formatting and #Help are in place');
 });

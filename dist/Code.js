@@ -2760,8 +2760,8 @@ function parsePresetTab(rows, settings, options) {
 }
 
 // Conditional formats of the commented-out rows of a preset tab (DESIGN 13.5): a disabled block, every row
-// whose last non-empty preset cell at or above it starts with '#' (a Sheets array formula; to be confirmed
-// on a live spreadsheet), and a disabled setting row.
+// whose last non-empty preset cell at or above it starts with '#' (a Sheets array formula), and a disabled
+// setting row.
 var PRESET_DISABLED_BLOCK_FORMULA = '=LEFT(LOOKUP(2, 1/($A$1:$A1<>""), $A$1:$A1), 1)="#"';
 var PRESET_DISABLED_ROW_FORMULA = '=AND($A1="", LEFT($B1, 1)="#")';
 var PRESET_COMMENT_FORMULA = '=AND($A1="", $B1="", $C1<>"")';
@@ -3520,6 +3520,18 @@ function alignTopLeft(range) {
   range.setVerticalAlignment('top').setHorizontalAlignment('left');
 }
 
+// A1 letters of the 1-based column: 1 -> A, 27 -> AA.
+function columnLetters(n) {
+  var s = '';
+  for (; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + (n - 1) % 26) + s;
+  return s;
+}
+
+// The whole-column range A:<width>; Sheets extends whole-column formats to rows added later.
+function wholeColumns(sheet, width) {
+  return sheet.getRange('A:' + columnLetters(width));
+}
+
 // Writes rows as plain text in the script font, top-left aligned, from `row` down, growing the grid first: a
 // trimmed or narrowed tab may have fewer columns or rows than the data, and getRange beyond the grid throws
 // instead of extending it.
@@ -3570,7 +3582,7 @@ function trimColumns(sheet, width) {
 
 // Replaces the tab's conditional format rules with the script's set, one rule per formula over A:G.
 function setConditionalRules(sheet, rules, width) {
-  var range = sheet.getRange('A:' + String.fromCharCode(64 + width));
+  var range = wholeColumns(sheet, width);
   sheet.setConditionalFormatRules(rules.map(function (r) {
     return SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(r.formula).setBackground(r.color).setRanges([range]).build();
   }));
@@ -3584,12 +3596,12 @@ function formatTab(sheet) {
   var name = sheet.getName();
   var layout = tabLayout(sheet);
   if (!layout) return;
-  var all = sheet.getRange(1, 1, sheet.getMaxRows(), sheet.getMaxColumns());
+  var all = wholeColumns(sheet, sheet.getMaxColumns());
   all.setFontFamily(FONT_FAMILY);
   alignTopLeft(all);
   var width = layout.header ? layout.header.length : layout.widths ? layout.widths.length : STATUS_WIDTH;
   var present = Math.min(width, sheet.getMaxColumns());
-  sheet.getRange('A:' + String.fromCharCode(64 + present)).setNumberFormat('@');
+  wholeColumns(sheet, present).setNumberFormat('@');
   if (!layout.header && layout.widths) layout.widths.slice(0, present).forEach(function (w, i) { sheet.setColumnWidth(i + 1, w); });
   if (layout.header && !isEmptySheet(sheet)) {
     var header = sheet.getRange(1, 1, 1, width);
@@ -3630,11 +3642,11 @@ function placeTabAfter(ss, sheet, anchor) {
 // ({ formula, color }) replacing the tab's, grey tab colour.
 function formatPresetTab(sheet, widths, rules) {
   var width = PRESET_HEADER.length;
-  var all = sheet.getRange(1, 1, sheet.getMaxRows(), sheet.getMaxColumns());
+  var all = wholeColumns(sheet, sheet.getMaxColumns());
   all.setFontFamily(FONT_FAMILY);
   all.setWrap(true);
   alignTopLeft(all);
-  sheet.getRange('A:' + String.fromCharCode(64 + width)).setNumberFormat('@');
+  wholeColumns(sheet, width).setNumberFormat('@');
   sheet.getRange(1, 1, 1, width).setFontWeight('bold').setBackground(COLOR_HEADER);
   sheet.setFrozenRows(1);
   widths.forEach(function (w, i) { sheet.setColumnWidth(i + 1, w); });
@@ -3716,6 +3728,7 @@ function setupSpreadsheetUnlocked() {
   ensureTab(ss, STATUS_TAB, null);
   ensureTab(ss, ALL_SHIFTS_TAB, SHIFTS_HEADER);
   orderGlobalBeforeHolidays(ss);
+  setThemeFont(ss);
   var failed = [];
   callExtensionHooks('setup', [ss], function (h, e) { logExtensionError(h, e); failed.push(extensionErrorMessage(h, e)); });
   writeHelpTab(ss);
@@ -3732,6 +3745,15 @@ function setupSpreadsheetUnlocked() {
     }
   });
   toast('Tabs, formatting and #Help are in place' + (failed.length ? '; ' + failed.join('; ') : ''));
+}
+
+// Cells without an explicit font, including new tabs and columns, default to the script font. A spreadsheet
+// without a theme has nothing to set.
+function setThemeFont(ss) {
+  var theme = ss.getSpreadsheetTheme();
+  if (!theme) return;
+  theme.setFontFamily(FONT_FAMILY);
+  ss.setSpreadsheetTheme(theme);
 }
 
 // Menu: Set Up Tab. Fills the active tab according to its name; never overwrites content. An installed

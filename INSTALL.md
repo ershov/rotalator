@@ -137,9 +137,9 @@ script, then reload.
    - rewrites the `#Help` tab (plain text: columns, row types, settings,
      intervals, relations, menu) and keeps it as the last tab;
    - on every rotation, `#Holidays`, `#Global` and `#All shifts` tab: Roboto
-     Mono font, plain text format on the whole ledger columns (`A:G`), which
-     should carry over to rows added later (to be confirmed on a live
-     spreadsheet, see the appendix), bold grey frozen header, column widths,
+     Mono font and top-left alignment on the whole columns, plain text
+     format on the whole ledger columns (`A:G`), so rows added later keep
+     them, bold grey frozen header, column widths,
      a note on each header cell explaining the column, spare empty columns
      beyond the last one removed;
    - on rotation tabs and `#Global`: conditional row colours by `type`
@@ -430,10 +430,8 @@ Everything **Set Up Spreadsheet** and **Set Up Tab** do can be typed by hand.
 
 3. Select columns A to G and set **Format > Number > Plain text** before
    entering any dates, so Sheets does not convert typed values into date
-   cells. Whether rows added later inherit the column format the way the
-   script's **Set Up Spreadsheet** relies on is to be confirmed on a live
-   spreadsheet; if a new
-   row shows a converted date, reapply plain text to the column.
+   cells. Rows added later inherit a whole-column format; if a new row
+   shows a converted date, reapply plain text to the column.
 4. Row 2: a `set` row with at least `period`, dated at the intended start of
    the first shift so it becomes the grid anchor. Row 3: a `team` row with
    the roster, same `start`. Or, like the templates, leave `start` empty on

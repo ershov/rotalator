@@ -267,10 +267,12 @@ INSTALL.md).
 
 - **Set Up Spreadsheet** creates the missing system tabs, a first rotation
   `Rotation 1 Primary` from the template when there is none, and formats
-  every rotation and system tab: monospace font, plain text on the ledger
-  columns, bold grey frozen header with a note on each header cell, column
-  widths, spare columns removed, tab colours on `#` tabs (blue for tabs the
-  script writes, grey for `#Holidays` and `#Global`). Rotation tabs and
+  every rotation and system tab: monospace font (also set as the
+  spreadsheet's theme font, so new tabs and cells default to it), plain text
+  on the ledger columns, bold grey frozen header with a note on each header
+  cell, column widths, spare columns removed, tab colours on `#` tabs (blue
+  for tabs the script writes, grey for `#Holidays` and `#Global`). Formats
+  go on whole columns, so rows added later keep them. Rotation tabs and
   `#Global` get conditional row colours by `type` (errors red, settings blue,
   roster changes teal, snapshot green, comment rows yellow, `attract` and
   `repel` green, `detach` grey); the tab's existing conditional rules are

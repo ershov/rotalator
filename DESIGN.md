@@ -1143,22 +1143,24 @@ conditional rules, columns beyond A removed) and moves it to the last
 position, creates `#Global` before `#Holidays` and moves an existing
 `#Global` directly before `#Holidays` when it comes after it, calls each
 installed extension's `<prefix>_setup(ss)` (8, Extensions) before `#Help` is
-placed, flushes the pending inserts and moves (`SpreadsheetApp.flush()`)
-before enumerating the tabs, and formats every rotation tab, `#Holidays`,
-`#Global`,
-`#All shifts` and empty non-`#` tabs: Roboto Mono and top-left alignment on
-the whole tab (every cell `setVerticalAlignment('top')` and
+placed, sets the spreadsheet theme font to Roboto Mono once when the
+spreadsheet has a theme (`getSpreadsheetTheme()` is null otherwise), so
+cells, tabs and columns without an explicit font default to it, flushes the
+pending inserts and moves (`SpreadsheetApp.flush()`) before enumerating the
+tabs, and formats every rotation tab, `#Holidays`, `#Global`, `#All shifts`
+and empty non-`#` tabs: Roboto Mono and top-left alignment on the whole
+columns present (`A:<last column>`, `setVerticalAlignment('top')` and
 `setHorizontalAlignment('left')`, re-applied by `writeTextCells` on every
 range the script writes, since generated tabs are cleared with their
-formats), plain
-text number format on the whole ledger columns (`A:G`), which is expected to
-carry over to rows added later the way a select-all format does in the UI
-(to be confirmed on a live spreadsheet), and on tabs that have their header
-a bold header row on a light grey background, frozen, column widths per
-column (`note` twice as wide as `what`), a note on each header cell
-explaining the column and empty columns beyond the last one deleted; plus a
-tab colour on `#` tabs (blue for the generated `#Status`, `#All shifts` and
-previews, grey for the editable `#Holidays`, `#Global` and `#GCal`). Tabs
+formats), plain text number format on the whole ledger columns (`A:G`), and
+on tabs that have their header a bold header row on a light grey
+background, frozen, column widths per column (`note` twice as wide as
+`what`), a note on each header cell explaining the column and empty columns
+beyond the last one deleted; plus a tab colour on `#` tabs (blue for the
+generated `#Status`, `#All shifts` and previews, grey for the editable
+`#Holidays`, `#Global` and `#GCal`). Sheets extends whole-column formats to
+rows added later, which is why the font, alignment and plain text go on
+whole columns rather than the bounded grid. Tabs
 with content but no ledger header are left alone; `#GCal` is placed and
 formatted by the GCal extension (13.5). A tab the service cannot format (a
 `Sheet` handle that no longer resolves, `Sheet <id> not found`, seen on a
@@ -1624,14 +1626,14 @@ block, so a run with `cal=preset-1` reports the placeholder id as not found
 until it is filled in. It then formats the tab like an editable system tab
 (the core's `formatPresetTab` with the extension's widths and rules; the
 placement is the core's `placeTabAfter`):
-script font, wrap text and top-left alignment on the whole sheet, plain text,
-bold grey frozen header, widths 140, 120, 700, spare columns removed, grey
-tab colour, and conditional row colours consistent with the ledgers (10.1),
-replacing the tab's rules: error rows (`=$B1="error"`) light red, disabled
-blocks (every row whose last non-empty preset cell at or above it starts
-with `#`: `=LEFT(LOOKUP(2, 1/($A$1:$A1<>""), $A$1:$A1), 1)="#"`, a Sheets
-array formula to be confirmed on a live spreadsheet) and disabled setting
-rows (`=AND($A1="", LEFT($B1, 1)="#")`) light yellow, preset rows (column A
+script font, wrap text and top-left alignment on the whole columns, plain
+text, bold grey frozen header, widths 140, 120, 700, spare columns removed,
+grey tab colour, and conditional row colours consistent with the ledgers
+(10.1), replacing the tab's rules: error rows (`=$B1="error"`) light red,
+disabled blocks (every row whose last non-empty preset cell at or above it
+starts with `#`: `=LEFT(LOOKUP(2, 1/($A$1:$A1<>""), $A$1:$A1), 1)="#"`, a
+Sheets array formula) and disabled setting rows
+(`=AND($A1="", LEFT($B1, 1)="#")`) light yellow, preset rows (column A
 non-empty, below the header) light blue like `set`, comment rows (A and B
 empty, C non-empty) light yellow; the formulas are shared constants of
 `72_presets.js`. `gcal_setupTab(sheet)` gives
