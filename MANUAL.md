@@ -97,9 +97,9 @@ it would take the date of the last generated shift, months ahead. With no
 dated row above it, the row is an epoch row: it applies from the beginning
 of the timeline and sorts before every dated row, takes no `end` or
 `duration`, and no bare `anchor`: the grid is anchored by a dated `set
-anchor` row (in the rotation or in `#Global`), and no dated row may come
-before it. The templates start every rotation this way: an epoch `set` with
-the defaults, an epoch `team`, then `set anchor` dated at the first shift.
+anchor` row (in the rotation or in `#Global`) or, without one, by the first
+shift. The templates start every rotation this way: an epoch `set` with the
+defaults, an epoch `team`, then `set anchor` dated at the first shift.
 
 Example rows, one per item form:
 
@@ -199,7 +199,7 @@ like any ledger error.
 | key | default | meaning |
 |---|---|---|
 | `period` | required | Regular shift length, `Nd` or `Nw` (`w` is `7d`). |
-| `anchor` | `start` of the `set` row | A grid instant. Shifts start and end at `anchor + k * period`. Also the earliest instant the schedule can begin. Write a bare `anchor` in a `set` row dated at the new grid instant to realign the grid. |
+| `anchor` | `start` of the `set` row, else the first shift | A grid instant. Shifts start and end at `anchor + k * period`. Also the earliest instant the schedule can begin. Write a bare `anchor` in a `set` row dated at the new grid instant to realign the grid. Without one, the first shift's `start` is the anchor (`implied` in `#Status`). |
 | `grid` | `calendar` | `calendar`: shifts change every `period` of wall-clock time. `counted`: every `period` of counted days, the days not skipped by `skip_weekends` and `skip_holidays`; with `skip_weekends=true` a daily shift starting on Friday runs until Monday, and `1w` means seven counted days and drifts across weekdays. An anchor inside a skipped day counts as the boundary between the surrounding counted days. |
 | `horizon` | `20w` | Interval. Generate shifts up to the first grid boundary at or after the snapshot plus `horizon`. |
 | `skip_weekends` | `true` | Saturdays and Sundays credit zero days. |
@@ -230,11 +230,15 @@ intervals count counted days, so `2d` is two working days, and with
 calendar weeks.
 `period` itself takes clock units only.
 
-A rotation needs a `period` in a `set` row and an anchor from a dated `set`
-row (a bare `anchor`, or the row that sets `period`) before its first dated
-row, plus a `team` row; the templates use an undated `set` and `team` row
-followed by `set anchor` dated at the first shift. Without them the run stops
-with `no period in force`, `no anchor` or `row before the anchor`.
+A rotation needs a `period` in a `set` row, an anchor and a `team` row. The
+anchor is a dated `set` row (a bare `anchor`, or the row that sets `period`)
+or, without one, the first shift: the grid runs through that shift's start,
+so a rotation can start from a few typed shifts alone, and rows dated before
+the anchor are fine. The templates use an undated `set` and `team` row
+followed by `set anchor` dated at the first shift. Without a `period` the
+run stops with `no period in force`; a rotation with neither an anchor row
+nor a shift is left as it is with the `#Status` warning `no anchor`, and the
+other rotations run.
 
 ## How a run works
 

@@ -22,6 +22,21 @@ test('CsvDirStorage: # files and files without the ledger header are ignored and
   assert.equal(again.status.tabs.global, 1);
 });
 
+test('runner: a rotation without an anchor is left untouched with a warning; the others are written', () => {
+  const dir = path.join(FIXTURES, 'no-anchor-warning');
+  const storage = new CsvDirStorage(dir);
+  const before = storage.readLedgers();
+  const mem = new MemoryStorage({ ledgers: before, holidays: storage.readHolidays(), global: storage.readGlobal() });
+  const result = runStorage(mem, storage.readNow(), { write: true });
+  assert.deepEqual(result.errors, []);
+  assert.deepEqual(Object.keys(result.ledgers), ['primary']);
+  assert.deepEqual(mem.ledgers.secondary, before.secondary, 'secondary untouched');
+  assert.deepEqual(structuredClone(mem.global), structuredClone(storage.readGlobal()), '#Global untouched');
+  assert.deepEqual(result.status.tabs.regenerated, ['primary']);
+  assert.deepEqual(result.status.rotations.map((r) => r.name), ['primary']);
+  assert.deepEqual(result.status.warnings.map((w) => [w.rotation, w.message]), [['secondary', 'no anchor; add a dated set anchor row here or in #Global, or a first shift']]);
+});
+
 test('runner: rotations option writes only the named ledgers and reports unknown names', () => {
   const dir = path.join(FIXTURES, 'repel-global');
   const storage = new CsvDirStorage(dir);
@@ -74,7 +89,8 @@ for (const name of fs.readdirSync(FIXTURES).sort()) {
       '#Slack': storage.readTabRows('#Slack', preset),
       '#Slack state': storage.readTabRows('#Slack state', ['rotation', 'preset', 'to', 'start', 'who', 'sent at']),
     };
-    const again = runStorage(new MemoryStorage({ ledgers: result.ledgers, holidays: storage.readHolidays(), global: result.global ?? [], tabs }), nowText);
+    // Tabs the run did not write keep their content, as in a spreadsheet.
+    const again = runStorage(new MemoryStorage({ ledgers: { ...storage.readLedgers(), ...result.ledgers }, holidays: storage.readHolidays(), global: result.global ?? [], tabs }), nowText);
     if (result.global) assert.equal(ledgerCsv(again.global), ledgerCsv(result.global), 'global second run');
     for (const rotation of expected) {
       assert.equal(ledgerCsv(again.ledgers[rotation]), ledgerCsv(result.ledgers[rotation]), `${rotation} second run`);

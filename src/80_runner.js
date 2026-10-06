@@ -111,6 +111,23 @@ function runLogLines(result) {
   return lines;
 }
 
+// Opening words of a run's toast: the rotations the run regenerated (status.tabs.regenerated), the named ones
+// or their count, and those it left as they are, such as a rotation skipped for want of an anchor (DESIGN 5.1).
+// rotations: the names of a scoped run, or null. Without a status the first error.
+function runSummary(result, preview, rotations, nowText) {
+  if (!result.status) return result.errors[0];
+  var regenerated = result.status.tabs.regenerated;
+  var named = rotations || result.status.tabs.rotations;
+  var updated = named.filter(function (n) { return regenerated.indexOf(n) >= 0; });
+  var unchanged = named.filter(function (n) { return regenerated.indexOf(n) < 0; });
+  var verb = preview ? 'previewed' : 'updated';
+  var parts = [];
+  if (updated.length || !rotations) parts.push((rotations ? updated.join(', ') : updated.length + ' rotation(s)') + ' ' + verb + ' at ' + nowText);
+  if (unchanged.length && !result.errors.length) parts.push(unchanged.join(', ') + ' left unchanged');
+  if (!parts.length) parts.push(named.join(', ') + ' not ' + verb);
+  return parts.join('; ');
+}
+
 // Closing words of a run's toast (DESIGN 10.4): the counts cover core and extension errors and warnings alike.
 function finishedText(errors, warnings) {
   return errors || warnings ? 'finished with ' + errors + ' error(s) and ' + warnings + ' warning(s)' : 'finished, no errors';

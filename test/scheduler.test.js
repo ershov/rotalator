@@ -153,10 +153,26 @@ test('epoch set and team rows replay exactly like their dated equivalents at the
   assert.equal(sources.find((v) => v.key === 'anchor').value, '2026-10-05T09:00');
 });
 
-test('the grid must be in force before the first dated row: no period, no anchor, row before the anchor', () => {
-  const noAnchor = run([R('', '', 'set', 'period=1w, horizon=5w'), R('', '', 'team', 'alice, bob'), R('', '2026-10-05T09:00', 'shift', 'alice')], '2026-10-05T10:00');
-  assert.deepEqual(plain(noAnchor.errors.map((e) => e.message)), ['r: no anchor; add a dated set anchor row here or in #Global']);
-  assert.equal(noAnchor.regenerated, false);
+test('the grid needs a period and an anchor: no period is an error, no anchor and no shift a warning, a first shift anchors', () => {
+  const implied = run([R('', '', 'set', 'period=1w, horizon=3w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), R('', '', 'team', 'alice, bob'), R('', '2026-10-05T09:00', 'shift', 'alice')], '2026-10-05T10:00');
+  assert.deepEqual(plain(implied.errors), []);
+  assert.equal(implied.regenerated, true);
+  assert.deepEqual(shifts(implied).map((s) => [s[0], s[1]]), [['2026-10-05T09:00', 'alice'], ['2026-10-12T09:00', 'bob'], ['2026-10-19T09:00', 'alice']]);
+  const impliedSettings = implied.status.rotations[0].settings.values;
+  assert.deepEqual(plain(impliedSettings.find((v) => v.key === 'anchor')), { key: 'anchor', value: '2026-10-05T09:00', source: 'implied' });
+  // Any on-grid shift implies the same grid: with history trimmed to the second shift the boundaries stay
+  // and the schedule starts at that shift, the earliest instant it can begin.
+  const trimmed = run([R('', '', 'set', 'period=1w, horizon=3w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), R('', '', 'team', 'alice, bob'), R('x', '2026-10-12T09:00', 'shift', 'bob')], '2026-10-13T10:00');
+  assert.deepEqual(shifts(trimmed).map((s) => s[0]), ['2026-10-12T09:00', '2026-10-19T09:00', '2026-10-26T09:00']);
+  assert.equal(shifts(trimmed)[0][1], 'bob');
+  assert.equal(trimmed.status.rotations[0].settings.values.find((v) => v.key === 'anchor').value, '2026-10-12T09:00');
+  // Neither an anchor row nor a shift: a warning, the rotation untouched and absent from the output.
+  const noAnchor = run([R('', '', 'set', 'period=1w, horizon=5w'), R('', '', 'team', 'alice, bob')], '2026-10-05T10:00');
+  assert.deepEqual(plain(noAnchor.errors), []);
+  assert.equal(noAnchor.regenerated, true);
+  assert.deepEqual(noAnchor.rotations, []);
+  assert.deepEqual(noAnchor.status.rotations, []);
+  assert.deepEqual(plain(noAnchor.status.warnings), [{ rotation: 'r', rowIndex: null, start: null, message: 'no anchor; add a dated set anchor row here or in #Global, or a first shift' }]);
   const noPeriod = run([R('', '', 'set', 'tolerance=1'), R('', '', 'team', 'alice, bob'), R('', '2026-10-05T09:00', 'set', 'anchor')], '2026-10-05T10:00');
   assert.deepEqual(plain(noPeriod.errors.map((e) => e.message)), ['r: no period in force; add period to a set row here or in #Global']);
   const nothing = run([R('', '2026-10-05T09:00', 'set', 'tolerance=1'), TEAM], '2026-10-05T10:00');
@@ -165,11 +181,16 @@ test('the grid must be in force before the first dated row: no period, no anchor
   const late = run([R('', '', 'set', 'tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), R('', '', 'team', 'alice, bob'), R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w')], '2026-10-05T10:00');
   assert.deepEqual(plain(late.errors), []);
   assert.deepEqual(shifts(late).map((s) => s[1]), ['alice', 'bob', 'alice']);
-  // A team row dated before the set row that starts the grid is a row before the anchor.
-  const teamFirst = run([R('', '2026-10-01T09:00', 'team', 'alice, bob'), R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w')], '2026-10-05T10:00');
-  assert.deepEqual(plain(teamFirst.errors.map((e) => [e.rowIndex, e.message])), [[2, 'r: row before the anchor at 2026-10-05T09:00']]);
-  const early = run([R('', '', 'set', 'period=1w, horizon=5w'), R('', '', 'team', 'alice, bob'), R('', '2026-09-28T09:00', 'shift', 'alice'), R('', '2026-10-05T09:00', 'set', 'anchor')], '2026-10-05T10:00');
-  assert.deepEqual(plain(early.errors.map((e) => [e.rowIndex, e.message])), [[4, 'r: row before the anchor at 2026-10-05T09:00']]);
+  // Rows before the anchor are allowed: a team row dated before the set row that starts the grid uses the
+  // grid extended backwards, and the schedule starts at the anchor.
+  const teamFirst = run([R('', '2026-10-01T09:00', 'team', 'alice, bob'), R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w, autopin=a:0')], '2026-10-05T10:00');
+  assert.deepEqual(plain(teamFirst.errors), []);
+  assert.deepEqual(shifts(teamFirst).map((s) => [s[0], s[1]]), [['2026-10-05T09:00', 'alice'], ['2026-10-12T09:00', 'bob'], ['2026-10-19T09:00', 'alice']]);
+  // A shift before an explicit anchor row implies the grid before it and is kept as history.
+  const early = run([R('', '', 'set', 'period=1w, horizon=3w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), R('', '', 'team', 'alice, bob'), R('', '2026-09-28T09:00', 'shift', 'alice'), R('', '2026-10-05T09:00', 'set', 'anchor')], '2026-10-05T10:00');
+  assert.deepEqual(plain(early.errors), []);
+  assert.deepEqual(shifts(early).map((s) => [s[0], s[1]]), [['2026-09-28T09:00', 'alice'], ['2026-10-05T09:00', 'bob'], ['2026-10-12T09:00', 'alice'], ['2026-10-19T09:00', 'bob']]);
+  assert.equal(early.status.rotations[0].settings.values.find((v) => v.key === 'anchor').source, 'rotation');
   const globalAnchor = U.regenerate({
     rotations: [{ name: 'r', rows: rows([R('', '', 'set', 'tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), R('', '', 'team', 'alice, bob')]), snapshotAt: MON }],
     holidays: [], global: rows([R('', '', 'set', 'period=1w, horizon=3w'), R('', '2026-10-05T09:00', 'set', 'anchor')]),

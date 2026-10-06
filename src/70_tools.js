@@ -234,13 +234,14 @@ function hasOnlyStart(cells) {
 function fillShiftsGridCells(selectedCells, tabCells, holidayTexts, globalCells, topIndex) {
   var holidays = new Set();
   (holidayTexts || []).forEach(function (text) { var day = parseDay(text ?? ''); if (day !== null) holidays.add(day); });
-  var localSets = sortRows(rowsOfType(rowsFromCells(tabCells), 'set'));
+  var tabRows = rowsFromCells(tabCells);
+  var localSets = sortRows(rowsOfType(tabRows, 'set'));
   var globalSets = rowsOfType(rowsFromCells(globalCells || []), 'set');
-  var timeline = new SettingsTimeline(localSets, holidays, globalSets);
-  var datedSets = localSets.filter(function (r) { return isFinite(r.start); });
-  var firstStart = datedSets.length ? datedSets[0].start : null;
-  if (firstStart === null || timeline.gridAt(firstStart) === null) {
-    return { error: 'the tab needs a dated set row with a period and an anchor in force before the grid can be filled' };
+  var timeline = new SettingsTimeline(localSets, holidays, globalSets, impliedAnchor(tabRows));
+  // The grid start as the run sees it (DESIGN 5.1); nothing is filled before it.
+  var firstStart = timeline.gridStart();
+  if (firstStart === null) {
+    return { error: 'the tab needs a period in a set row and an anchor (a dated set anchor row, or a first shift) before the grid can be filled' };
   }
   var rows = [];
   var comments = [];
@@ -262,7 +263,7 @@ function fillShiftsGridCells(selectedCells, tabCells, holidayTexts, globalCells,
       if (above !== null) { row.start = above; row.cells[1] = formatDateTime(above); }
     } else {
       if (row.start === null) return { error: 'selected row ' + (i + 1) + ': bad start "' + startText + '"' };
-      if (row.start < firstStart) return { error: 'selected row ' + (i + 1) + ' is dated before the first set row' };
+      if (row.start < firstStart) return { error: 'selected row ' + (i + 1) + ' is dated before the grid start ' + formatDateTime(firstStart) };
       if (row.type === 'comment' && hasOnlyStart(cells)) row.type = 'shift';
       if (row.type !== 'comment') above = row.start;
       datedCount++;
@@ -275,6 +276,6 @@ function fillShiftsGridCells(selectedCells, tabCells, holidayTexts, globalCells,
   if (!datedCount) return { error: 'the selection has no dated row to start from' };
   var out = gridRows(rows, pre, post, timeline).concat(comments);
   var firstOut = out.find(function (r) { return r.start !== null && isFinite(r.start); });
-  if (firstOut && firstOut.start < firstStart) return { error: pre + ' empty row(s) above would fall before the first set row' };
+  if (firstOut && firstOut.start < firstStart) return { error: pre + ' empty row(s) above would fall before the grid start ' + formatDateTime(firstStart) };
   return { rows: out.map(function (r) { return r.cells || rowToArray(r); }) };
 }

@@ -942,11 +942,12 @@ function gridChangedBetween(before, after) {
 // rotation has set wins until a bare key returns it to the global value; keys set in neither layer use the
 // defaults. Entries hold the effective Settings and the source of each key after every set row of either
 // layer, in start order (global before rotation at the same instant). Rows whose what does not parse are
-// skipped, so callers may pass unvalidated rows. holidays: Set of day indexes.
+// skipped, so callers may pass unvalidated rows. holidays: Set of day indexes. impliedAnchor: start of the
+// rotation's first shift, or null; it anchors the grid before the first explicit anchor when it comes
+// first (source 'implied'), else that anchor itself extends backwards.
 class SettingsTimeline {
-  constructor(setRows, holidays, globalSetRows) {
+  constructor(setRows, holidays, globalSetRows, impliedAnchor) {
     this.holidays = holidays || new Set();
-    this.entries = [];
     var layers = { global: {}, rotation: {} };
     var usable = function (r) { return r.start !== null && parseSetArg(r.what, r.start).error === null; };
     var events = sortRows((globalSetRows || []).filter(usable)).map(function (r) { return { row: r, layer: 'global' }; })
@@ -963,6 +964,7 @@ class SettingsTimeline {
       });
       return { values: values, sources: sources };
     };
+    var states = [];
     var before = effective();
     for (var i = 0; i < events.length; i++) {
       var ev = events[i];
@@ -976,12 +978,23 @@ class SettingsTimeline {
         layer.anchor = ev.row.start;
         after = effective();
       }
-      this.entries.push({
-        start: ev.row.start, settings: new Settings(after.values), sources: after.sources,
-        gridChanged: gridChangedBetween(before.values, after.values),
-      });
+      states.push({ start: ev.row.start, values: after.values, sources: after.sources });
       before = after;
     }
+    var explicit = states.find(function (s) { return s.values.anchor !== null; });
+    var origin = null;
+    if (impliedAnchor !== null && impliedAnchor !== undefined && (!explicit || impliedAnchor < explicit.values.anchor)) {
+      origin = { value: impliedAnchor, source: 'implied' };
+    } else if (explicit) {
+      origin = { value: explicit.values.anchor, source: explicit.sources.anchor };
+    }
+    var previous = defaultSettings();
+    this.entries = states.map(function (s) {
+      if (s.values.anchor === null && origin) { s.values.anchor = origin.value; s.sources.anchor = origin.source; }
+      var entry = { start: s.start, settings: new Settings(s.values), sources: s.sources, gridChanged: gridChangedBetween(previous, s.values) };
+      previous = s.values;
+      return entry;
+    });
   }
 
   entryAt(t) {
@@ -995,18 +1008,18 @@ class SettingsTimeline {
     return entry ? entry.settings.clone() : new Settings();
   }
 
-  // Instant from which the grid (period and anchor) is in force, or null when no set row of either layer
-  // ever completes it. hasPeriod tells the two cases apart.
+  // Earliest instant the schedule may begin: where the first entry with a grid (period and anchor) takes
+  // effect, not before its anchor. Null when no entry completes the grid; hasPeriod tells the cases apart.
   gridStart() {
-    var entry = this.entries.find(function (e) { return e.settings.get('period') !== null && e.settings.get('anchor') !== null; });
-    return entry ? entry.start : null;
+    var entry = this.entries.find(function (e) { return e.settings.grid(this.holidays) !== null; }, this);
+    return entry ? Math.max(entry.start, entry.settings.get('anchor')) : null;
   }
 
   hasPeriod() {
     return this.entries.some(function (e) { return e.settings.get('period') !== null; });
   }
 
-  // Source of each key at t: 'rotation', 'global' or 'default'.
+  // Source of each key at t: 'rotation', 'global', 'default' or, for the anchor, 'implied'.
   sourcesAt(t) {
     var entry = this.entryAt(t);
     if (entry) return Object.assign({}, entry.sources);
@@ -1015,10 +1028,15 @@ class SettingsTimeline {
     return out;
   }
 
-  // One Grid per entry, built on first use so its day caches survive across calls.
+  // One Grid per entry, built on first use so its day caches survive across calls. Before the first entry
+  // with a grid, that grid extended backwards (DESIGN 3.5); null when no entry has one.
   gridAt(t) {
     var entry = this.entryAt(t);
-    if (!entry) return null;
+    if (!entry || this.entryGrid(entry) === null) entry = this.entries.find(function (e) { return this.entryGrid(e) !== null; }, this);
+    return entry ? this.entryGrid(entry) : null;
+  }
+
+  entryGrid(entry) {
     if (entry.grid === undefined) entry.grid = entry.settings.grid(this.holidays);
     return entry.grid;
   }
@@ -1210,6 +1228,15 @@ function ledgerRows(rows) {
   return sortRows(rows.filter(function (r) { return r.type !== 'error' && r.type !== 'comment' && r.start !== null; }));
 }
 
+// Start of the earliest shift row, the anchor of the grid before the first explicit one (DESIGN 3.5); null
+// without a dated shift. Rows need not be sorted.
+function impliedAnchor(rows) {
+  return rows.reduce(function (min, r) {
+    if (r.type !== 'shift' || r.start === null || !isFinite(r.start)) return min;
+    return min === null || r.start < min ? r.start : min;
+  }, null);
+}
+
 // An instant inside a skipped day of a counted grid moves to the next boundary, so S never lands there.
 function onCountedDay(timeline, t) {
   var grid = t === null || t === undefined || !isFinite(t) ? null : timeline.gridAt(t);
@@ -1220,7 +1247,7 @@ function onCountedDay(timeline, t) {
 // globalSetRows: the set rows of #Global.
 function advance(rows, now, holidays, globalSetRows) {
   rows = ledgerRows(rows);
-  var timeline = new SettingsTimeline(rowsOfType(rows, 'set'), holidays, globalSetRows);
+  var timeline = new SettingsTimeline(rowsOfType(rows, 'set'), holidays, globalSetRows, impliedAnchor(rows));
   var snapshot = firstOfType(rows, ['snapshot']);
   resolveDurations(rows, timeline, rosterSizeAt(rows, snapshot ? snapshot.start : null, snapshot ? snapshot.what : ''));
   var S = null;
@@ -1351,21 +1378,21 @@ function prepareRotation(input, index, holidays, frozen, globalSetRows, now) {
       rot.warnings.push({ start: null, message: 'comment row ' + r.rowIndex + ': unparseable start, treated as undated' });
     }
   });
-  var timeline = new SettingsTimeline(rowsOfType(rows, 'set'), holidays, globalSetRows);
+  var timeline = new SettingsTimeline(rowsOfType(rows, 'set'), holidays, globalSetRows, impliedAnchor(rows));
   var previous = firstOfType(rows, ['snapshot']);
   var S = frozen || input.snapshotAt === null || input.snapshotAt === undefined ? advance(rows, null, holidays, globalSetRows) : input.snapshotAt;
-  // The schedule starts where the grid takes effect: a period from any set row and an anchor from a dated one
-  // of either layer. No dated row may precede that instant (it would have no grid).
+  // The schedule starts where the grid takes effect (DESIGN 5.1): a period from any set row of either layer
+  // and an anchor, explicit or implied by the first shift. Without a period the run stops; without any anchor
+  // the rotation is skipped with a warning and left as it is. Rows before that instant use the grid extended
+  // backwards.
   var gridAt = timeline.gridStart();
-  var firstDated = rows.find(function (r) { return r.type !== 'comment' && r.start !== null && isFinite(r.start); });
   if (gridAt === null) {
-    var missing = timeline.hasPeriod() ? 'no anchor; add a dated set anchor row here or in ' : 'no period in force; add period to a set row here or in ';
-    rot.errors.push({ rowIndex: null, start: null, startText: '', message: input.name + ': ' + missing + GLOBAL_TAB });
-    return rot;
-  }
-  if (firstDated && firstDated.start < gridAt) {
-    rot.errors.push(rowError(firstDated, input.name + ': row before the anchor at ' + formatDateTime(gridAt)));
-    return rot;
+    if (!timeline.hasPeriod()) {
+      rot.errors.push({ rowIndex: null, start: null, startText: '', message: input.name + ': no period in force; add period to a set row here or in ' + GLOBAL_TAB });
+      return rot;
+    }
+    rot.warnings.push({ start: null, message: 'no anchor; add a dated set anchor row here or in ' + GLOBAL_TAB + ', or a first shift' });
+    return skipRotation(rot, timeline);
   }
   S = raiseTo(raiseTo(S, previous ? previous.start : null), onCountedDay(timeline, gridAt));
   rot.timeline = timeline;
@@ -1394,8 +1421,9 @@ function prepareRotation(input, index, holidays, frozen, globalSetRows, now) {
   var horizonAt = gridS.offset(S, resolveInterval(timeline.at(S).get('horizon'), gridS, rot.sizeAt(S)));
   rot.horizonEnd = timeline.gridAt(horizonAt).ceil(horizonAt);
   var roster = firstOfType(rows, ['team', 'join']);
+  // Never before the grid start: rows may precede the anchor, slots may not.
   var fillStart = P !== null ? Math.max(P, gridAt)
-    : roster && isFinite(roster.start) ? timeline.gridAt(roster.start).ceil(roster.start) : gridAt;
+    : roster && isFinite(roster.start) ? Math.max(timeline.gridAt(roster.start).ceil(roster.start), gridAt) : gridAt;
   rot.fillStart = fillStart;
 
   var entries = shifts.map(function (s) {
@@ -1411,6 +1439,18 @@ function prepareRotation(input, index, holidays, frozen, globalSetRows, now) {
     e.end = e.slot ? e.slotEnd : scoredEnd(e.row, entries[i + 1] ? entries[i + 1].start : null, timeline.gridAt(e.start));
   });
   rot.entries = entries;
+  return rot;
+}
+
+// A skipped rotation takes no part in the sweep and has no shifts for relations to see; it is neither written
+// nor shown in the status blocks (DESIGN 5.1).
+function skipRotation(rot, timeline) {
+  rot.skipped = true;
+  rot.timeline = timeline;
+  rot.kept = [];
+  rot.entries = [];
+  rot.roster = new Roster();
+  rot.namesAt = function () { return []; };
   return rot;
 }
 
@@ -1456,7 +1496,7 @@ function rotationItems(rot) {
 
 function mergeItems(rots) {
   var items = [];
-  rots.forEach(function (rot) { items = items.concat(rotationItems(rot)); });
+  rots.forEach(function (rot) { if (!rot.skipped) items = items.concat(rotationItems(rot)); });
   return items.sort(function (a, b) {
     return (a.start < b.start ? -1 : a.start > b.start ? 1 : 0) || (rots[a.rot].rank - rots[b.rot].rank) || (a.order - b.order);
   });
@@ -1657,7 +1697,7 @@ function collectErrors(rots, list) {
 }
 
 function writable(rots) {
-  return rots.filter(function (rot) { return !rot.frozen; });
+  return rots.filter(function (rot) { return !rot.frozen && !rot.skipped; });
 }
 
 // DESIGN 6: rows unchanged plus an error row above each offending row.
@@ -1768,7 +1808,7 @@ function regenerate(input) {
     regenerated: true,
     global: { rows: global.rows, errors: global.errors },
     errors: problems.concat(global.errors),
-    status: buildStatus(rots, collectErrors(rots, 'warnings').concat(slotProblems), rowProblems.concat(global.errors), input.now, ctx.relations),
+    status: buildStatus(rots.filter(function (rot) { return !rot.skipped; }), collectErrors(rots, 'warnings').concat(slotProblems), rowProblems.concat(global.errors), input.now, ctx.relations),
   };
 }
 
@@ -2617,13 +2657,14 @@ function hasOnlyStart(cells) {
 function fillShiftsGridCells(selectedCells, tabCells, holidayTexts, globalCells, topIndex) {
   var holidays = new Set();
   (holidayTexts || []).forEach(function (text) { var day = parseDay(text ?? ''); if (day !== null) holidays.add(day); });
-  var localSets = sortRows(rowsOfType(rowsFromCells(tabCells), 'set'));
+  var tabRows = rowsFromCells(tabCells);
+  var localSets = sortRows(rowsOfType(tabRows, 'set'));
   var globalSets = rowsOfType(rowsFromCells(globalCells || []), 'set');
-  var timeline = new SettingsTimeline(localSets, holidays, globalSets);
-  var datedSets = localSets.filter(function (r) { return isFinite(r.start); });
-  var firstStart = datedSets.length ? datedSets[0].start : null;
-  if (firstStart === null || timeline.gridAt(firstStart) === null) {
-    return { error: 'the tab needs a dated set row with a period and an anchor in force before the grid can be filled' };
+  var timeline = new SettingsTimeline(localSets, holidays, globalSets, impliedAnchor(tabRows));
+  // The grid start as the run sees it (DESIGN 5.1); nothing is filled before it.
+  var firstStart = timeline.gridStart();
+  if (firstStart === null) {
+    return { error: 'the tab needs a period in a set row and an anchor (a dated set anchor row, or a first shift) before the grid can be filled' };
   }
   var rows = [];
   var comments = [];
@@ -2645,7 +2686,7 @@ function fillShiftsGridCells(selectedCells, tabCells, holidayTexts, globalCells,
       if (above !== null) { row.start = above; row.cells[1] = formatDateTime(above); }
     } else {
       if (row.start === null) return { error: 'selected row ' + (i + 1) + ': bad start "' + startText + '"' };
-      if (row.start < firstStart) return { error: 'selected row ' + (i + 1) + ' is dated before the first set row' };
+      if (row.start < firstStart) return { error: 'selected row ' + (i + 1) + ' is dated before the grid start ' + formatDateTime(firstStart) };
       if (row.type === 'comment' && hasOnlyStart(cells)) row.type = 'shift';
       if (row.type !== 'comment') above = row.start;
       datedCount++;
@@ -2658,7 +2699,7 @@ function fillShiftsGridCells(selectedCells, tabCells, holidayTexts, globalCells,
   if (!datedCount) return { error: 'the selection has no dated row to start from' };
   var out = gridRows(rows, pre, post, timeline).concat(comments);
   var firstOut = out.find(function (r) { return r.start !== null && isFinite(r.start); });
-  if (firstOut && firstOut.start < firstStart) return { error: pre + ' empty row(s) above would fall before the first set row' };
+  if (firstOut && firstOut.start < firstStart) return { error: pre + ' empty row(s) above would fall before the grid start ' + formatDateTime(firstStart) };
   return { rows: out.map(function (r) { return r.cells || rowToArray(r); }) };
 }
 
@@ -3071,6 +3112,23 @@ function runLogLines(result) {
   return lines;
 }
 
+// Opening words of a run's toast: the rotations the run regenerated (status.tabs.regenerated), the named ones
+// or their count, and those it left as they are, such as a rotation skipped for want of an anchor (DESIGN 5.1).
+// rotations: the names of a scoped run, or null. Without a status the first error.
+function runSummary(result, preview, rotations, nowText) {
+  if (!result.status) return result.errors[0];
+  var regenerated = result.status.tabs.regenerated;
+  var named = rotations || result.status.tabs.rotations;
+  var updated = named.filter(function (n) { return regenerated.indexOf(n) >= 0; });
+  var unchanged = named.filter(function (n) { return regenerated.indexOf(n) < 0; });
+  var verb = preview ? 'previewed' : 'updated';
+  var parts = [];
+  if (updated.length || !rotations) parts.push((rotations ? updated.join(', ') : updated.length + ' rotation(s)') + ' ' + verb + ' at ' + nowText);
+  if (unchanged.length && !result.errors.length) parts.push(unchanged.join(', ') + ' left unchanged');
+  if (!parts.length) parts.push(named.join(', ') + ' not ' + verb);
+  return parts.join('; ');
+}
+
 // Closing words of a run's toast (DESIGN 10.4): the counts cover core and extension errors and warnings alike.
 function finishedText(errors, warnings) {
   return errors || warnings ? 'finished with ' + errors + ' error(s) and ' + warnings + ' warning(s)' : 'finished, no errors';
@@ -3407,10 +3465,8 @@ function runWith(preview, rotations) {
   if (rotations) options.rotations = rotations;
   var result = runStorage(storage, storage.nowText, options);
   var title = preview ? 'Rotalator preview' : 'Rotalator';
-  var what = rotations ? rotations.join(', ') : Object.keys(result.ledgers).length + ' rotation(s)';
-  var done = result.status ? what + ' ' + (preview ? 'previewed' : 'updated') + ' at ' + storage.nowText : result.errors[0];
   var warnings = result.status ? result.status.warnings.length : 0;
-  var message = done + '; ' + finishedText(result.errors.length, warnings);
+  var message = runSummary(result, preview, rotations, storage.nowText) + '; ' + finishedText(result.errors.length, warnings);
   runLogLines(result).forEach(function (line) { console.log(line); });
   ss.toast(message, title, 10);
   return result;

@@ -191,9 +191,9 @@ test('fillShiftsGridCells: epoch rows at the top stay in place; gaps after the a
     ['2026-10-12T09:00', 'shift', 'alice'],
     ['2026-10-19T09:00', 'shift', ''],
   ]);
-  // A blank row above the anchor row would become a shift before the anchor, which is refused.
+  // A blank row above the anchor row would become a shift before the grid start, which is refused.
   const before = plain(U.fillShiftsGridCells([R('', '', '', ''), tab[0], tab[1], tab[2], R('', '2026-10-12T09:00', 'shift', 'alice')], tab, []));
-  assert.equal(before.error, '1 empty row(s) above would fall before the first set row');
+  assert.equal(before.error, '1 empty row(s) above would fall before the grid start 2026-10-05T09:00');
 });
 
 test('fillShiftsGridCells: refusals', () => {
@@ -202,11 +202,15 @@ test('fillShiftsGridCells: refusals', () => {
   assert.equal(plain(U.fillShiftsGridCells([R('', '', 'join', 'x'), tab[1]], tab, [])).error, 'selected row 1 has content but no start');
   assert.equal(plain(U.fillShiftsGridCells([tab[1], R('', 'soon', 'shift', '')], tab, [])).error, 'selected row 2: bad start "soon"');
   assert.equal(plain(U.fillShiftsGridCells([R('', '', '', ''), R('', '', '', '')], tab, [])).error, 'the selection has no dated row to start from');
-  assert.match(plain(U.fillShiftsGridCells([tab[1]], [tab[1]], [])).error, /dated set row with a period and an anchor/);
+  assert.match(plain(U.fillShiftsGridCells([tab[1]], [tab[1]], [])).error, /needs a period in a set row and an anchor/);
   const epochOnly = [R('', '', 'set', 'period=1w'), tab[1]];
-  assert.match(plain(U.fillShiftsGridCells([tab[1]], epochOnly, [])).error, /dated set row with a period and an anchor/);
-  assert.equal(plain(U.fillShiftsGridCells([R('', '2026-09-28T09:00', 'shift', '')], tab, [])).error, 'selected row 1 is dated before the first set row');
-  assert.equal(plain(U.fillShiftsGridCells([R('', '', '', ''), R('', '', '', ''), R('', '2026-10-12T09:00', 'shift', 'alice')], tab, [])).error, '2 empty row(s) above would fall before the first set row');
+  assert.match(plain(U.fillShiftsGridCells([tab[1]], epochOnly, [])).error, /needs a period in a set row and an anchor/);
+  // A shift in the tab implies the anchor: the grid starts there and the selection fills on it.
+  const impliedTab = epochOnly.concat([R('', '2026-10-12T09:00', 'shift', 'alice')]);
+  assert.deepEqual(plain(U.fillShiftsGridCells([impliedTab[2], R('', '', '', '')], impliedTab, [])).rows.map((r) => [r[1], r[2]]), [['2026-10-12T09:00', 'shift'], ['2026-10-19T09:00', 'shift']]);
+  assert.equal(plain(U.fillShiftsGridCells([tab[1], impliedTab[2]], impliedTab, [])).error, 'selected row 1 is dated before the grid start 2026-10-12T09:00');
+  assert.equal(plain(U.fillShiftsGridCells([R('', '2026-09-28T09:00', 'shift', '')], tab, [])).error, 'selected row 1 is dated before the grid start 2026-10-05T09:00');
+  assert.equal(plain(U.fillShiftsGridCells([R('', '', '', ''), R('', '', '', ''), R('', '2026-10-12T09:00', 'shift', 'alice')], tab, [])).error, '2 empty row(s) above would fall before the grid start 2026-10-05T09:00');
   assert.equal(plain(U.fillShiftsGridCells([R('', '', '', ''), R('', '2026-10-12T09:00', 'shift', 'alice')], tab, [])).rows.length, 2);
 });
 

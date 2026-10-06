@@ -386,12 +386,13 @@ it in the toast; run **Set Up Spreadsheet** again to format it.
 a `type` other than `shift`. Date it, clear its `type` to make it a comment,
 or clear the row, then run again.
 
-**Error `no period in force`, `no anchor` or `row before the anchor`.** The
-grid must be complete before the first dated row: a `period=` in some `set`
-row (in the tab, undated or dated, or in `#Global`) and an anchor from a
-dated `set` row (`anchor`, or the row that sets `period`). Typical causes: a
-shift or team row dated earlier than the `set anchor` row, a mistyped year
-in that row, or `period` missing from every `set` row and from `#Global`.
+**Error `no period in force`.** Every rotation needs a `period=` in some
+`set` row: in the tab, undated or dated, or in `#Global`.
+
+**Warning `no anchor` and a rotation that is not updated.** The rotation has
+a period but no anchor: add a dated `set anchor` row (or a `set` row that
+sets `period`) in the tab or in `#Global`, or type its first shift; the grid
+then runs through that shift's start. The other rotations run meanwhile.
 
 **A rotation tab is not picked up.** Its first row must be exactly the seven
 header cells and its name must not start with `#`. The `tabs` block in

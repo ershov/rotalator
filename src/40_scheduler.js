@@ -15,6 +15,15 @@ function ledgerRows(rows) {
   return sortRows(rows.filter(function (r) { return r.type !== 'error' && r.type !== 'comment' && r.start !== null; }));
 }
 
+// Start of the earliest shift row, the anchor of the grid before the first explicit one (DESIGN 3.5); null
+// without a dated shift. Rows need not be sorted.
+function impliedAnchor(rows) {
+  return rows.reduce(function (min, r) {
+    if (r.type !== 'shift' || r.start === null || !isFinite(r.start)) return min;
+    return min === null || r.start < min ? r.start : min;
+  }, null);
+}
+
 // An instant inside a skipped day of a counted grid moves to the next boundary, so S never lands there.
 function onCountedDay(timeline, t) {
   var grid = t === null || t === undefined || !isFinite(t) ? null : timeline.gridAt(t);
@@ -25,7 +34,7 @@ function onCountedDay(timeline, t) {
 // globalSetRows: the set rows of #Global.
 function advance(rows, now, holidays, globalSetRows) {
   rows = ledgerRows(rows);
-  var timeline = new SettingsTimeline(rowsOfType(rows, 'set'), holidays, globalSetRows);
+  var timeline = new SettingsTimeline(rowsOfType(rows, 'set'), holidays, globalSetRows, impliedAnchor(rows));
   var snapshot = firstOfType(rows, ['snapshot']);
   resolveDurations(rows, timeline, rosterSizeAt(rows, snapshot ? snapshot.start : null, snapshot ? snapshot.what : ''));
   var S = null;
@@ -156,21 +165,21 @@ function prepareRotation(input, index, holidays, frozen, globalSetRows, now) {
       rot.warnings.push({ start: null, message: 'comment row ' + r.rowIndex + ': unparseable start, treated as undated' });
     }
   });
-  var timeline = new SettingsTimeline(rowsOfType(rows, 'set'), holidays, globalSetRows);
+  var timeline = new SettingsTimeline(rowsOfType(rows, 'set'), holidays, globalSetRows, impliedAnchor(rows));
   var previous = firstOfType(rows, ['snapshot']);
   var S = frozen || input.snapshotAt === null || input.snapshotAt === undefined ? advance(rows, null, holidays, globalSetRows) : input.snapshotAt;
-  // The schedule starts where the grid takes effect: a period from any set row and an anchor from a dated one
-  // of either layer. No dated row may precede that instant (it would have no grid).
+  // The schedule starts where the grid takes effect (DESIGN 5.1): a period from any set row of either layer
+  // and an anchor, explicit or implied by the first shift. Without a period the run stops; without any anchor
+  // the rotation is skipped with a warning and left as it is. Rows before that instant use the grid extended
+  // backwards.
   var gridAt = timeline.gridStart();
-  var firstDated = rows.find(function (r) { return r.type !== 'comment' && r.start !== null && isFinite(r.start); });
   if (gridAt === null) {
-    var missing = timeline.hasPeriod() ? 'no anchor; add a dated set anchor row here or in ' : 'no period in force; add period to a set row here or in ';
-    rot.errors.push({ rowIndex: null, start: null, startText: '', message: input.name + ': ' + missing + GLOBAL_TAB });
-    return rot;
-  }
-  if (firstDated && firstDated.start < gridAt) {
-    rot.errors.push(rowError(firstDated, input.name + ': row before the anchor at ' + formatDateTime(gridAt)));
-    return rot;
+    if (!timeline.hasPeriod()) {
+      rot.errors.push({ rowIndex: null, start: null, startText: '', message: input.name + ': no period in force; add period to a set row here or in ' + GLOBAL_TAB });
+      return rot;
+    }
+    rot.warnings.push({ start: null, message: 'no anchor; add a dated set anchor row here or in ' + GLOBAL_TAB + ', or a first shift' });
+    return skipRotation(rot, timeline);
   }
   S = raiseTo(raiseTo(S, previous ? previous.start : null), onCountedDay(timeline, gridAt));
   rot.timeline = timeline;
@@ -199,8 +208,9 @@ function prepareRotation(input, index, holidays, frozen, globalSetRows, now) {
   var horizonAt = gridS.offset(S, resolveInterval(timeline.at(S).get('horizon'), gridS, rot.sizeAt(S)));
   rot.horizonEnd = timeline.gridAt(horizonAt).ceil(horizonAt);
   var roster = firstOfType(rows, ['team', 'join']);
+  // Never before the grid start: rows may precede the anchor, slots may not.
   var fillStart = P !== null ? Math.max(P, gridAt)
-    : roster && isFinite(roster.start) ? timeline.gridAt(roster.start).ceil(roster.start) : gridAt;
+    : roster && isFinite(roster.start) ? Math.max(timeline.gridAt(roster.start).ceil(roster.start), gridAt) : gridAt;
   rot.fillStart = fillStart;
 
   var entries = shifts.map(function (s) {
@@ -216,6 +226,18 @@ function prepareRotation(input, index, holidays, frozen, globalSetRows, now) {
     e.end = e.slot ? e.slotEnd : scoredEnd(e.row, entries[i + 1] ? entries[i + 1].start : null, timeline.gridAt(e.start));
   });
   rot.entries = entries;
+  return rot;
+}
+
+// A skipped rotation takes no part in the sweep and has no shifts for relations to see; it is neither written
+// nor shown in the status blocks (DESIGN 5.1).
+function skipRotation(rot, timeline) {
+  rot.skipped = true;
+  rot.timeline = timeline;
+  rot.kept = [];
+  rot.entries = [];
+  rot.roster = new Roster();
+  rot.namesAt = function () { return []; };
   return rot;
 }
 
@@ -261,7 +283,7 @@ function rotationItems(rot) {
 
 function mergeItems(rots) {
   var items = [];
-  rots.forEach(function (rot) { items = items.concat(rotationItems(rot)); });
+  rots.forEach(function (rot) { if (!rot.skipped) items = items.concat(rotationItems(rot)); });
   return items.sort(function (a, b) {
     return (a.start < b.start ? -1 : a.start > b.start ? 1 : 0) || (rots[a.rot].rank - rots[b.rot].rank) || (a.order - b.order);
   });
@@ -462,7 +484,7 @@ function collectErrors(rots, list) {
 }
 
 function writable(rots) {
-  return rots.filter(function (rot) { return !rot.frozen; });
+  return rots.filter(function (rot) { return !rot.frozen && !rot.skipped; });
 }
 
 // DESIGN 6: rows unchanged plus an error row above each offending row.
@@ -573,6 +595,6 @@ function regenerate(input) {
     regenerated: true,
     global: { rows: global.rows, errors: global.errors },
     errors: problems.concat(global.errors),
-    status: buildStatus(rots, collectErrors(rots, 'warnings').concat(slotProblems), rowProblems.concat(global.errors), input.now, ctx.relations),
+    status: buildStatus(rots.filter(function (rot) { return !rot.skipped; }), collectErrors(rots, 'warnings').concat(slotProblems), rowProblems.concat(global.errors), input.now, ctx.relations),
   };
 }

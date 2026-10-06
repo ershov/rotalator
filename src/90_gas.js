@@ -270,10 +270,8 @@ function runWith(preview, rotations) {
   if (rotations) options.rotations = rotations;
   var result = runStorage(storage, storage.nowText, options);
   var title = preview ? 'Rotalator preview' : 'Rotalator';
-  var what = rotations ? rotations.join(', ') : Object.keys(result.ledgers).length + ' rotation(s)';
-  var done = result.status ? what + ' ' + (preview ? 'previewed' : 'updated') + ' at ' + storage.nowText : result.errors[0];
   var warnings = result.status ? result.status.warnings.length : 0;
-  var message = done + '; ' + finishedText(result.errors.length, warnings);
+  var message = runSummary(result, preview, rotations, storage.nowText) + '; ' + finishedText(result.errors.length, warnings);
   runLogLines(result).forEach(function (line) { console.log(line); });
   ss.toast(message, title, 10);
   return result;

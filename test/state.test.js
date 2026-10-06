@@ -131,25 +131,51 @@ test('SettingsTimeline skips set rows whose what does not parse, in either layer
   assert.equal(tl.at(dt('2026-10-07T09:00')).get('seed'), 2);
 });
 
-test('SettingsTimeline: epoch set rows apply from the beginning and never anchor; gridStart finds the dated row', () => {
+test('SettingsTimeline: epoch set rows apply from the beginning; the first explicit anchor extends backwards', () => {
   const epoch = U.makeRow({ type: 'set', start: -Infinity, what: 'period=1w, tolerance=1' });
   const tl = new U.SettingsTimeline([epoch, setRow('2026-10-05T09:00', 'anchor')]);
   assert.equal(tl.entries[0].start, -Infinity);
   assert.equal(tl.at(dt('2000-01-01')).get('period'), W);
-  assert.equal(tl.at(dt('2000-01-01')).get('anchor'), null);
-  assert.equal(tl.gridAt(dt('2000-01-01')), null, 'no grid without an anchor');
-  assert.equal(tl.gridStart(), MON);
+  assert.equal(tl.at(dt('2000-01-01')).get('anchor'), MON, 'the explicit anchor extended backwards');
+  assert.equal(tl.sourcesAt(dt('2000-01-01')).anchor, 'rotation');
+  assert.equal(tl.gridAt(dt('2000-01-01')).anchor, MON);
+  assert.equal(tl.gridStart(), MON, 'not before the anchor');
   assert.equal(tl.hasPeriod(), true);
   assert.equal(tl.at(MON).get('anchor'), MON);
-  assert.deepEqual(plain(tl.entries.map((e) => e.gridChanged)), [true, true]);
-  assert.equal(new U.SettingsTimeline([epoch]).gridStart(), null);
-  assert.equal(new U.SettingsTimeline([setRow('2026-10-05T09:00', 'anchor')]).gridStart(), null);
+  assert.deepEqual(plain(tl.entries.map((e) => e.gridChanged)), [true, false], 'the anchor row confirms the grid already in force');
+  assert.equal(new U.SettingsTimeline([epoch]).gridStart(), null, 'no anchor at all');
+  assert.equal(new U.SettingsTimeline([epoch]).gridAt(MON), null);
+  assert.equal(new U.SettingsTimeline([setRow('2026-10-05T09:00', 'anchor')]).gridStart(), null, 'no period');
   assert.equal(new U.SettingsTimeline([setRow('2026-10-05T09:00', 'anchor')]).hasPeriod(), false);
   const global = new U.SettingsTimeline([setRow('2026-10-12T09:00', 'tolerance=2')], new Set(), [U.makeRow({ type: 'set', start: -Infinity, what: 'period=1w, seed=4' })]);
   assert.equal(global.at(MON).get('seed'), 4);
   assert.equal(global.sourcesAt(MON).period, 'global');
   assert.equal(global.gridStart(), null);
   assert.equal(global.hasPeriod(), true);
+});
+
+test('SettingsTimeline: the first shift implies the anchor before the first explicit one', () => {
+  const epoch = U.makeRow({ type: 'set', start: -Infinity, what: 'period=1w' });
+  const implied = new U.SettingsTimeline([epoch], new Set(), [], MON);
+  assert.equal(implied.at(dt('2000-01-01')).get('anchor'), MON);
+  assert.equal(implied.sourcesAt(MON).anchor, 'implied');
+  assert.equal(implied.gridStart(), MON, 'the schedule starts at the first shift');
+  assert.equal(implied.gridAt(MON + 3 * W).anchor, MON);
+  // An explicit anchor later re-anchors; an earlier one wins over the shift.
+  const reanchored = new U.SettingsTimeline([epoch, setRow('2026-10-21T09:00', 'anchor')], new Set(), [], MON);
+  assert.equal(reanchored.at(MON).get('anchor'), MON);
+  assert.equal(reanchored.sourcesAt(MON).anchor, 'implied');
+  assert.equal(reanchored.at(dt('2026-10-21T09:00')).get('anchor'), dt('2026-10-21T09:00'));
+  assert.equal(reanchored.sourcesAt(dt('2026-10-21T09:00')).anchor, 'rotation');
+  assert.deepEqual(plain(reanchored.gridChanges()), [-Infinity, dt('2026-10-21T09:00')]);
+  const earlier = new U.SettingsTimeline([epoch, setRow('2026-09-28T09:00', 'anchor')], new Set(), [], MON);
+  assert.equal(earlier.at(dt('2000-01-01')).get('anchor'), dt('2026-09-28T09:00'));
+  assert.equal(earlier.sourcesAt(MON).anchor, 'rotation');
+  assert.equal(earlier.gridStart(), dt('2026-09-28T09:00'));
+  // A global period row anchors the global layer; the shift still implies nothing once an anchor exists.
+  const fromGlobal = new U.SettingsTimeline([], new Set(), [setRow('2026-09-28T09:00', 'period=1w')], MON);
+  assert.equal(fromGlobal.sourcesAt(MON).anchor, 'global');
+  assert.equal(fromGlobal.gridStart(), dt('2026-09-28T09:00'));
 });
 
 test('SettingsTimeline replays set rows with start <= t and lists grid-changing rows', () => {
@@ -168,7 +194,7 @@ test('SettingsTimeline replays set rows with start <= t and lists grid-changing 
   assert.equal(late.get('anchor'), dt('2026-10-21T09:00'));
   assert.equal(late.get('tolerance'), 2);
   assert.deepEqual(plain(timeline.gridChanges()), [MON, dt('2026-10-21T09:00')]);
-  assert.equal(timeline.gridAt(MON - 1), null);
+  assert.equal(timeline.gridAt(MON - 1).anchor, MON, 'the first grid extended backwards');
   assert.equal(timeline.gridAt(MON + W).anchor, MON);
   assert.equal(timeline.gridAt(dt('2026-10-21T09:00')).period, 2 * D);
 });

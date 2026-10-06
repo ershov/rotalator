@@ -178,10 +178,11 @@ applies from the beginning of the timeline. Internally its start is
 3.6) and compares as earlier than any instant. Epoch rows take no `end` or
 `duration`. An epoch `set` row may carry every key but `anchor` (bare
 `anchor` there is the error `anchor needs a dated set row`), and a `period`
-in it does not imply an anchor: the grid starts where a dated `set` row of
-either layer anchors it (3.5). On replay an epoch `set` row is a `set` row
-from the top, an epoch `team` row is pre-snapshot history like any `team` row
-before the snapshot, and an epoch relation row is relation state from the
+in it does not anchor the grid: a dated `set` row of either layer does, or
+else the rotation's first `shift` row (3.5). On replay an epoch `set` row is
+a `set` row from the top, an epoch `team` row is pre-snapshot history like
+any `team` row before the snapshot, and an epoch relation row is relation
+state from the
 beginning (`#Global` mutual, rotation tab one-sided). Other undated typed
 rows are errors; undated untyped rows are comments.
 
@@ -293,7 +294,7 @@ removed on read, so they are purely diagnostic and never accumulate. See 6.
 | key | default | meaning |
 |---|---|---|
 | period | required | `Nd` or `Nw`; `w` is `7d`. Always `period=value`. |
-| anchor | start of the `set` row | A grid instant. Also the earliest instant the schedule can begin. Written as a bare `anchor`; it takes no value and the row's `start` is the anchor. |
+| anchor | start of the `set` row, else the first `shift` | A grid instant. Also the earliest instant the schedule can begin. Written as a bare `anchor`; it takes no value and the row's `start` is the anchor. Without one before the first `shift` row, that shift's `start` is the anchor (implied). |
 | grid | calendar | `calendar`: a boundary every `period` of wall-clock time. `counted`: a boundary every `period` of counted days, the days not skipped by `skip_weekends` and `skip_holidays` (see 4); a shift whose boundary would fall in skipped days runs through them to the next counted day. `1w` is then seven counted days and drifts across weekdays when weekends are skipped. |
 | horizon | 20w | Interval. Generate slots up to the first grid boundary at or after the snapshot plus `horizon`. |
 | skip_weekends | true | Saturdays and Sundays credit zero units. |
@@ -329,13 +330,22 @@ the global layer only and leave that rotation on offset boundaries. A global
 every rotation depends on it; set rows that do not parse are skipped when a
 settings timeline is built from unvalidated rows (Fill Shifts Grid, snapshot
 advance). The `#Status` settings block shows the source of each key:
-`rotation`, `global` or `default`.
+`rotation`, `global` or `default`, and `implied` for an anchor taken from
+the first shift.
 
-A new rotation needs a `period` in some `set` row and an anchor from a dated
-`set` row (a bare `anchor`, or a `period` change) in the rotation or in
-`#Global` before its first dated row (5.1), plus a `team` row. The templates
-use this shape: epoch `set` and `team` rows (3.4), then a dated `set anchor`
-row at the first shift start. The
+A new rotation needs a `period` in some `set` row of the rotation or of
+`#Global`, an anchor and a `team` row. The anchor is explicit (a dated `set`
+row with a bare `anchor` or a `period` change, in either layer) or implied
+by the rotation's first `shift` row: the grid before the first explicit
+anchor is anchored at the start of the first shift, whatever its `end` or
+`duration`, so any on-grid shift gives the same grid and trimming history
+does not move it; explicit anchors re-anchor the grid at their `start` from
+there on. With an explicit anchor and no earlier shift, its grid extends
+backwards, so dated rows before the anchor are allowed and use it. A
+rotation with a period but neither an explicit anchor nor a shift row is
+skipped with a warning (5.1). The templates use this shape: epoch `set` and
+`team` rows (3.4), then a dated `set anchor` row at the first shift start.
+The
 templates and `init` date it at the most recent Monday 00:00: day-aligned
 boundaries keep the arithmetic simple (a shift is a
 whole number of days, `skip_weekends` and `skip_holidays` cut at midnight), and
@@ -417,12 +427,16 @@ accept (a `shift` with two names, `leave` with `name=1`, `anchor=value`, a
 bare `period`), unknown setting key, an epoch row with `end` or `duration`
 or a bare `anchor`, `join` of a current
 member, `leave` or `exclude` of an unknown member. Comments are skipped.
-Before the sweep the grid of each rotation must be in force before its first
-dated row: a `period` from any `set` row of either layer and an anchor from a
-dated one; otherwise the run stops, like a validation error, with `no period
-in force`, `no anchor` or `row before the anchor`. If any error exists in any
-tab, no
-regeneration happens in this run; see 6.
+Before the sweep each rotation needs a grid: a `period` from any `set` row
+of either layer, else the run stops, like a validation error, with `no
+period in force`; and an anchor, explicit or implied by the first `shift`
+row (3.5), else the rotation is skipped with the `#Status` warning `no
+anchor; add a dated set anchor row here or in #Global, or a first shift`:
+no snapshot advance, no generation, its tab is left exactly as it is and it
+has no block in `#Status` or `#All shifts`; relations see no shifts from it
+and the other rotations run normally, the run itself is not in error. Dated
+rows before the anchor are allowed: the grid extends backwards to them. If
+any error exists in any tab, no regeneration happens in this run; see 6.
 
 ### 5.2 Advance the snapshot
 
@@ -432,8 +446,9 @@ For each rotation compute the new snapshot instant `S`:
    covering `now`), `S` is its start.
 2. Otherwise `S` is the grid boundary at or before `now`, in the grid
    effective at `now`.
-3. `S` is raised to the `anchor` if that is later, so a rotation whose first
-   `set` row is dated next Monday starts next Monday.
+3. `S` is raised to the `anchor` in force at `now`, explicit or implied
+   (3.5), if that is later, so a rotation whose first `set` row is dated
+   next Monday starts next Monday.
 4. `S` is raised to the start of the first `team` or `join` row if that is
    later, so no slot is generated before there is a roster. In steps 3 and 4
    an instant inside a skipped day of a counted grid is replaced by the next
@@ -477,11 +492,13 @@ longer one needs `duration` or `end`.
 
 Regeneration range: from `fillStart` to `horizonEnd`. `fillStart` is the
 stored snapshot `P` (or the grid start, if later); without a snapshot it is
-the first grid boundary at or after the first `team` or `join` row, so no slot
-precedes the roster. `horizonEnd` is the first grid boundary at or after `S`
-plus the `horizon` interval on the grid's timeline. An `sl` or `ts` `duration`
-is resolved into an `end` on the grid effective at the row's `start`, with the
-roster size at that instant, before claims are computed.
+the first grid boundary at or after the first `team` or `join` row, so no
+slot precedes the roster, and never before the grid start (5.1): rows may
+precede the anchor, slots may not. `horizonEnd` is the first grid boundary
+at or after `S` plus the `horizon` interval on the grid's timeline. An `sl`
+or `ts` `duration` is resolved into an `end` on the grid effective at the
+row's `start`, with the roster size at that instant, before claims are
+computed.
 
 Every uncovered span inside the range is split at grid boundaries into slots,
 past spans included: a stale ledger is backfilled up to `S` and beyond. The
@@ -707,11 +724,12 @@ place and where it is only reported in `#Status` (and why):
 | message | in place | `#Status` |
 |---|---|---|
 | Validation errors of 5.1 (`unknown type`, `bad start`, `bad duration`, `shift takes exactly one member id`, `unknown setting`, ...) | `error` row above the row, same `start`, in the ledger or `#Global` | errors |
-| `<rotation>: ledger is empty`, `no period in force`, `no anchor`, `row before the anchor` | `error` row at the top of the ledger (no `start`) or above the first dated row | errors |
+| `<rotation>: ledger is empty`, `no period in force` | `error` row at the top of the ledger (no `start`) | errors |
 | Replay errors (`join: "x" is already a member`, `leave: unknown member`, `exclude`/`include`/`score` on an unknown member, `team: duplicate member`) | `error` row above the row | errors |
 | Relation row errors (unknown or disabled rotation, itself, twice, `#Global` shape, `relation order cycle`) | `error` row above the row in its own tab | errors |
 | Malformed global `set` row | `error` row in `#Global`; blocks regeneration | errors |
 | `no eligible member for shift <a> to <b>` | `error` row at the slot start, next to the `shift` with nobody | warnings |
+| `no anchor; add a dated set anchor row here or in #Global, or a first shift` | none: the rotation is left as it is (5.1) | warnings |
 | `tolerance widened to <n>sl for attract! with <rotation>` | none: `#Status` warnings only (rotation and slot start) | warnings |
 | `min_distance relaxed to ...`, `repel! relaxed to ...`, `repel relaxed: <who> also on <rotation>` | none: `#Status` warnings only (rotation and slot start); the `note` stays the user's | warnings |
 | `comment row N: unparseable start, treated as undated` | none: comments are never rewritten and the row stays where it is | warnings |
@@ -1268,7 +1286,10 @@ error: an undated row with another
 `type` stops the command with a toast naming it. Dated comments are kept in
 place like other non-shift rows; undated comments travel with the next dated
 row below them, and trailing ones stay at the end. The grid comes from the
-whole tab's `set` rows and from `#Holidays`.
+whole tab's `set` rows, its first `shift` row when no `set` row anchors it,
+`#Global` and `#Holidays` (3.5); a selected row dated before the grid start
+(5.1), or empty rows that would land there, are refused with the grid start
+named.
 
 Over the selected rows, `gridRows(rows, nPre, nPost, timeline)`:
 

@@ -33,11 +33,12 @@ function gridChangedBetween(before, after) {
 // rotation has set wins until a bare key returns it to the global value; keys set in neither layer use the
 // defaults. Entries hold the effective Settings and the source of each key after every set row of either
 // layer, in start order (global before rotation at the same instant). Rows whose what does not parse are
-// skipped, so callers may pass unvalidated rows. holidays: Set of day indexes.
+// skipped, so callers may pass unvalidated rows. holidays: Set of day indexes. impliedAnchor: start of the
+// rotation's first shift, or null; it anchors the grid before the first explicit anchor when it comes
+// first (source 'implied'), else that anchor itself extends backwards.
 class SettingsTimeline {
-  constructor(setRows, holidays, globalSetRows) {
+  constructor(setRows, holidays, globalSetRows, impliedAnchor) {
     this.holidays = holidays || new Set();
-    this.entries = [];
     var layers = { global: {}, rotation: {} };
     var usable = function (r) { return r.start !== null && parseSetArg(r.what, r.start).error === null; };
     var events = sortRows((globalSetRows || []).filter(usable)).map(function (r) { return { row: r, layer: 'global' }; })
@@ -54,6 +55,7 @@ class SettingsTimeline {
       });
       return { values: values, sources: sources };
     };
+    var states = [];
     var before = effective();
     for (var i = 0; i < events.length; i++) {
       var ev = events[i];
@@ -67,12 +69,23 @@ class SettingsTimeline {
         layer.anchor = ev.row.start;
         after = effective();
       }
-      this.entries.push({
-        start: ev.row.start, settings: new Settings(after.values), sources: after.sources,
-        gridChanged: gridChangedBetween(before.values, after.values),
-      });
+      states.push({ start: ev.row.start, values: after.values, sources: after.sources });
       before = after;
     }
+    var explicit = states.find(function (s) { return s.values.anchor !== null; });
+    var origin = null;
+    if (impliedAnchor !== null && impliedAnchor !== undefined && (!explicit || impliedAnchor < explicit.values.anchor)) {
+      origin = { value: impliedAnchor, source: 'implied' };
+    } else if (explicit) {
+      origin = { value: explicit.values.anchor, source: explicit.sources.anchor };
+    }
+    var previous = defaultSettings();
+    this.entries = states.map(function (s) {
+      if (s.values.anchor === null && origin) { s.values.anchor = origin.value; s.sources.anchor = origin.source; }
+      var entry = { start: s.start, settings: new Settings(s.values), sources: s.sources, gridChanged: gridChangedBetween(previous, s.values) };
+      previous = s.values;
+      return entry;
+    });
   }
 
   entryAt(t) {
@@ -86,18 +99,18 @@ class SettingsTimeline {
     return entry ? entry.settings.clone() : new Settings();
   }
 
-  // Instant from which the grid (period and anchor) is in force, or null when no set row of either layer
-  // ever completes it. hasPeriod tells the two cases apart.
+  // Earliest instant the schedule may begin: where the first entry with a grid (period and anchor) takes
+  // effect, not before its anchor. Null when no entry completes the grid; hasPeriod tells the cases apart.
   gridStart() {
-    var entry = this.entries.find(function (e) { return e.settings.get('period') !== null && e.settings.get('anchor') !== null; });
-    return entry ? entry.start : null;
+    var entry = this.entries.find(function (e) { return e.settings.grid(this.holidays) !== null; }, this);
+    return entry ? Math.max(entry.start, entry.settings.get('anchor')) : null;
   }
 
   hasPeriod() {
     return this.entries.some(function (e) { return e.settings.get('period') !== null; });
   }
 
-  // Source of each key at t: 'rotation', 'global' or 'default'.
+  // Source of each key at t: 'rotation', 'global', 'default' or, for the anchor, 'implied'.
   sourcesAt(t) {
     var entry = this.entryAt(t);
     if (entry) return Object.assign({}, entry.sources);
@@ -106,10 +119,15 @@ class SettingsTimeline {
     return out;
   }
 
-  // One Grid per entry, built on first use so its day caches survive across calls.
+  // One Grid per entry, built on first use so its day caches survive across calls. Before the first entry
+  // with a grid, that grid extended backwards (DESIGN 3.5); null when no entry has one.
   gridAt(t) {
     var entry = this.entryAt(t);
-    if (!entry) return null;
+    if (!entry || this.entryGrid(entry) === null) entry = this.entries.find(function (e) { return this.entryGrid(e) !== null; }, this);
+    return entry ? this.entryGrid(entry) : null;
+  }
+
+  entryGrid(entry) {
     if (entry.grid === undefined) entry.grid = entry.settings.grid(this.holidays);
     return entry.grid;
   }

@@ -1,0 +1,1 @@
+The `epoch-rows` scenario without the dated `set anchor` rows: both tabs have only the epoch `set` and `team` rows before the shifts, so the grid of each rotation is anchored at its first shift (2026-06-01T09:00) and the schedule is identical to `epoch-rows`'s. `expected/status.txt` shows the source of `anchor` as `implied` in both settings blocks.

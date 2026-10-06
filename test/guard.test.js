@@ -70,3 +70,15 @@ test('throttledProgress: first call reports, calls within the interval do not, t
   assert.equal(step('e', 5), true);
   assert.deepEqual(reports, [['a', 1], ['c', 3], ['e', 5]]);
 });
+
+test('runSummary: regenerated rotations are updated, skipped ones left unchanged, errors keep the count', () => {
+  const status = (rotations, regenerated) => ({ status: { tabs: { rotations, regenerated }, warnings: [] }, errors: [] });
+  assert.equal(U.runSummary(status(['a', 'b'], ['a', 'b']), false, null, 'T'), '2 rotation(s) updated at T');
+  assert.equal(U.runSummary(status(['a', 'b'], ['a']), true, null, 'T'), '1 rotation(s) previewed at T; b left unchanged');
+  assert.equal(U.runSummary(status(['a', 'b'], ['a']), false, ['b'], 'T'), 'b left unchanged');
+  assert.equal(U.runSummary(status(['a', 'b'], ['a']), false, ['a', 'b'], 'T'), 'a updated at T; b left unchanged');
+  const failed = { status: { tabs: { rotations: ['a', 'b'], regenerated: [] }, warnings: [] }, errors: ['a row 3: bad start'] };
+  assert.equal(U.runSummary(failed, false, null, 'T'), '0 rotation(s) updated at T');
+  assert.equal(U.runSummary(failed, false, ['a'], 'T'), 'a not updated');
+  assert.equal(U.runSummary({ status: null, errors: ['bad now ""'] }, false, null, 'T'), 'bad now ""');
+});
