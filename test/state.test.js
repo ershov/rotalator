@@ -12,7 +12,7 @@ const MON = dt('2026-10-05T09:00');
 const setRow = (start, what) => U.makeRow({ type: 'set', start: dt(start), what });
 const items = (text) => U.parseAssignments(text);
 
-test('SettingsTimeline: period change sets anchor, bare anchor re-anchors, grid change reporting', () => {
+test('SettingsTimeline: a local period row anchors at its start, bare anchor re-anchors, on-grid anchors change nothing', () => {
   const t = (rows) => new U.SettingsTimeline(rows);
   const empty = new U.Settings();
   assert.deepEqual(plain(empty.values), plain(U.defaultSettings()));
@@ -26,11 +26,12 @@ test('SettingsTimeline: period change sets anchor, bare anchor re-anchors, grid 
     setRow('2026-12-07T09:00', 'anchor'),
     setRow('2027-01-01', 'tolerance, skip_weekends'),
   ]);
-  assert.deepEqual(plain(tl.entries.map((e) => e.gridChanged)), [true, false, true, true, true, true, false]);
+  // 10-07 repeats period=1w off the grid: re-anchored and cut; 12-07 confirms a boundary of the 11-02 grid: no cut.
+  assert.deepEqual(plain(tl.entries.map((e) => e.gridChanged)), [true, true, true, true, true, false, false]);
   assert.equal(tl.at(MON).get('period'), W);
   assert.equal(tl.at(MON).get('anchor'), MON);
   assert.equal(tl.at(MON).get('tolerance'), 1);
-  assert.equal(tl.at(dt('2026-10-07T09:00')).get('anchor'), MON);
+  assert.equal(tl.at(dt('2026-10-07T09:00')).get('anchor'), dt('2026-10-07T09:00'));
   assert.equal(tl.at(dt('2026-10-07T09:00')).get('skip_weekends'), true);
   assert.equal(tl.at(dt('2026-10-08T09:00')).get('anchor'), dt('2026-10-08T09:00'));
   assert.equal(tl.at(dt('2026-10-21T09:00')).get('anchor'), dt('2026-10-21T09:00'));
@@ -45,6 +46,14 @@ test('SettingsTimeline: period change sets anchor, bare anchor re-anchors, grid 
   const copy = tl.at(MON);
   copy.values.tolerance = 9;
   assert.equal(tl.at(MON).get('tolerance'), 1);
+  // A repeated local period on a boundary is a no-op; off a boundary it realigns the grid.
+  const onGrid = t([setRow('2026-10-05T09:00', 'period=1w'), setRow('2026-10-19T09:00', 'period=1w, tolerance=1')]);
+  assert.deepEqual(plain(onGrid.entries.map((e) => e.gridChanged)), [true, false]);
+  assert.deepEqual(plain(onGrid.gridChanges()), [MON]);
+  assert.equal(onGrid.at(dt('2026-10-19T09:00')).get('anchor'), dt('2026-10-19T09:00'));
+  const offGrid = t([setRow('2026-10-05T09:00', 'period=1w'), setRow('2026-10-20T09:00', 'period=1w')]);
+  assert.deepEqual(plain(offGrid.gridChanges()), [MON, dt('2026-10-20T09:00')]);
+  assert.equal(U.formatDateTime(offGrid.gridAt(dt('2026-10-21')).floor(dt('2026-10-28'))), '2026-10-27T09:00');
 });
 
 test('interval settings are kept as written and resolved against the grid and roster size', () => {
@@ -90,7 +99,7 @@ test('SettingsTimeline: global set rows layer under the rotation; bare keys retu
 });
 
 test('SettingsTimeline: global period and anchor, local period change, grid changes from both layers', () => {
-  const global = [setRow('2026-10-05T09:00', 'period=1w'), setRow('2026-11-02T09:00', 'anchor')];
+  const global = [setRow('2026-10-05T09:00', 'period=1w, anchor'), setRow('2026-11-03T09:00', 'anchor')];
   const tl = new U.SettingsTimeline([setRow('2026-10-05T09:00', 'tolerance=1'), setRow('2026-10-21T09:00', 'period=2d')], new Set(), global);
   assert.equal(tl.at(MON).get('period'), W);
   assert.equal(tl.at(MON).get('anchor'), MON);
@@ -98,16 +107,28 @@ test('SettingsTimeline: global period and anchor, local period change, grid chan
   assert.equal(tl.at(dt('2026-10-21T09:00')).get('period'), 2 * D);
   assert.equal(tl.at(dt('2026-10-21T09:00')).get('anchor'), dt('2026-10-21T09:00'));
   assert.equal(tl.sourcesAt(dt('2026-10-21T09:00')).anchor, 'rotation');
-  // The global re-anchor at 11-02 is hidden by the rotation's own anchor.
-  assert.equal(tl.at(dt('2026-11-02T09:00')).get('anchor'), dt('2026-10-21T09:00'));
+  // The global re-anchor at 11-03 is hidden by the rotation's own anchor.
+  assert.equal(tl.at(dt('2026-11-03T09:00')).get('anchor'), dt('2026-10-21T09:00'));
   assert.deepEqual(plain(tl.gridChanges()), [MON, dt('2026-10-21T09:00')]);
   const globalOnly = new U.SettingsTimeline([], new Set(), global);
-  assert.deepEqual(plain(globalOnly.gridChanges()), [MON, dt('2026-11-02T09:00')]);
-  assert.equal(globalOnly.gridAt(dt('2026-11-03')).anchor, dt('2026-11-02T09:00'));
+  assert.deepEqual(plain(globalOnly.gridChanges()), [MON, dt('2026-11-03T09:00')]);
+  assert.equal(globalOnly.gridAt(dt('2026-11-04')).anchor, dt('2026-11-03T09:00'));
+  // A global period row never anchors: without the bare anchor key there is no grid; repeating the period
+  // is a no-op; a period change with anchor re-anchors the rotations that follow the global grid.
+  const periodOnly = new U.SettingsTimeline([], new Set(), [setRow('2026-10-05T09:00', 'period=1w')]);
+  assert.equal(periodOnly.at(MON).get('anchor'), null);
+  assert.equal(periodOnly.gridStart(), null);
+  const repeated = new U.SettingsTimeline([], new Set(), [setRow('2026-10-05T09:00', 'period=1w, anchor'), setRow('2026-10-20T09:00', 'period=1w')]);
+  assert.deepEqual(plain(repeated.gridChanges()), [MON]);
+  assert.equal(repeated.at(dt('2026-10-20T09:00')).get('anchor'), MON);
+  const changed = new U.SettingsTimeline([setRow('2026-10-05T09:00', '')], new Set(), [setRow('2026-10-05T09:00', 'period=1w, anchor'), setRow('2026-10-20T09:00', 'period=2w, anchor')]);
+  assert.deepEqual(plain(changed.gridChanges()), [MON, dt('2026-10-20T09:00')]);
+  assert.equal(changed.at(dt('2026-10-20T09:00')).get('anchor'), dt('2026-10-20T09:00'));
+  assert.equal(changed.sourcesAt(dt('2026-10-20T09:00')).anchor, 'global');
 });
 
 test('SettingsTimeline: an empty first set row follows global re-anchoring; a bare local anchor pins it', () => {
-  const global = [setRow('2026-10-05T09:00', 'period=1w'), setRow('2026-10-21T09:00', 'period=2d')];
+  const global = [setRow('2026-10-05T09:00', 'period=1w, anchor'), setRow('2026-10-21T09:00', 'period=2d, anchor')];
   const follows = new U.SettingsTimeline([setRow('2026-10-05T09:00', '')], new Set(), global);
   assert.equal(follows.at(MON).get('anchor'), MON);
   assert.equal(follows.sourcesAt(MON).anchor, 'global');
@@ -172,10 +193,14 @@ test('SettingsTimeline: the first shift implies the anchor before the first expl
   assert.equal(earlier.at(dt('2000-01-01')).get('anchor'), dt('2026-09-28T09:00'));
   assert.equal(earlier.sourcesAt(MON).anchor, 'rotation');
   assert.equal(earlier.gridStart(), dt('2026-09-28T09:00'));
-  // A global period row anchors the global layer; the shift still implies nothing once an anchor exists.
+  // A global period row alone never anchors, so the shift implies the anchor; a global bare anchor before
+  // the shift is explicit and wins.
   const fromGlobal = new U.SettingsTimeline([], new Set(), [setRow('2026-09-28T09:00', 'period=1w')], MON);
-  assert.equal(fromGlobal.sourcesAt(MON).anchor, 'global');
-  assert.equal(fromGlobal.gridStart(), dt('2026-09-28T09:00'));
+  assert.equal(fromGlobal.sourcesAt(MON).anchor, 'implied');
+  assert.equal(fromGlobal.gridStart(), MON);
+  const anchoredGlobal = new U.SettingsTimeline([], new Set(), [setRow('2026-09-28T09:00', 'period=1w, anchor')], MON);
+  assert.equal(anchoredGlobal.sourcesAt(MON).anchor, 'global');
+  assert.equal(anchoredGlobal.gridStart(), dt('2026-09-28T09:00'));
 });
 
 test('SettingsTimeline replays set rows with start <= t and lists grid-changing rows', () => {

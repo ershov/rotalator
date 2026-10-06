@@ -933,9 +933,14 @@ class Settings {
 
 var SETTING_LAYERS = ['rotation', 'global'];
 
-function gridChangedBetween(before, after) {
-  if (after.period !== before.period || after.anchor !== before.anchor || after.grid !== before.grid) return true;
-  return after.grid === 'counted' && (after.skip_weekends !== before.skip_weekends || after.skip_holidays !== before.skip_holidays);
+// Whether the grid differs: period, grid type or, when counted, the skips changed, or the anchor moved off
+// a boundary of the grid in force. An anchor on such a boundary changes nothing (DESIGN 3.4).
+function gridChangedBetween(before, after, holidays) {
+  if (after.period !== before.period || after.grid !== before.grid) return true;
+  if (after.grid === 'counted' && (after.skip_weekends !== before.skip_weekends || after.skip_holidays !== before.skip_holidays)) return true;
+  if (after.anchor === before.anchor) return false;
+  if (before.anchor === null || before.period === null || after.anchor === null) return true;
+  return new Grid(before, holidays).floor(after.anchor) !== after.anchor;
 }
 
 // Settings of a rotation over time (DESIGN 3.5): its own set rows layered over the global ones. A key the
@@ -973,8 +978,8 @@ class SettingsTimeline {
       Object.keys(parsed.values).forEach(function (key) { if (parsed.reset.indexOf(key) < 0) layer[key] = parsed.values[key]; });
       parsed.reset.forEach(function (key) { delete layer[key]; });
       var after = effective();
-      // A period change without an explicit anchor re-anchors this layer at the row; an epoch row has no instant.
-      if ('period' in parsed.values && after.values.period !== before.values.period && !('anchor' in parsed.values) && isFinite(ev.row.start)) {
+      // A dated rotation row carrying period anchors at its start; a global period row never does (DESIGN 3.5).
+      if (ev.layer === 'rotation' && 'period' in parsed.values && !('anchor' in parsed.values) && isFinite(ev.row.start)) {
         layer.anchor = ev.row.start;
         after = effective();
       }
@@ -989,9 +994,10 @@ class SettingsTimeline {
       origin = { value: explicit.values.anchor, source: explicit.sources.anchor };
     }
     var previous = defaultSettings();
+    var holidays = this.holidays;
     this.entries = states.map(function (s) {
       if (s.values.anchor === null && origin) { s.values.anchor = origin.value; s.sources.anchor = origin.source; }
-      var entry = { start: s.start, settings: new Settings(s.values), sources: s.sources, gridChanged: gridChangedBetween(previous, s.values) };
+      var entry = { start: s.start, settings: new Settings(s.values), sources: s.sources, gridChanged: gridChangedBetween(previous, s.values, holidays) };
       previous = s.values;
       return entry;
     });
@@ -2158,9 +2164,10 @@ function validateRelationRow(row, rotationNames, reader) {
 }
 
 // rows: #Global row objects. Returns { setRows, setErrors, relationRows, errors, rows } where rows are the kept
-// rows plus an error row above each rejected one. set rows are validated with the ledger rules; a bad one is in
-// setErrors and blocks regeneration since every rotation depends on it. Rejected relation rows are ignored.
-// Comments are kept and otherwise ignored.
+// rows plus an error row above each rejected one. set rows are validated with the ledger rules, and a row that
+// changes the global period in force must carry anchor, since a global period never anchors (DESIGN 3.5); a
+// bad one is in setErrors and blocks regeneration since every rotation depends on it. Rejected relation rows
+// are ignored. Comments are kept and otherwise ignored.
 function parseGlobal(rows, rotationNames) {
   var errors = [];
   var setErrors = [];
@@ -2178,6 +2185,15 @@ function parseGlobal(rows, rotationNames) {
       : validateRow(row) || validateRelationRow(row, rotationNames, null);
     if (message === null && row.durationInterval && row.durationInterval.unit !== 'clock') message = 'duration in ' + GLOBAL_TAB + ' takes clock units only';
     if (message === null) relationRows.push(row); else errors.push(rowError(row, message));
+  });
+  var period = null;
+  setRows.forEach(function (row) {
+    var parsed = parseSetArg(row.what, row.start);
+    if (!('period' in parsed.values)) return;
+    if (period !== null && parsed.values.period !== period && !('anchor' in parsed.values)) {
+      setErrors.push(rowError(row, 'period change in ' + GLOBAL_TAB + ' needs anchor'));
+    }
+    period = parsed.values.period;
   });
   var all = setErrors.concat(errors);
   return { setRows: setRows, setErrors: setErrors, relationRows: relationRows, errors: all, rows: sortRows(all.map(errorRow).concat(kept)) };

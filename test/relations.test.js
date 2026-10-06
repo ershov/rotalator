@@ -368,7 +368,7 @@ test('global set rows layer under rotations: shared tolerance, local override an
 });
 
 test('global period and anchor: a rotation may have neither and gets the grid from #Global', () => {
-  const globalRows = [R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0')];
+  const globalRows = [R('', '2026-10-05T09:00', 'set', 'period=1w, anchor, horizon=3w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0')];
   const out = regen([{ name: 'r', rows: rows([R('', '2026-10-05T09:00', 'set', 'tolerance=0'), R('', '2026-10-05T09:00', 'team', 'alice, bob')]), snapshotAt: MON }], globalRows);
   assert.deepEqual(plain(out.errors), []);
   assert.deepEqual(shiftsOf(out, 'r').map((s) => s[0]), ['2026-10-05T09:00', '2026-10-12T09:00', '2026-10-19T09:00']);
@@ -377,6 +377,21 @@ test('global period and anchor: a rotation may have neither and gets the grid fr
   const bad = regen([rotation('primary', 'alice, bob')], [R('', '2026-10-05T09:00', 'set', 'tolerance=abc')]);
   assert.equal(bad.regenerated, false);
   assert.deepEqual(plain(bad.errors), [{ rotation: '#Global', rowIndex: 2, start: MON, message: 'bad value for tolerance: "abc"; use a number of days or an interval like 2sl, 1ts, 3d or 0' }]);
+  // A global period never anchors: a period change without anchor is an error; repeating the period is not.
+  const rotationRows = [{ name: 'r', rows: rows([R('', '2026-10-05T09:00', 'set', ''), R('', '2026-10-05T09:00', 'team', 'alice, bob')]), snapshotAt: MON }];
+  const unanchored = regen(rotationRows, [...globalRows, R('', '2026-10-19T09:00', 'set', 'period=2w')]);
+  assert.equal(unanchored.regenerated, false);
+  assert.deepEqual(plain(unanchored.errors), [{ rotation: '#Global', rowIndex: 3, start: dt('2026-10-19T09:00'), message: 'period change in #Global needs anchor' }]);
+  assert.deepEqual(cellsOf(unanchored.global.rows).map((c) => [c[1], c[2]]), [['2026-10-05T09:00', 'set'], ['2026-10-19T09:00', 'error'], ['2026-10-19T09:00', 'set']]);
+  const epochChange = regen(rotationRows, [R('', '', 'set', 'period=1w'), ...globalRows, R('', '2026-10-19T09:00', 'set', 'period=2w')]);
+  assert.deepEqual(plain(epochChange.errors.map((e) => e.message)), ['period change in #Global needs anchor']);
+  const repeated = regen(rotationRows, [...globalRows, R('', '2026-10-19T09:00', 'set', 'period=1w')]);
+  assert.deepEqual(plain(repeated.errors), []);
+  assert.deepEqual(shiftsOf(repeated, 'r').map((s) => s[0]), ['2026-10-05T09:00', '2026-10-12T09:00', '2026-10-19T09:00']);
+  const reanchored = regen(rotationRows, [...globalRows, R('', '2026-10-20T09:00', 'set', 'period=2w, anchor')]);
+  assert.deepEqual(plain(reanchored.errors), []);
+  assert.deepEqual(shiftsOf(reanchored, 'r').map((s) => s[0]), ['2026-10-05T09:00', '2026-10-12T09:00', '2026-10-19T09:00', '2026-10-20T09:00']);
+  assert.deepEqual(plain(reanchored.status.rotations[0].settings.values.filter((v) => v.key === 'anchor').map((v) => [v.value, v.source])), [['2026-10-05T09:00', 'global']]);
 });
 
 test('attract!: parses and sorts like attract, marks +!, widens the band to the holder within one team round', () => {

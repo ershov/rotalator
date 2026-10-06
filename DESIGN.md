@@ -263,11 +263,17 @@ bare `key`. A bare key applies the key's default behaviour: the fixed default
 for most keys, and for `anchor` the row's own `start`. `anchor` never takes a
 value; `period` always needs one. `set` rows are always replayed from the top
 of the ledger even when older than the snapshot, so the settings history stays
-in one visible place. When `period` changes and `anchor` is not given,
-`anchor` defaults to the row's own `start`. A `set` row that changes `period`,
-`anchor` or `grid`, or that changes `skip_weekends` or `skip_holidays` while
-`grid=counted`, cuts claims and slots at its `start`; the grid realigns from
-there.
+in one visible place. A dated `set` row in a rotation tab that carries
+`period` anchors the grid at its own `start`, whether or not the value
+changes; in `#Global` a `period` sets the period only and an anchor needs
+the bare `anchor` key (3.5). A `set` row that changes `period` or `grid`,
+that changes `skip_weekends` or `skip_holidays` while `grid=counted`, or
+that anchors off a boundary of the grid in force, cuts claims and slots at
+its `start`; the grid realigns from there. A row that anchors on such a
+boundary changes nothing: a `set anchor` row dated at a shift start, or an
+undated `set period=...` row typed under a `shift` or `set` row, which takes
+that row's start (3.4) and is written back dated. `#Status` shows the
+anchor's source and instant.
 
 **snapshot.** One per rotation, written by the script. Its instant is the
 start of the current shift, see 5.2. `what` is the roster in order with scores
@@ -294,7 +300,7 @@ removed on read, so they are purely diagnostic and never accumulate. See 6.
 | key | default | meaning |
 |---|---|---|
 | period | required | `Nd` or `Nw`; `w` is `7d`. Always `period=value`. |
-| anchor | start of the `set` row, else the first `shift` | A grid instant. Also the earliest instant the schedule can begin. Written as a bare `anchor`; it takes no value and the row's `start` is the anchor. Without one before the first `shift` row, that shift's `start` is the anchor (implied). |
+| anchor | start of the `set` row, else the first `shift` | A grid instant. Also the earliest instant the schedule can begin. Written as a bare `anchor`; it takes no value and the row's `start` is the anchor. A dated rotation `set` row carrying `period` anchors there too; a global `period` never does. Without one before the first `shift` row, that shift's `start` is the anchor (implied). |
 | grid | calendar | `calendar`: a boundary every `period` of wall-clock time. `counted`: a boundary every `period` of counted days, the days not skipped by `skip_weekends` and `skip_holidays` (see 4); a shift whose boundary would fall in skipped days runs through them to the next counted day. `1w` is then seven counted days and drifts across weekdays when weekends are skipped. |
 | horizon | 20w | Interval. Generate slots up to the first grid boundary at or after the snapshot plus `horizon`. |
 | skip_weekends | true | Saturdays and Sundays credit zero units. |
@@ -319,13 +325,20 @@ rotation at instant `t` is the rotation's own value when the rotation has set
 the key (and not returned it) by `t`, else the global value at `t`, else the
 built-in default. A bare key in a rotation returns that key to the global
 value from then on; a bare key in `#Global` returns it to the built-in
-default. `period` and `anchor` may be set globally (a bare global `anchor`
-anchors at the global row's `start`); a grid change arriving from either
-layer cuts claims and slots for the rotation like a local one (5.4). A
+default. `period` and `anchor` may be set globally: a global `period` sets
+the period only, never an anchor, so a global anchor needs the bare `anchor`
+key, which anchors at the global row's `start` (`set period=2w, anchor`
+re-anchors every rotation that takes its grid from `#Global` at that
+instant); a global `set` row that changes the period in force without
+`anchor` is the validation error `period change in #Global needs anchor`,
+judged against the global rows alone, epoch row included, while a global row
+repeating the period is a no-op. A grid change arriving from either layer
+cuts claims and slots for the rotation like a local one (5.4). A
 rotation that takes its grid from `#Global` starts with an empty `set` row,
 the one row type whose `what` may be empty: a bare local `anchor` would pin
-the anchor in the rotation, so a later global period change would re-anchor
-the global layer only and leave that rotation on offset boundaries. A global
+the anchor in the rotation, so a later global re-anchoring (`period=2w,
+anchor`) would move the global layer only and leave that rotation on offset
+boundaries. A global
 `set` row that fails validation blocks regeneration like a ledger error, since
 every rotation depends on it; set rows that do not parse are skipped when a
 settings timeline is built from unvalidated rows (Fill Shifts Grid, snapshot
@@ -334,8 +347,9 @@ advance). The `#Status` settings block shows the source of each key:
 the first shift.
 
 A new rotation needs a `period` in some `set` row of the rotation or of
-`#Global`, an anchor and a `team` row. The anchor is explicit (a dated `set`
-row with a bare `anchor` or a `period` change, in either layer) or implied
+`#Global`, an anchor and a `team` row. The anchor is explicit (a dated
+rotation `set` row carrying `period` or a bare `anchor`, or a global `set`
+row with a bare `anchor`) or implied
 by the rotation's first `shift` row: the grid before the first explicit
 anchor is anchored at the start of the first shift, whatever its `end` or
 `duration`, so any on-grid shift gives the same grid and trimming history
@@ -425,8 +439,10 @@ references: unknown type, bad datetime, bad duration, both `end` and
 `duration` set, `what` missing where required, an item form the type does not
 accept (a `shift` with two names, `leave` with `name=1`, `anchor=value`, a
 bare `period`), unknown setting key, an epoch row with `end` or `duration`
-or a bare `anchor`, `join` of a current
-member, `leave` or `exclude` of an unknown member. Comments are skipped.
+or a bare `anchor`, a global `set` row that changes the period in force
+without `anchor` (`period change in #Global needs anchor`, 3.5), `join` of a
+current member, `leave` or `exclude` of an unknown member. Comments are
+skipped.
 Before the sweep each rotation needs a grid: a `period` from any `set` row
 of either layer, else the run stops, like a validation error, with `no
 period in force`; and an anchor, explicit or implied by the first `shift`
@@ -727,7 +743,7 @@ place and where it is only reported in `#Status` (and why):
 | `<rotation>: ledger is empty`, `no period in force` | `error` row at the top of the ledger (no `start`) | errors |
 | Replay errors (`join: "x" is already a member`, `leave: unknown member`, `exclude`/`include`/`score` on an unknown member, `team: duplicate member`) | `error` row above the row | errors |
 | Relation row errors (unknown or disabled rotation, itself, twice, `#Global` shape, `relation order cycle`) | `error` row above the row in its own tab | errors |
-| Malformed global `set` row | `error` row in `#Global`; blocks regeneration | errors |
+| Malformed global `set` row, `period change in #Global needs anchor` | `error` row in `#Global`; blocks regeneration | errors |
 | `no eligible member for shift <a> to <b>` | `error` row at the slot start, next to the `shift` with nobody | warnings |
 | `no anchor; add a dated set anchor row here or in #Global, or a first shift` | none: the rotation is left as it is (5.1) | warnings |
 | `tolerance widened to <n>sl for attract! with <rotation>` | none: `#Status` warnings only (rotation and slot start) | warnings |

@@ -21,9 +21,10 @@ function validateRelationRow(row, rotationNames, reader) {
 }
 
 // rows: #Global row objects. Returns { setRows, setErrors, relationRows, errors, rows } where rows are the kept
-// rows plus an error row above each rejected one. set rows are validated with the ledger rules; a bad one is in
-// setErrors and blocks regeneration since every rotation depends on it. Rejected relation rows are ignored.
-// Comments are kept and otherwise ignored.
+// rows plus an error row above each rejected one. set rows are validated with the ledger rules, and a row that
+// changes the global period in force must carry anchor, since a global period never anchors (DESIGN 3.5); a
+// bad one is in setErrors and blocks regeneration since every rotation depends on it. Rejected relation rows
+// are ignored. Comments are kept and otherwise ignored.
 function parseGlobal(rows, rotationNames) {
   var errors = [];
   var setErrors = [];
@@ -41,6 +42,15 @@ function parseGlobal(rows, rotationNames) {
       : validateRow(row) || validateRelationRow(row, rotationNames, null);
     if (message === null && row.durationInterval && row.durationInterval.unit !== 'clock') message = 'duration in ' + GLOBAL_TAB + ' takes clock units only';
     if (message === null) relationRows.push(row); else errors.push(rowError(row, message));
+  });
+  var period = null;
+  setRows.forEach(function (row) {
+    var parsed = parseSetArg(row.what, row.start);
+    if (!('period' in parsed.values)) return;
+    if (period !== null && parsed.values.period !== period && !('anchor' in parsed.values)) {
+      setErrors.push(rowError(row, 'period change in ' + GLOBAL_TAB + ' needs anchor'));
+    }
+    period = parsed.values.period;
   });
   var all = setErrors.concat(errors);
   return { setRows: setRows, setErrors: setErrors, relationRows: relationRows, errors: all, rows: sortRows(all.map(errorRow).concat(kept)) };

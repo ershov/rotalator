@@ -389,6 +389,11 @@ or clear the row, then run again.
 **Error `no period in force`.** Every rotation needs a `period=` in some
 `set` row: in the tab, undated or dated, or in `#Global`.
 
+**Error `period change in #Global needs anchor`.** A global `period` never
+anchors the grid, so a `#Global` row that changes the period must also carry
+the bare `anchor` key (`period=2w, anchor`); repeating the current period
+needs nothing.
+
 **Warning `no anchor` and a rotation that is not updated.** The rotation has
 a period but no anchor: add a dated `set anchor` row (or a `set` row that
 sets `period`) in the tab or in `#Global`, or type its first shift; the grid

@@ -24,9 +24,14 @@ class Settings {
 
 var SETTING_LAYERS = ['rotation', 'global'];
 
-function gridChangedBetween(before, after) {
-  if (after.period !== before.period || after.anchor !== before.anchor || after.grid !== before.grid) return true;
-  return after.grid === 'counted' && (after.skip_weekends !== before.skip_weekends || after.skip_holidays !== before.skip_holidays);
+// Whether the grid differs: period, grid type or, when counted, the skips changed, or the anchor moved off
+// a boundary of the grid in force. An anchor on such a boundary changes nothing (DESIGN 3.4).
+function gridChangedBetween(before, after, holidays) {
+  if (after.period !== before.period || after.grid !== before.grid) return true;
+  if (after.grid === 'counted' && (after.skip_weekends !== before.skip_weekends || after.skip_holidays !== before.skip_holidays)) return true;
+  if (after.anchor === before.anchor) return false;
+  if (before.anchor === null || before.period === null || after.anchor === null) return true;
+  return new Grid(before, holidays).floor(after.anchor) !== after.anchor;
 }
 
 // Settings of a rotation over time (DESIGN 3.5): its own set rows layered over the global ones. A key the
@@ -64,8 +69,8 @@ class SettingsTimeline {
       Object.keys(parsed.values).forEach(function (key) { if (parsed.reset.indexOf(key) < 0) layer[key] = parsed.values[key]; });
       parsed.reset.forEach(function (key) { delete layer[key]; });
       var after = effective();
-      // A period change without an explicit anchor re-anchors this layer at the row; an epoch row has no instant.
-      if ('period' in parsed.values && after.values.period !== before.values.period && !('anchor' in parsed.values) && isFinite(ev.row.start)) {
+      // A dated rotation row carrying period anchors at its start; a global period row never does (DESIGN 3.5).
+      if (ev.layer === 'rotation' && 'period' in parsed.values && !('anchor' in parsed.values) && isFinite(ev.row.start)) {
         layer.anchor = ev.row.start;
         after = effective();
       }
@@ -80,9 +85,10 @@ class SettingsTimeline {
       origin = { value: explicit.values.anchor, source: explicit.sources.anchor };
     }
     var previous = defaultSettings();
+    var holidays = this.holidays;
     this.entries = states.map(function (s) {
       if (s.values.anchor === null && origin) { s.values.anchor = origin.value; s.sources.anchor = origin.source; }
-      var entry = { start: s.start, settings: new Settings(s.values), sources: s.sources, gridChanged: gridChangedBetween(previous, s.values) };
+      var entry = { start: s.start, settings: new Settings(s.values), sources: s.sources, gridChanged: gridChangedBetween(previous, s.values, holidays) };
       previous = s.values;
       return entry;
     });
