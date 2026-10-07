@@ -142,7 +142,7 @@ are kept sorted by `start`; the script re-sorts on every write.
 |---|---|---|---|
 | shift | one member, or nobody | optional | users or script |
 | team | `name`, `name=number`, `name+=n`, `name-=n` | | users |
-| join | `name`, `name=number`, one or more | | users |
+| join | `name`, `name=number`, one or more | | users, script |
 | leave | `name`, one or more | | users |
 | exclude | `name`, one or more | optional, open-ended if absent | users |
 | include | `name`, one or more | | users |
@@ -231,7 +231,15 @@ Any user edit to a
 shift must be pinned or it is lost. After each run the script pins the shifts
 up to `now + autopin` itself (5.8), so with the default `autopin=a:2sl` every
 shift that has started and the next two regular shifts are pinned and only
-the future floats.
+the future floats. A kept shift whose assignee is not on the roster at its
+start adds them: before the replay a generated bare-name `join` row is
+inserted at that start (5.3), so they join there at the roster minimum like
+a bare name, the shift is credited as usual, and the run writes the row,
+which sorts directly above the shift (3.6). The row is the notice (no
+warning) and an ordinary user row from then on, so the next run finds the
+member and generates nothing; a typo in a shift therefore shows up as a
+visible `join` row. A later `leave` or a `team` row omitting the person
+removes them as usual. Nobody shifts are untouched.
 
 **team.** Sets the full roster. `alice, bob, carol, dave=12, erin+=2`. The
 list is diffed against the current roster: absent members leave, newcomers
@@ -248,7 +256,8 @@ apply one by one, so a later bare joiner sees the earlier one.
 
 **join.** One or more members join: `erin, frank=12`. A bare name joins at
 the roster minimum, `=number` at that score. Joining an existing member is an
-error.
+error. The script writes a bare-name `join` row itself for a kept shift that
+names a non-member (see `shift`).
 
 **leave.** One or more members removed, scores discarded. A later join starts
 fresh.
@@ -399,7 +408,8 @@ above a generated shift stays above the regenerated shift run after run, and a
 comment above the snapshot row ends up above the shift that follows it once
 the snapshot moves on. Undated comments with no dated row below them are
 trailing and sort after everything. Rows the script adds (snapshot, generated
-shifts, error rows) are placed in front of the kept rows before sorting.
+shifts, generated `join` rows, error rows) are placed in front of the kept
+rows before sorting.
 
 ## 4. Scoring
 
@@ -507,7 +517,15 @@ reproduces it unless its inputs changed. The shift starting at `P` is kept
 even when unpinned and even if a roster row dated before it has since removed
 its holder, so an incremental run and a full replay may differ for that one
 shift; this is intended: the shift in progress at the previous run never
-moves. Stable sort by `start` and the 3.6 type order.
+moves. Stable sort by `start` and the 3.6 type order. Then the implicit
+joins (3.4): the roster rows and the kept shifts are replayed in that order
+and every kept shift whose assignee is absent at its start gets a generated
+bare-name `join` row inserted at that start. They are decided once, on the
+rows as read, with the same stored snapshot and `now`, before the snapshot
+advance (5.2) and before anything else reads the roster over time
+(durations in `sl` and `ts`, the horizon, the autopin limit, the relation
+checks), so the run that writes the rows computes exactly what the next run
+reads back.
 
 ### 5.4 Claims and slots
 
@@ -538,9 +556,11 @@ Pinned shifts with `start` in `(S, S')`, where `S'` is `S` plus the
 `precredit` interval on the grid's timeline (`1ts`: the roster size at `S`
 times the period), whose assignee is on the roster are credited when the sweep
 reaches `S`, after the state rows at `S` and after the snapshot is recorded,
-and skipped when the sweep reaches them. Doing it at `S` lets a fresh ledger's
-`team` row dated `S` count for `ts`. This lets someone who
-volunteered for a shift inside the next cycle skip a turn before it. Pins
+and skipped when the sweep reaches them; a pinned shift naming a non-member
+is left to its own start, where the assignee joins and is credited (3.4).
+Doing it at `S` lets a fresh ledger's `team` row dated `S` count for `ts`.
+This lets someone who volunteered for a shift inside the next cycle skip a
+turn before it. Pins
 further out are credited when reached, and the greedy compensates afterwards.
 
 ### 5.6 Sweep
@@ -556,7 +576,8 @@ snapshot item at `S` records the roster and scores reached there (5.8).
   A bare name scores the roster minimum of the projected scores at that
   instant (3.4).
 - Kept `shift`: credit units of its scored interval to its assignee, unless
-  pre-credited.
+  pre-credited; the assignee is on the roster, by the generated `join` row of
+  5.3 if by nothing else.
 - Slot: choose an assignee, credit the units, emit an unpinned `shift`.
 - When the walk passes `S` for a rotation, record roster and scores for the
   new snapshot. Scores at that instant include the part of any interval before
@@ -723,8 +744,9 @@ same rule holds for every tab the script reads (section 1): `#Global` and,
 through its extension, `#GCal`. User-editable cells carry user input only:
 the script never writes into the `note` or `what` of a user row, and
 generated shifts get an empty `note`; its only rewrites are error rows, the
-canonical form of `start`, `end` and `duration`, the inherited `start` (3.4)
-and the `autopin` marker in an empty `pin` cell (5.8). Warnings therefore
+canonical form of `start`, `end` and `duration`, the inherited `start` (3.4),
+the `autopin` marker in an empty `pin` cell (5.8) and the `join` row it adds
+for a kept shift naming a non-member (3.4). Warnings therefore
 live in `#Status` only. Every run ends with the counts in the toast
 (`finished with N error(s) and M warning(s)`, or `finished, no errors`),
 covering core and extension errors alike (10.4), and logs one line per error

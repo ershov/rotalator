@@ -7,7 +7,7 @@ var HOLIDAYS_HEADER = ['date', 'note'];
 var COLUMN_NOTES = {
   pin: 'Any non-empty value pins the row: the script never modifies or deletes it. A ticked checkbox works too.',
   start: 'YYYY-MM-DDTHH:MM in the spreadsheet time zone. Mandatory. Keep the column as plain text.',
-  type: 'shift, team, join, leave, exclude, include, score, set. The script writes snapshot and error rows.',
+  type: 'shift, team, join, leave, exclude, include, score, set. The script writes snapshot and error rows, and a join row when a kept shift names someone not on the roster.',
   what: 'Payload of the row: one member for shift; a list for team, join, leave, exclude, include, score; key=value settings for set.',
   end: 'YYYY-MM-DDTHH:MM. Optional. Not together with duration.',
   duration: '1w, 3d, 12h, 1d12h, 0.5d, 2sl (shift lengths), 1ts (team size x shift length). Optional. Not together with end.',

@@ -34,8 +34,12 @@ function onCountedDay(timeline, t) {
 // globalSetRows: the set rows of #Global.
 function advance(rows, now, holidays, globalSetRows) {
   rows = ledgerRows(rows);
-  var timeline = new SettingsTimeline(rowsOfType(rows, 'set'), holidays, globalSetRows, impliedAnchor(rows));
   var snapshot = firstOfType(rows, ['snapshot']);
+  // With now null this provisional merge keeps every assigned shift while prepareRotation cuts at S; the two
+  // can differ only for direct regenerate calls without now (the runner rejects a missing now, and frozen
+  // rotations keep every shift under both cuts).
+  rows = withImplicitJoins(rows, snapshot ? snapshot.start : null, now, false);
+  var timeline = new SettingsTimeline(rowsOfType(rows, 'set'), holidays, globalSetRows, impliedAnchor(rows));
   resolveDurations(rows, timeline, rosterSizeAt(rows));
   var S = null;
   if (now !== null && now !== undefined) {
@@ -108,19 +112,60 @@ function rosterNamesAt(rows) {
   };
 }
 
+// The rows the run keeps (DESIGN 5.3): everything but the snapshot row and the unpinned shifts it regenerates.
+// P: the stored snapshot instant or null; cut: with P null, unpinned assigned shifts before it are history (now,
+// or S; null keeps every assigned shift); frozen keeps every shift.
+function keptRows(rows, P, cut, frozen) {
+  return rows.filter(function (r) {
+    if (r.type === 'snapshot') return false;
+    if (frozen || r.type !== 'shift' || r.pinned) return true;
+    var assigned = shiftAssignee(r) !== null;
+    if (P === null) return assigned && (cut === null || cut === undefined || r.start < cut);
+    return r.start < P || (r.start === P && assigned);
+  });
+}
+
+// Generated bare-name join rows for the kept shifts whose assignee is not on the roster at their start
+// (DESIGN 3.4): the roster rows and the kept shifts replayed in ledger order; row errors are left to the sweep.
+// No rowIndex marks the rows as generated.
+function implicitJoins(kept) {
+  var roster = new Roster();
+  var joins = [];
+  kept.forEach(function (row) {
+    if (row.type === 'team') roster.team(whatItems(row));
+    else if (row.type === 'join') roster.join(whatItems(row));
+    else if (row.type === 'leave') roster.leave(whatNames(row));
+    else if (row.type === 'shift') {
+      var who = shiftAssignee(row);
+      if (who === null || roster.has(who)) return;
+      roster.join([{ name: who, op: null, value: null }]);
+      joins.push(makeRow({ type: 'join', start: row.start, what: who }));
+    }
+  });
+  return joins;
+}
+
+// The rows as read with the implicit joins merged in, decided once on them (DESIGN 5.3) so that advance and
+// prepareRotation, each calling this on the same rows with the same P and cut, see the same roster over time.
+function withImplicitJoins(rows, P, cut, frozen) {
+  var joins = implicitJoins(keptRows(rows, P, cut, frozen));
+  return joins.length ? sortRows(rows.concat(joins)) : rows;
+}
+
 // Roster size over time, for ts intervals that must be resolved before the sweep.
 function rosterSizeAt(rows) {
   var namesAt = rosterNamesAt(rows);
   return function (t) { return namesAt(t).length; };
 }
 
-// sl/ts durations become an end on the grid effective at the row's start (DESIGN 3.3).
+// sl/ts durations become an end on the grid effective at the row's start (DESIGN 3.3). An end this derived
+// (gridEnd) is derived again on a later call: advance resolves provisionally for S, prepareRotation finally.
 function resolveDurations(rows, timeline, sizeAt) {
   rows.forEach(function (row) {
     var interval = row.durationInterval;
-    if (row.end !== null || row.start === null || !interval || interval.unit === 'clock') return;
+    if ((row.end !== null && !row.gridEnd) || row.start === null || !interval || interval.unit === 'clock') return;
     var grid = timeline.gridAt(row.start);
-    if (grid) row.end = grid.offset(row.start, resolveInterval(interval, grid, sizeAt(row.start)));
+    if (grid) { row.end = grid.offset(row.start, resolveInterval(interval, grid, sizeAt(row.start))); row.gridEnd = true; }
   });
 }
 
@@ -163,18 +208,15 @@ function prepareRotation(input, index, holidays, frozen, globalSetRows, now) {
   rot.timeline = timeline;
   rot.previousAt = previous ? previous.start : null;
   rot.S = S;
+  var P = rot.previousAt;
+  var historyEnd = now === null || now === undefined ? S : now;
+  // Implicit joins before anything reads the roster over time: the runner's advance merged the same rows with
+  // the same P and now, so this reaches the same merge; rot.rows stays as validated for an error output.
+  rows = withImplicitJoins(rows, P, historyEnd, frozen);
+  rot.kept = keptRows(rows, P, historyEnd, frozen);
   rot.namesAt = rosterNamesAt(rows);
   rot.sizeAt = function (t) { return rot.namesAt(t).length; };
   resolveDurations(rows, timeline, rot.sizeAt);
-  var P = rot.previousAt;
-  var historyEnd = now === null || now === undefined ? S : now;
-  rot.kept = rows.filter(function (r) {
-    if (r.type === 'snapshot') return false;
-    if (frozen || r.type !== 'shift' || r.pinned) return true;
-    var assigned = shiftAssignee(r) !== null;
-    if (P === null) return assigned && r.start < historyEnd;
-    return r.start < P || (r.start === P && assigned);
-  });
 
   var shifts = rowsOfType(rot.kept, 'shift');
   var changes = timeline.gridChanges();

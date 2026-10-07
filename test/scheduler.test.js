@@ -2,6 +2,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const U = require('../node/load.js').load();
+const { runStorage } = require('../node/cli.js');
+const { MemoryStorage } = require('../node/storage.js');
 
 const plain = (v) => structuredClone(v);
 const dt = (s) => U.parseDateTime(s);
@@ -576,6 +578,58 @@ test('archiving: the snapshot row turned into a team row replaces the history ab
   // The team row at S applies before the snapshot, so the first run after archiving writes the same snapshot.
   assert.deepEqual(plain(ofType(out, 'snapshot').map((r) => [U.formatDateTime(r.start), r.what])), [['2026-10-12T09:00', 'alice=7, bob=0, carol=0']]);
   assert.deepEqual(scores(out.status.rotations[0].roster).map((m) => [m.name, m.projected]), scores(second.status.rotations[0].roster).map((m) => [m.name, m.projected]));
+});
+
+test('implicit join: a kept shift naming a non-member adds them at the roster minimum with a generated join row', () => {
+  const out = run([SET, TEAM,
+    R('', '2026-10-05T09:00', 'shift', 'alice'),
+    R('x', '2026-10-19T09:00', 'shift', 'dave', '', '', 'new colleague'),
+  ], '2026-10-13T10:00');
+  assert.deepEqual(plain(out.errors), []);
+  assert.deepEqual(plain(out.status.warnings), []);
+  // dave joins at 10-19 at the minimum, 0 (alice 7, bob 7, carol 0), is credited his pinned week and, level
+  // with the others at 7, takes the 11-02 slot as the next in roster order.
+  const cells = cellsOf(out).map((c) => [c[0], c[1], c[2], c[3]]);
+  const joinAt = cells.findIndex((c) => c[2] === 'join');
+  assert.deepEqual(cells[joinAt], ['', '2026-10-19T09:00', 'join', 'dave']);
+  assert.deepEqual(cells[joinAt + 1], ['x', '2026-10-19T09:00', 'shift', 'dave']);
+  assert.deepEqual(shifts(out).map((s) => s[1]), ['alice', 'bob', 'dave', 'carol', 'dave', 'alice']);
+  const dave = out.status.rotations[0].roster.find((m) => m.name === 'dave');
+  assert.equal(dave.score, null, 'joined after S');
+  assert.equal(dave.projected, 14);
+  // The written join row is an ordinary row: the next run finds the member and generates nothing new.
+  const again = run(cellsOf(out), '2026-10-13T10:00');
+  assert.deepEqual(cellsOf(again), cellsOf(out));
+  // A frozen rotation gets the join in the replay (scores right in the status) but nothing is written for it.
+  const frozen = U.regenerate({
+    rotations: [
+      { name: 'r', rows: rows([SET, TEAM, R('', '2026-10-05T09:00', 'shift', 'alice'), R('x', '2026-10-19T09:00', 'shift', 'dave')]), snapshotAt: dt('2026-10-12T09:00') },
+      { name: 's', rows: rows([SET, R('', '2026-10-05T09:00', 'team', 'erin')]), snapshotAt: MON },
+    ],
+    holidays: [], global: [], only: ['s'],
+  });
+  assert.deepEqual(frozen.rotations.map((r) => r.name), ['s']);
+  assert.equal(frozen.status.rotations[0].roster.find((m) => m.name === 'dave').projected, 7);
+  // The join is decided before the sweep, so a ts interval sees the joiner on the run that writes the row:
+  // carol's history shift makes the roster three at S and the 2ts horizon six weeks, on the first run already.
+  const tsRows = [R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=2ts, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'),
+    R('', '2026-10-05T09:00', 'team', 'alice, bob'), R('', '2026-10-05T09:00', 'shift', 'carol')];
+  const first = run(tsRows, '2026-10-13T10:00');
+  assert.deepEqual(plain(first.errors), []);
+  assert.equal(first.status.rotations[0].horizonEnd, dt('2026-11-23T09:00'));
+  assert.deepEqual(cellsOf(first).filter((c) => c[2] === 'join'), [R('', '2026-10-05T09:00', 'join', 'carol')]);
+  assert.deepEqual(cellsOf(run(cellsOf(first), '2026-10-13T10:00')), cellsOf(first), 'idempotent with a ts horizon');
+  // Through the runner, whose advance resolves durations before regenerate: a stranger's history shift of 1ts
+  // covering now is three weeks on the first run already (alice, bob and zed), so S and the generated shifts
+  // match the run on the written output.
+  const ledger = [SET, R('', '2026-10-05T09:00', 'team', 'alice, bob'), R('', '2026-10-05T09:00', 'shift', 'zed', '', '1ts')];
+  const viaRunner = runStorage(new MemoryStorage({ ledgers: { r: ledger } }), '2026-10-13T10:00', { write: true });
+  assert.deepEqual(viaRunner.errors, []);
+  assert.deepEqual(viaRunner.ledgers.r.filter((c) => c[2] === 'join'), [R('', '2026-10-05T09:00', 'join', 'zed')]);
+  assert.equal(viaRunner.ledgers.r.filter((c) => c[2] === 'shift')[1][1], '2026-10-26T09:00', 'the first generated shift follows the three-week stranger shift');
+  assert.equal(viaRunner.status.rotations[0].snapshotAt, dt('2026-10-05T09:00'));
+  const rerun = runStorage(new MemoryStorage({ ledgers: viaRunner.ledgers }), '2026-10-13T10:00', { write: true });
+  assert.deepEqual(rerun.ledgers.r, viaRunner.ledgers.r, 'idempotent through advance');
 });
 
 test('bare anchor realigns the grid at the set row start', () => {

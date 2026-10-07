@@ -78,7 +78,7 @@ instant.
 |---|---|---|---|---|
 | `shift` | one member, or nobody | optional | users, script | The member is on call from `start`. |
 | `team` | `name`, `name=number`, `name+=n`, `name-=n` | | users | Sets the full roster. Diffed against the current roster. |
-| `join` | `name`, `name=number`; one or more | | users | Members join. |
+| `join` | `name`, `name=number`; one or more | | users, script | Members join. The script adds one for a kept shift naming someone not on the roster. |
 | `leave` | `name`; one or more | | users | Members leave; scores discarded. |
 | `exclude` | `name`; one or more | optional | users | Members are not eligible from `start` until `end`, `duration`, or an `include`. Scores kept. |
 | `include` | `name`; one or more | | users | Ends active exclusions. |
@@ -132,7 +132,11 @@ Details per type:
   scored interval runs from `start` to the explicit `end`, otherwise to the
   earlier of the next shift's `start` and the next grid boundary after
   `start`. Unpinned shifts after the snapshot belong to the script and are
-  regenerated on every run.
+  regenerated on every run. A kept shift naming someone not on the roster
+  adds them: they join at that shift's start at the roster minimum, the
+  shift is credited, and the run writes a `join` row with their name
+  directly above the shift as the notice; after that it is an ordinary row.
+  No warning, so a misspelt name shows up as a `join` row.
 
   A shift without `end` or `duration` ends at the earlier of the next shift's
   start and the next grid boundary, so it counts as at most one period. When
@@ -270,7 +274,8 @@ other rotations run.
    gaps included,
    with the member who has the lowest projected score among the eligible
    ones. A pinned `shift` row with an empty `what` is a gap you want kept.
-5. Write each ledger back sorted, with the new snapshot and generated shifts.
+5. Write each ledger back sorted, with the new snapshot, the generated shifts
+   and a `join` row for each newcomer found in a kept shift.
    Rewrite `#Status` and `#All shifts`.
 
 Scores are days on call, honouring `skip_weekends` and `skip_holidays`.
@@ -370,8 +375,12 @@ INSTALL.md has the step by step.
 **Update the team.** Add a `team` row dated when the change takes effect with
 the complete new list, or a `join` or `leave` row for one person. A newcomer
 named without a number starts at the roster minimum, so they are next in
-line; give `name=number` to start them elsewhere. The future is regenerated
-from that instant.
+line; give `name=number` to start them elsewhere. Typing a newcomer's first
+shift also works, pinned in the future or as history: the run adds them at
+the roster minimum and writes a `join` row above that shift. If you later
+add that person to a `team` row dated before their first shift, delete the
+generated `join` row, otherwise `join: "x" is already a member` stops the
+run. The future is regenerated from that instant.
 
 **Amend a future shift.** Edit the generated row's `what`, put anything in
 `pin`, and run. Pins inside the next `precredit` shifts are credited up front,
