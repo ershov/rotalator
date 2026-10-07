@@ -104,8 +104,6 @@ the `cal` and `slack` settings and the reserved `#GCal` and `#Slack` tabs.
 
 - No concurrency protection: an edit made while the nightly run is in
   progress may be overwritten.
-- Edits to rows older than the stored snapshot have no effect until the
-  snapshot is deleted; use `score` rows for corrections.
 - Periods are days or weeks; months are not supported.
 
 The full list is in [MANUAL.md, Limitations](MANUAL.md#limitations).

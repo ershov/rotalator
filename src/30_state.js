@@ -149,13 +149,6 @@ function formatScore(score) {
   return text === '-0' || text === '' ? '0' : text;
 }
 
-// Clips [a, b) to start at `at`; b null is open. Returns null when nothing extends past `at`.
-function clipToSnapshot(a, b, at) {
-  if (at === null || at === undefined) return [a, b];
-  if (b !== null && b <= at) return null;
-  return [Math.max(a, at), b];
-}
-
 // Ordered members with scores and exclusions [{ from, to }], to null meaning open.
 class Roster {
   constructor() {
@@ -295,14 +288,8 @@ class Roster {
     if (m) m.score += units;
   }
 
+  // The snapshot row's what; the same text makes a team row that restores roster and scores (DESIGN 3.4).
   snapshotWhat() {
     return this.members.map(function (m) { return m.name + '=' + formatScore(m.score); }).join(', ');
-  }
-
-  fromSnapshotWhat(text) {
-    var items = parseAssignments(text);
-    this.members = typeof items === 'string' ? [] : items.map(function (it) {
-      return { name: it.name, score: Number(it.value), exclusions: [] };
-    });
   }
 }

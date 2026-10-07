@@ -337,7 +337,7 @@ test('exclusion is honoured and closed by include', () => {
   assert.deepEqual(shifts(bounded).map((s) => s[1]), ['alice', 'carol', 'bob', 'carol', 'alice']);
 });
 
-test('exclusion older than the snapshot is clipped and still applies', () => {
+test('exclusion older than the snapshot still applies: replay runs from the top', () => {
   const first = run([SET, TEAM, R('', '2026-10-06', 'exclude', 'carol', '2026-10-30')], '2026-10-05T10:00');
   assert.deepEqual(shifts(first).map((s) => s[1]), ['alice', 'bob', 'alice', 'bob', 'carol']);
   const out = run(cellsOf(first), '2026-10-13T10:00');
@@ -532,7 +532,7 @@ test('list rows: join, leave, exclude and include with several names; score with
   assert.deepEqual(plain(twice.errors.map((e) => e.message)), ['include: no active exclusion for "alice"']);
 });
 
-test('exclude with several names older than the snapshot keeps only the names still excluded', () => {
+test('exclude with several names older than the snapshot: the include row closes one of them on replay', () => {
   const first = run([SET, TEAM,
     R('', '2026-10-06', 'exclude', 'bob, carol', '2026-10-30'),
     R('', '2026-10-10', 'include', 'carol'),
@@ -541,6 +541,35 @@ test('exclude with several names older than the snapshot keeps only the names st
   const out = run(cellsOf(first), '2026-10-13T10:00');
   assert.deepEqual(plain(out.errors), []);
   assert.deepEqual(shifts(out).map((s) => s[1]), ['alice', 'carol', 'alice', 'carol', 'bob', 'bob']);
+});
+
+test('the snapshot is informational: a pre-snapshot edit rescores and reshapes the unpinned future, rows before P stay', () => {
+  const first = run([SET, TEAM], '2026-10-05T10:00');
+  const second = run(cellsOf(first), '2026-10-13T10:00');
+  assert.deepEqual(plain(ofType(second, 'snapshot').map((r) => [U.formatDateTime(r.start), r.what])), [['2026-10-12T09:00', 'alice=7, bob=0, carol=0']]);
+  assert.deepEqual(shifts(second).map((s) => s[1]), ['alice', 'bob', 'carol', 'alice', 'bob', 'carol']);
+  assert.deepEqual(cellsOf(run(cellsOf(second), '2026-10-13T10:00')), cellsOf(second), 'idempotent');
+  // Hand the first week to carol: a row before P. Nothing before P is rewritten, the shift at P is kept, the
+  // scores and the unpinned shifts after P follow the edit.
+  const edited = cellsOf(second).map((c) => (c[1] === '2026-10-05T09:00' && c[2] === 'shift' ? [c[0], c[1], c[2], 'carol', c[4], c[5], c[6]] : c));
+  const third = run(edited, '2026-10-13T10:00');
+  assert.deepEqual(plain(third.errors), []);
+  assert.deepEqual(plain(ofType(third, 'snapshot').map((r) => r.what)), ['alice=0, bob=0, carol=7']);
+  assert.deepEqual(shifts(third).map((s) => s[1]), ['carol', 'bob', 'alice', 'bob', 'carol', 'alice']);
+  const beforeP = (cells) => cells.filter((c) => c[1] < '2026-10-12T09:00');
+  assert.deepEqual(beforeP(cellsOf(third)), beforeP(edited));
+  assert.deepEqual(scores(third.status.rotations[0].roster).map((m) => [m.name, m.score]), [['alice', 0], ['bob', 0], ['carol', 7]]);
+});
+
+test('archiving: the snapshot row turned into a team row replaces the history above it', () => {
+  const first = run([SET, TEAM], '2026-10-05T10:00');
+  const second = run(cellsOf(first), '2026-10-13T10:00');
+  const archived = cellsOf(second).filter((c) => c[2] === 'set' || c[1] >= '2026-10-12T09:00').map((c) => (c[2] === 'snapshot' ? [c[0], c[1], 'team', c[3], c[4], c[5], c[6]] : c));
+  assert.deepEqual(archived.map((c) => [c[1], c[2], c[3]]).slice(0, 3), [['2026-10-05T09:00', 'set', SET[3]], ['2026-10-12T09:00', 'team', 'alice=7, bob=0, carol=0'], ['2026-10-12T09:00', 'shift', 'bob']]);
+  const out = run(archived, '2026-10-13T10:00');
+  assert.deepEqual(plain(out.errors), []);
+  assert.deepEqual(shifts(out), shifts(second).filter((s) => s[0] >= '2026-10-12T09:00'));
+  assert.deepEqual(scores(out.status.rotations[0].roster).map((m) => [m.name, m.projected]), scores(second.status.rotations[0].roster).map((m) => [m.name, m.projected]));
 });
 
 test('bare anchor realigns the grid at the set row start', () => {

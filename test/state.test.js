@@ -256,7 +256,7 @@ test('Roster baseline kinds', () => {
   assert.equal(r.baseline('min'), 0);
   assert.equal(r.baseline('max'), 0);
   assert.equal(r.baseline(3.5), 3.5);
-  r.fromSnapshotWhat('a=1, b=4, c=10, d=7');
+  r.team(items('a=1, b=4, c=10, d=7'), 'median');
   assert.equal(r.baseline('median'), 5.5);
   assert.equal(r.baseline('mean'), 5.5);
   assert.equal(r.baseline('min'), 1);
@@ -269,7 +269,7 @@ test('Roster baseline kinds', () => {
 
 test('Roster team diff: leavers, joiners with baselines, reorder, adjustments after joining', () => {
   const r = new U.Roster();
-  r.fromSnapshotWhat('alice=10, bob=6, carol=2');
+  r.team(items('alice=10, bob=6, carol=2'), 'median');
   assert.equal(r.team(items('carol, alice, dave, erin=mean, frank=12, bob+=2, gina-=1'), 'median'), null);
   assert.deepEqual(plain(r.names()), ['carol', 'alice', 'dave', 'erin', 'frank', 'bob', 'gina']);
   const s = r.scores();
@@ -287,7 +287,7 @@ test('Roster team diff: leavers, joiners with baselines, reorder, adjustments af
 
 test('Roster score adjustments: numbers, aggregates, bare names', () => {
   const r = new U.Roster();
-  r.fromSnapshotWhat('alice=10, bob=6');
+  r.team(items('alice=10, bob=6'), 'median');
   assert.equal(r.score(items('alice=1, bob+=2')), null);
   assert.deepEqual(plain(r.scores()), { alice: 1, bob: 8 });
   assert.equal(r.score(items('bob-=0.5')), null);
@@ -304,7 +304,7 @@ test('Roster score adjustments: numbers, aggregates, bare names', () => {
 
 test('Roster exclusions, include closes the open one, isExcluded overlaps', () => {
   const r = new U.Roster();
-  r.fromSnapshotWhat('alice=0, bob=0');
+  r.team(items('alice=0, bob=0'), 'median');
   assert.equal(r.exclude(['carol'], MON, null), 'exclude: unknown member "carol"');
   assert.equal(r.exclude(['alice', 'carol'], MON, null), 'exclude: unknown member "carol"');
   assert.equal(r.include(['alice'], MON), 'include: no active exclusion for "alice"');
@@ -332,20 +332,20 @@ test('Roster exclusions, include closes the open one, isExcluded overlaps', () =
   assert.equal(r.isExcluded('alice', MON, MON + D), false);
 });
 
-test('Roster credit and snapshot round trip with two decimals', () => {
+test('Roster credit and snapshot round trip with two decimals: the snapshot text makes a team row that restores the roster', () => {
   const r = new U.Roster();
-  r.fromSnapshotWhat('alice=12.5, bob=11');
+  r.team(items('alice=12.5, bob=11'), 'median');
   r.credit('alice', 0.125);
   r.credit('nobody', 5);
   assert.equal(r.snapshotWhat(), 'alice=12.63, bob=11');
   const back = new U.Roster();
-  back.fromSnapshotWhat(r.snapshotWhat());
+  back.team(items(r.snapshotWhat()), 'median');
   assert.deepEqual(plain(back.scores()), { alice: 12.63, bob: 11 });
   assert.deepEqual(plain(back.names()), ['alice', 'bob']);
   back.credit('bob', -11.001);
   assert.equal(back.snapshotWhat(), 'alice=12.63, bob=0');
   const empty = new U.Roster();
-  empty.fromSnapshotWhat('');
+  empty.team(items(''), 'median');
   assert.equal(empty.size(), 0);
   assert.equal(empty.snapshotWhat(), '');
   assert.equal(U.formatScore(-0.004), '0');
@@ -357,13 +357,4 @@ test('Roster credit and snapshot round trip with two decimals', () => {
   assert.equal(U.formatScore(100), '100');
   assert.equal(U.formatScore(10.05), '10.05');
   assert.equal(U.formatScore(-3.5), '-3.5');
-});
-
-test('clipToSnapshot keeps the part after the snapshot', () => {
-  assert.deepEqual(plain(U.clipToSnapshot(MON, MON + W, null)), [MON, MON + W]);
-  assert.deepEqual(plain(U.clipToSnapshot(MON, MON + W, MON + D)), [MON + D, MON + W]);
-  assert.deepEqual(plain(U.clipToSnapshot(MON, null, MON + D)), [MON + D, null]);
-  assert.deepEqual(plain(U.clipToSnapshot(MON + W, MON + 2 * W, MON)), [MON + W, MON + 2 * W]);
-  assert.equal(U.clipToSnapshot(MON, MON + W, MON + W), null);
-  assert.equal(U.clipToSnapshot(MON, MON + W, MON + 2 * W), null);
 });

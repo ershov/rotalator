@@ -83,7 +83,7 @@ row it corrects.
 | `include` | `name`; one or more | | users | Ends active exclusions. |
 | `score` | same forms as `team` | | users | Manual score corrections for the members mentioned. |
 | `set` | `key`, `key=value` | | users | Settings from `start` onward. |
-| `snapshot` | `name=score` | | script | Replay boundary and score cache. One per rotation. |
+| `snapshot` | `name=score` | | script | Roster and scores at the current shift, for information; its instant bounds what the next run rewrites. One per rotation. |
 | `error` | message | | script | Diagnostic. Removed on every read. |
 | (empty) or `#...` | free text | | users | Comment. Ignored by the script, kept in place; `#shift` comments a shift out. |
 
@@ -162,16 +162,20 @@ Details per type:
   undated `set period=...` row under a shift takes that shift's start, so it
   is a safe place to change other settings along with the period.
 - **snapshot.** Written by the script at the start of the current shift, with
-  the roster and scores as of that instant. Rows before it are not replayed
-  (except `set` rows and intervals that extend past it). Delete it to force a
-  full replay from the top.
+  the roster and scores as of that instant, for information: every run
+  replays the whole ledger from the top and recomputes it. Rows before it
+  are never rewritten by the script; editing them changes the scores and
+  the unpinned future. Changing its type to `team` turns it into a roster
+  row with those scores, the first step of archiving (see Archive old
+  history below).
 - **error.** See Errors below.
 - **comment.** Any row with an empty `type` and something in another cell,
   or with a `type` starting with `#`: `#shift` or `#team` comments the row
   out the way `#` disables a tab, keeps it as typed, and removing the `#`
   restores it. Commenting out a row has exactly the effect of deleting it:
-  for a past `shift` that means nothing before the stored snapshot (see
-  [Limitations](#limitations)) and a regenerated span after it. A comment is
+  for a past `shift` that means its holder loses the credit and the unpinned
+  future reshapes, and the span is regenerated when it lies after the stored
+  snapshot. A comment is
   never validated, replayed or regenerated. A dated comment sorts at its
   instant, first among the rows there. An undated comment stays directly
   above the next dated row below it, at that row's instant: a note above a
@@ -257,9 +261,10 @@ other rotations run.
    first run of a rotation, which has no snapshot yet, shifts you typed as
    history (unpinned, before `now`) are kept and pinned; gaps between them
    are filled.
-4. Replay from that snapshot: apply `team`, `join`, `leave`, `score`,
+4. Replay from the top of the ledger: apply `team`, `join`, `leave`, `score`,
    `exclude`, `include` rows in time order, credit kept shifts, and fill every
-   uncovered span from the snapshot up to the horizon, past gaps included,
+   uncovered span from the previous run's snapshot up to the horizon, past
+   gaps included,
    with the member who has the lowest projected score among the eligible
    ones. A pinned `shift` row with an empty `what` is a gap you want kept.
 5. Write each ledger back sorted, with the new snapshot and generated shifts.
@@ -392,8 +397,17 @@ generated shift.
 **Change settings.** Add a `set` row dated when the change applies. Editing an
 old `set` row rescores history from that point.
 
-**Correct history.** Add a `score` row, or edit rows before the snapshot and
-delete the `snapshot` row to replay everything from the top.
+**Correct history.** Add a `score` row, or edit the history rows directly:
+every run replays the whole ledger, so a corrected past shift changes the
+scores and the unpinned future on the next run while the rows themselves
+stay as you typed them.
+
+**Archive old history.** Change the `snapshot` row's type to `team`: with its
+`name=score` items it fixes the roster and the scores at that instant. Then
+cut the rows above it to another tab, keeping the undated `set` rows
+(settings are replayed from the top). The schedule does not change; the next
+run writes a new snapshot once the current shift has moved past that row.
+`score` rows below it still need their members on the roster.
 
 **Pause a rotation.** Rename its tab to `#<rotation>`. It is skipped until
 renamed back.
@@ -564,8 +578,6 @@ are yours and the script never writes into them.
   `end`; otherwise only the first period is credited.
 - No concurrency protection. Edits to unpinned future shifts made while the
   nightly run is in progress may be overwritten.
-- Edits to rows older than the snapshot have no effect until the snapshot is
-  deleted. Use `score` rows for corrections.
 - Period in months is not supported.
 - Members are identified by the verbatim string. Renaming means editing
   history or adding a `score` row.

@@ -49,7 +49,7 @@ the reserved `#GCal` and `#Slack` tabs.
 | grid | Instants `anchor + k*period` for all integers `k`. Regular shifts start and end on the grid. |
 | slot | A time span the script must fill with a generated shift. |
 | claim | The span a kept shift occupies for the purpose of regeneration. |
-| snapshot | Script-owned row with roster and scores at an instant. Replay starts there, and everything after it is recomputed. |
+| snapshot | Script-owned row with the roster and scores at an instant, written for information: replay always starts at the top of the ledger. Its instant `P` bounds what the next run may rewrite (5.3). |
 | current shift | The shift row starting at the snapshot instant. Kept when pinned, regenerated at the same boundary otherwise. |
 | pinned | Rows with a non-empty `pin` cell. The script never modifies them. |
 
@@ -257,7 +257,7 @@ apply to every member listed. Score is kept and the members still count for
 baselines.
 
 **score.** `alice=10, bob+=2, carol-=1, dave=mean`. Manual corrections, e.g.
-for history older than the snapshot. Same item forms as `team`, but only the
+for history that is not in the ledger. Same item forms as `team`, but only the
 members mentioned change and they must be on the roster; a bare `name` is
 accepted and does nothing.
 
@@ -280,20 +280,24 @@ anchor's source and instant.
 
 **snapshot.** One per rotation, written by the script. Its instant is the
 start of the current shift, see 5.2. `what` is the roster in order with scores
-as of that instant: `alice=12.5, bob=11`. The snapshot is the single
-boundary in the ledger: rows before it are never touched and are ignored on
-replay, except `set` rows and `shift` or `exclude` intervals that extend past
-it, which are clipped to start at the snapshot; unpinned shifts after it are
-regenerated and every uncovered span from it on is filled (5.3, 5.4). No
-snapshot row is written for a rotation that has none yet and an empty roster
-at `S` (a fresh rotation whose `team` row sorts after `S`); the next run
-writes it once a roster exists, and replay without a snapshot is the full
-replay from the top. A rotation that already has a snapshot keeps one even
-when its roster empties, so its replay boundary survives dormancy. The
-script never moves the snapshot backwards. Deleting the snapshot forces a full
-replay from the top, which is the intended reset mechanism. Rows older than the
-snapshot other than `set` rows may be cut to an archive tab by hand at any
-time.
+as of that instant: `alice=12.5, bob=11`. The row is informational: replay
+always runs from the top of the ledger and recomputes it, nothing reads it
+back. Its instant `P` is the protection boundary of the next run: rows
+before it are never pruned or rewritten, the shift at it is kept, unpinned
+shifts after it are regenerated and every uncovered span from it on is
+filled (5.3, 5.4). No snapshot row is written for a rotation that has none
+yet and an empty roster at `S` (a fresh rotation whose `team` row sorts
+after `S`); the next run writes it once a roster exists. A rotation that
+already has a snapshot keeps one even when its roster empties, so its
+boundary survives dormancy. The script never moves the snapshot backwards.
+Deleting the snapshot drops `P` for one run, which then prunes and
+regenerates the unpinned shifts from `now` on as a first run does (5.3); the
+next run writes a new one. To archive old history, change the snapshot
+row's type to `team`: with the same `name=score` items it sets the roster
+and the scores at that instant, so the rows above it, other than `set`
+rows, which are replayed from the top, can be cut to another tab without
+changing the schedule; `score` rows still need their members on the roster,
+so corrections go below that row.
 
 **error.** Written by the script, `what` is the message. Every `error` row is
 removed on read, so they are purely diagnostic and never accumulate. See 6.
@@ -539,10 +543,10 @@ further out are credited when reached, and the greedy compensates afterwards.
 
 Walk all items of all rotations in `start` order, ties broken by rotation
 order (the dependency order of 7, else tab order) and by 3.6. Replay begins at
-each
-rotation's previous snapshot, with `set` rows applied from the top first.
-Rows before the previous snapshot other than `set` rows are ignored; intervals
-that extend past it are clipped.
+the
+ledger's top for every rotation: every state row is applied and every kept
+shift credited from its own `start`, whatever the stored snapshot says; the
+snapshot item at `S` records the roster and scores reached there (5.8).
 
 - `set`, `team`, `score`, `join`, `leave`, `exclude`, `include`: update state.
   Baselines use projected scores at that instant.
@@ -701,8 +705,10 @@ rows only. Both tabs are rewritten in full on every run, previews included.
 - Settings changes apply from their `set` row forward. Editing a `set` row in
   the past rescores history, which is intended.
 - Pinned rows, rows before the stored snapshot and comments are never
-  touched. The current shift is regenerated at the same boundary when
-  unpinned; pin an edit to it and the future reshapes around it.
+  rewritten; editing them changes the scores and the unpinned future on the
+  next run, since replay starts at the top. The current shift is
+  regenerated at the same boundary when unpinned; pin an edit to it and the
+  future reshapes around it.
 
 ## 6. Errors and warnings
 
@@ -934,8 +940,8 @@ window miss is not painted); `attract` and `attract!` when an overlapping shift
 in P is held by `p != h` while `p` could hold R's shift (on R's roster at
 `a`, not excluded there) and `h` could hold P's (on P's roster at `a`, not
 excluded there), so a vacation on either side does not paint; the roster is
-replayed from the stored snapshot forward, so shifts before it are judged
-against the roster at the snapshot. In the grid a red shift paints its
+replayed from the top, so every shift is judged against the roster of its
+own time. In the grid a red shift paints its
 continuation too: the empty cells below it in its column at rows whose start
 lies inside `[start, scored end)`, with the same note, past the now row and
 up to the shift's own end, never into the next shift. Shifts for
@@ -1407,8 +1413,6 @@ no-ops; in Node they are skipped.
   edits to unpinned future shifts overwritten; rows before the snapshot, the
   assigned shift at it, and pinned rows are safe.
 - Cell formatting is not preserved when sorting moves a row. Values are.
-- Edits to rows older than the snapshot have no effect; use `score` rows or
-  delete the snapshot for a full replay.
 - Period `Nm` (months) is not supported.
 - Member identity is the verbatim string. Renaming a member means editing
   history or adding a `score` row.

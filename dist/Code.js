@@ -1058,13 +1058,6 @@ function formatScore(score) {
   return text === '-0' || text === '' ? '0' : text;
 }
 
-// Clips [a, b) to start at `at`; b null is open. Returns null when nothing extends past `at`.
-function clipToSnapshot(a, b, at) {
-  if (at === null || at === undefined) return [a, b];
-  if (b !== null && b <= at) return null;
-  return [Math.max(a, at), b];
-}
-
 // Ordered members with scores and exclusions [{ from, to }], to null meaning open.
 class Roster {
   constructor() {
@@ -1204,15 +1197,9 @@ class Roster {
     if (m) m.score += units;
   }
 
+  // The snapshot row's what; the same text makes a team row that restores roster and scores (DESIGN 3.4).
   snapshotWhat() {
     return this.members.map(function (m) { return m.name + '=' + formatScore(m.score); }).join(', ');
-  }
-
-  fromSnapshotWhat(text) {
-    var items = parseAssignments(text);
-    this.members = typeof items === 'string' ? [] : items.map(function (it) {
-      return { name: it.name, score: Number(it.value), exclusions: [] };
-    });
   }
 }
 
@@ -1255,7 +1242,7 @@ function advance(rows, now, holidays, globalSetRows) {
   rows = ledgerRows(rows);
   var timeline = new SettingsTimeline(rowsOfType(rows, 'set'), holidays, globalSetRows, impliedAnchor(rows));
   var snapshot = firstOfType(rows, ['snapshot']);
-  resolveDurations(rows, timeline, rosterSizeAt(rows, snapshot ? snapshot.start : null, snapshot ? snapshot.what : ''));
+  resolveDurations(rows, timeline, rosterSizeAt(rows));
   var S = null;
   if (now !== null && now !== undefined) {
     var grid = timeline.gridAt(now);
@@ -1306,37 +1293,14 @@ function errorRow(e) {
   return makeRow({ type: 'error', start: e.start, startText: e.startText || '', what: e.message });
 }
 
-// Effective end per member of each exclude row once include rows are applied, to decide clipping at the snapshot.
-function resolvedExcludeEnds(rows) {
-  var ends = new Map();
-  rows.forEach(function (row) {
-    if (row.type === 'exclude') {
-      var perName = {};
-      whatNames(row).forEach(function (n) { perName[n] = row.end; });
-      ends.set(row, perName);
-    }
-    if (row.type !== 'include') return;
-    var names = whatNames(row);
-    rows.forEach(function (ex) {
-      var perName = ends.get(ex);
-      if (!perName || ex.start > row.start) return;
-      names.forEach(function (n) {
-        if (n in perName && (perName[n] === null || perName[n] > row.start)) perName[n] = row.start;
-      });
-    });
-  });
-  return ends;
-}
-
-// Roster members over time from the snapshot roster and the team/join/leave rows after it: a function of t
-// returning the member names at t. Row errors are left to the sweep.
-function rosterNamesAt(rows, previousAt, previousWhat) {
+// Roster members over time from the team/join/leave rows, replayed from the top: a function of t returning
+// the member names at t. Row errors are left to the sweep.
+function rosterNamesAt(rows) {
   var roster = new Roster();
-  roster.fromSnapshotWhat(previousWhat);
   var initial = roster.names();
   var points = [];
   rows.forEach(function (row) {
-    if (row.start === null || (previousAt !== null && row.start < previousAt)) return;
+    if (row.start === null) return;
     if (row.type === 'team') roster.team(whatItems(row), 'median');
     else if (row.type === 'join') roster.join(whatItems(row), 'median');
     else if (row.type === 'leave') roster.leave(whatNames(row));
@@ -1351,8 +1315,8 @@ function rosterNamesAt(rows, previousAt, previousWhat) {
 }
 
 // Roster size over time, for ts intervals that must be resolved before the sweep.
-function rosterSizeAt(rows, previousAt, previousWhat) {
-  var namesAt = rosterNamesAt(rows, previousAt, previousWhat);
+function rosterSizeAt(rows) {
+  var namesAt = rosterNamesAt(rows);
   return function (t) { return namesAt(t).length; };
 }
 
@@ -1373,7 +1337,8 @@ function resolveDurations(rows, timeline, sizeAt) {
 // roster row) up to horizonEnd is filled, past spans included. An unpinned shift with nobody is never kept, so
 // an unassignable slot at P re-emits its error row and a run stays idempotent. Without a snapshot (first run)
 // unpinned shifts before now (before S when now is unknown) are hand-typed history and are kept; autopin then
-// pins them and P protects them from the next run on.
+// pins them and P protects them from the next run on. Replay itself always starts at the top of the ledger:
+// the snapshot row is informational (DESIGN 3.4), its scores are recomputed, never read back.
 function prepareRotation(input, index, holidays, frozen, globalSetRows, now) {
   var validated = validateLedger(input.rows, input.name);
   var rot = { name: input.name, index: index, frozen: frozen, rows: validated.rows, errors: validated.errors.slice(), problems: [], warnings: [] };
@@ -1403,9 +1368,8 @@ function prepareRotation(input, index, holidays, frozen, globalSetRows, now) {
   S = raiseTo(raiseTo(S, previous ? previous.start : null), onCountedDay(timeline, gridAt));
   rot.timeline = timeline;
   rot.previousAt = previous ? previous.start : null;
-  rot.previousWhat = previous ? previous.what : '';
   rot.S = S;
-  rot.namesAt = rosterNamesAt(rows, rot.previousAt, rot.previousWhat);
+  rot.namesAt = rosterNamesAt(rows);
   rot.sizeAt = function (t) { return rot.namesAt(t).length; };
   resolveDurations(rows, timeline, rot.sizeAt);
   var P = rot.previousAt;
@@ -1460,41 +1424,30 @@ function skipRotation(rot, timeline) {
   return rot;
 }
 
+// Sweep items of a rotation, from the top of the ledger: state rows, the snapshot and precredit at S, a
+// credit per decided shift (split at S so the snapshot scores cover the part before it) and a slot per gap.
 function rotationItems(rot) {
   var items = [];
-  var P = rot.previousAt;
   var S = rot.S;
   var push = function (start, kind, data) {
     items.push(Object.assign({ start: start, order: sweepOrder(kind, data.row ? data.row.type : null), rot: rot.index, kind: kind }, data));
   };
-  var afterPrevious = function (t) { return P === null || t >= P; };
-  var excludeEnds = resolvedExcludeEnds(rot.kept);
   rot.roster = new Roster();
-  rot.roster.fromSnapshotWhat(rot.previousWhat);
   rot.precredited = new Set();
   rot.kept.forEach(function (row) {
     if (row.type === 'shift' || row.type === 'comment' || row.type === 'set' || isRelationRow(row)) return;
-    if (row.type === 'exclude') {
-      var ends = excludeEnds.get(row);
-      var names = whatNames(row).filter(function (n) { return clipToSnapshot(row.start, ends[n], P) !== null; });
-      var from = P === null ? row.start : Math.max(row.start, P);
-      if (names.length) push(from, 'row', { row: row, names: names, from: from, to: row.end, clipped: from !== row.start });
-    } else if (afterPrevious(row.start)) {
-      push(row.start, 'row', { row: row });
-    }
+    push(row.start, 'row', { row: row });
   });
   push(S, 'snapshot', {});
   push(S, 'precredit', {});
   rot.entries.forEach(function (entry) {
     if (entry.slot) { push(entry.start, 'slot', { entry: entry, row: entry.row }); return; }
     if (entry.who === null) return;
-    var clip = clipToSnapshot(entry.start, entry.end, P);
-    if (!clip) return;
-    if (clip[0] < S && S < clip[1]) {
-      push(clip[0], 'credit', { entry: entry, row: entry.row, a: clip[0], b: S });
-      push(S, 'tail', { entry: entry, a: S, b: clip[1] });
+    if (entry.start < S && S < entry.end) {
+      push(entry.start, 'credit', { entry: entry, row: entry.row, a: entry.start, b: S });
+      push(S, 'tail', { entry: entry, a: S, b: entry.end });
     } else {
-      push(clip[0], 'credit', { entry: entry, row: entry.row, a: clip[0], b: clip[1] });
+      push(entry.start, 'credit', { entry: entry, row: entry.row, a: entry.start, b: entry.end });
     }
   });
   return items;
@@ -1518,10 +1471,7 @@ function applyStateRow(rot, item) {
     case 'join': return roster.join(whatItems(row), settings.get('baseline'));
     case 'leave': return roster.leave(whatNames(row));
     case 'score': return roster.score(whatItems(row));
-    case 'exclude': {
-      var names = item.clipped ? item.names.filter(function (n) { return roster.has(n); }) : item.names;
-      return names.length ? roster.exclude(names, item.from, item.to) : null;
-    }
+    case 'exclude': return roster.exclude(whatNames(row), row.start, row.end);
     case 'include': return roster.include(whatNames(row), row.start);
     default: return null;
   }
@@ -2512,7 +2462,7 @@ var HELP_TEXT = [
   'undated set / team / repel / repel! / attract / attract!: take the date of the nearest dated row above them, or apply from the beginning of the timeline when nothing dated is above; anchor needs a dated set row',
   'undated row at the bottom of the tab: it takes the date of the last generated shift near the horizon, not today; type it under the current shift instead',
   'repel / repel! / attract / attract! / detach: Rotation1, Rotation2 (mutual in #Global; in a rotation tab one-sided, naming the other rotation)',
-  'snapshot: written by the script at the start of the current shift with the roster and scores; delete it to replay the whole history',
+  'snapshot: written by the script at the start of the current shift with the roster and scores, for information; every run replays the whole history, and rows before the snapshot are never rewritten',
   'error: written by the script above the row it describes; removed on the next run',
   'comment: any row with an empty type or a type starting with # (the row is kept as typed; remove the # to restore it; commenting a row out has exactly the effect of deleting it); kept in place, never replayed; an undated comment sticks to the row below it',
   '',

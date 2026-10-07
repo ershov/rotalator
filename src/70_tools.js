@@ -73,7 +73,7 @@ var HELP_TEXT = [
   'undated set / team / repel / repel! / attract / attract!: take the date of the nearest dated row above them, or apply from the beginning of the timeline when nothing dated is above; anchor needs a dated set row',
   'undated row at the bottom of the tab: it takes the date of the last generated shift near the horizon, not today; type it under the current shift instead',
   'repel / repel! / attract / attract! / detach: Rotation1, Rotation2 (mutual in #Global; in a rotation tab one-sided, naming the other rotation)',
-  'snapshot: written by the script at the start of the current shift with the roster and scores; delete it to replay the whole history',
+  'snapshot: written by the script at the start of the current shift with the roster and scores, for information; every run replays the whole history, and rows before the snapshot are never rewritten',
   'error: written by the script above the row it describes; removed on the next run',
   'comment: any row with an empty type or a type starting with # (the row is kept as typed; remove the # to restore it; commenting a row out has exactly the effect of deleting it); kept in place, never replayed; an undated comment sticks to the row below it',
   '',
