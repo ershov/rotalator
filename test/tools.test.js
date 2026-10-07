@@ -196,6 +196,22 @@ test('fillShiftsGridCells: epoch rows at the top stay in place; gaps after the a
   assert.equal(before.error, '1 empty row(s) above would fall before the grid start 2026-10-05T09:00');
 });
 
+test('scoresAtCursorRow: roster and scores just before the instant as a #team comment; rows at the instant do not count', () => {
+  const tab = [SET, R('', '2026-10-05T09:00', 'team', 'alice, bob'), R('', '2026-10-05T09:00', 'shift', 'alice'), R('', '2026-10-12T09:00', 'shift', 'bob'),
+    R('', '2026-10-19T09:00', 'join', 'carol'), R('', '2026-10-19T09:00', 'shift', 'alice'), R('', '2026-10-26T09:00', 'shift', 'carol')];
+  const at = (s) => plain(U.scoresAtCursorRow(tab, dt(s), [], []));
+  assert.deepEqual(at('2026-10-19T09:00'), { row: ['', '2026-10-19T09:00', '#team', 'alice=7, bob=7', '', '', ''] }, 'the join and the shift at the instant are not counted');
+  assert.deepEqual(at('2026-10-12T09:00').row[3], 'alice=7, bob=0');
+  assert.deepEqual(at('2026-10-15T09:00').row[3], 'alice=7, bob=3', 'a shift in progress is credited up to the instant');
+  assert.deepEqual(at('2026-10-26T09:00').row[3], 'alice=14, bob=7, carol=7', 'carol joined at the median');
+  assert.deepEqual(at('2026-10-05T09:00').row[3], '', 'nothing before the first row');
+  // The comment sorts first at its instant, so a run keeps it above the rows it describes.
+  const sorted = U.sortRows(U.rowsFromCells([tab[4], at('2026-10-19T09:00').row, tab[5]]));
+  assert.deepEqual(plain(sorted.map((r) => r.type)), ['comment', 'join', 'shift']);
+  assert.equal(plain(U.scoresAtCursorRow(tab.concat([R('', '2026-10-13T09:00', 'leave', 'zed')]), dt('2026-10-19T09:00'), [], [])).error, 'row 9: leave: unknown member "zed"');
+  assert.match(plain(U.scoresAtCursorRow([R('', '2026-10-05T09:00', 'team', 'alice')], dt('2026-10-19T09:00'), [], [])).error, /no grid yet/);
+});
+
 test('fillShiftsGridCells: refusals', () => {
   const tab = [SET, R('', '2026-10-05T09:00', 'team', 'alice')];
   assert.equal(plain(U.fillShiftsGridCells([R('', '', 'shift', 'alice'), tab[1]], tab, [])).error, 'selected row 1 has content but no start');

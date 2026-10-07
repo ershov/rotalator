@@ -315,6 +315,12 @@ INSTALL.md).
   never written. Undated rows must be blank, `type` = `shift` only, or
   comments, which travel with the next dated row. Use it to lay out history
   before typing the names.
+- **Insert scores at cursor** inserts, above the cursor row of a rotation
+  tab, a `#team` comment row dated at that row's `start` with the roster and
+  scores just before it (`alice=12.5, bob=11`, roster order). Rows dated at
+  that instant do not count. The row changes nothing; remove the `#` to turn
+  it into a `team` row that fixes the roster and scores there, see Archive
+  old history.
 
 ## Running
 
@@ -340,7 +346,8 @@ INSTALL.md).
 
 One run at a time: every run, preview, re-export and clean, the nightly
 trigger, the Slack connection check, test message and hourly trigger,
-**Fill Shifts Grid** and **Set Up Spreadsheet** take a script lock. The
+**Fill Shifts Grid**, **Insert scores at cursor** and **Set Up Spreadsheet**
+take a script lock. The
 token items and the trigger installers take none.
 If another run holds it, the action waits five seconds, then gives up with
 the toast `another Rotalator run is in progress` and changes nothing. A run
@@ -403,11 +410,18 @@ scores and the unpinned future on the next run while the rows themselves
 stay as you typed them.
 
 **Archive old history.** Change the `snapshot` row's type to `team`: with its
-`name=score` items it fixes the roster and the scores at that instant. Then
+`name=score` items it fixes the roster and the scores at that instant. To
+archive at another instant, put the cursor on that row and run **Insert
+scores at cursor**, then remove the `#` from the inserted `#team` row. Then
 cut the rows above it to another tab, keeping the undated `set` rows
 (settings are replayed from the top). The schedule does not change; the next
 run writes a new snapshot once the current shift has moved past that row.
 `score` rows below it still need their members on the roster.
+
+**See the scores at an instant.** Put the cursor on a dated row and run
+**Insert scores at cursor**: a `#team` comment row with the roster and
+scores just before that instant appears above it, and the run leaves it
+there. Delete it when done, or keep it as a note.
 
 **Pause a rotation.** Rename its tab to `#<rotation>`. It is skipped until
 renamed back.

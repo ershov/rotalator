@@ -253,6 +253,7 @@ function onOpen() {
     .addItem('Set Up Spreadsheet', 'setupSpreadsheet')
     .addItem('Set Up Tab', 'setupTab')
     .addItem('Fill Shifts Grid', 'fillShiftsGrid')
+    .addItem('Insert scores at cursor', 'insertScoresAtCursor')
     .addSeparator()
     .addItem('Install nightly trigger', 'installTrigger')
     .addItem('Remove trigger', 'removeTrigger');
@@ -647,6 +648,34 @@ function setupTab() {
   writeTemplate(sheet, templateFor(name, new SheetsStorage(ss)));
   formatTab(sheet);
   toast('"' + name + '" set up from the template');
+}
+
+// Menu: Insert Scores At Cursor on a rotation tab (DESIGN 10.5): a #team comment row with the roster and scores
+// just before the cursor row's start, inserted above the first row with that start. Under the lock: it inserts
+// a row a concurrent run may be re-sorting.
+function insertScoresAtCursor() {
+  return withLock(insertScoresAtCursorUnlocked);
+}
+
+function insertScoresAtCursorUnlocked() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getActiveSheet();
+  var name = sheet.getName();
+  if (isSystemTab(name) || !isLedgerHeader(headerCells(sheet))) { toast('"' + name + '" is not a rotation tab'); return; }
+  var cursor = sheet.getActiveRange().getRow();
+  var storage = new SheetsStorage(ss);
+  var tab = storage.readValues(sheet, CELL_DATETIME_FORMAT).slice(1);
+  var startOf = function (cells) { return cells ? parseDateTime(cellText(cells[1])) : null; };
+  var at = cursor < 2 ? null : startOf(tab[cursor - 2]);
+  if (at === null) { toast('put the cursor on a dated row below the header'); return; }
+  var result = scoresAtCursorRow(tab, at, storage.readHolidays(), storage.readGlobal());
+  if (result.error) { toast(result.error); return; }
+  var first = cursor;
+  for (var i = 0; i < tab.length; i++) { if (startOf(tab[i]) === at) { first = i + 2; break; } }
+  sheet.insertRowsBefore(first, 1);
+  writeTextCells(sheet, first, [result.row]);
+  sheet.setActiveRange(sheet.getRange(first, 1, 1, LEDGER_HEADER.length));
+  toast('scores before ' + formatDateTime(at) + ' inserted above row ' + (first + 1));
 }
 
 // Menu: Fill Shifts Grid over the selected rows of a rotation tab (DESIGN 10). Under the lock: it rewrites

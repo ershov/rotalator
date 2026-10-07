@@ -110,6 +110,7 @@ var HELP_TEXT = [
   'Set Up Spreadsheet: creates missing tabs, formats every tab and rewrites #Help; never changes your data',
   'Set Up Tab: fills an empty tab from its template (rotation, #Holidays or #Global)',
   'Fill Shifts Grid: puts the selected rows of a rotation tab on the grid, filling start',
+  'Insert scores at cursor: inserts a #team comment row above the cursor row with the roster and scores just before its start; remove the # to make it a team row that fixes roster and scores there, the first step of archiving',
   'Install nightly trigger / Remove trigger: schedule Run daily between 02:00 and 03:00, or stop it',
   '',
   'NEVER TOUCHED BY THE SCRIPT: pinned rows; rows before the stored snapshot; comments; header rows; tabs without the ledger header. Unpinned shifts after the snapshot are regenerated every run.',
@@ -223,6 +224,37 @@ function isTemplateShiftRow(cells) {
 // A dated row with nothing but its start (and pin) is a grid position, not a comment.
 function hasOnlyStart(cells) {
   return cells.every(function (c, i) { return i === 0 || i === 1 || cellText(c) === ''; });
+}
+
+// Insert Scores At Cursor (DESIGN 10.5): the roster and scores of a rotation just before `at` as a #team
+// comment row dated there, with the run's own pieces: the state rows before `at` applied in ledger order and
+// every shift before it credited up to `at`, as the snapshot item records them at S. A row starting at `at`
+// counts for nothing. tabCells: the rows below the header; holidayTexts: #Holidays column A; globalCells:
+// #Global rows below the header. Returns { row: cells } or { error: message }.
+function scoresAtCursorRow(tabCells, at, holidayTexts, globalCells) {
+  var holidays = new Set();
+  (holidayTexts || []).forEach(function (text) { var day = parseDay(text ?? ''); if (day !== null) holidays.add(day); });
+  var rows = ledgerRows(rowsFromCells(tabCells));
+  var globalSets = rowsOfType(rowsFromCells(globalCells || []), 'set');
+  var timeline = new SettingsTimeline(rowsOfType(rows, 'set'), holidays, globalSets, impliedAnchor(rows));
+  if (timeline.gridStart() === null) return { error: 'the tab has no grid yet: it needs a period and an anchor or a first shift' };
+  resolveDurations(rows, timeline, rosterSizeAt(rows));
+  var rot = { roster: new Roster(), timeline: timeline };
+  var shifts = rowsOfType(rows, 'shift');
+  for (var i = 0; i < rows.length && rows[i].start < at; i++) {
+    var row = rows[i];
+    if (row.type !== 'shift') {
+      var message = applyStateRow(rot, { row: row, start: row.start });
+      if (message !== null) return { error: 'row ' + row.rowIndex + ': ' + message };
+      continue;
+    }
+    var who = shiftAssignee(row);
+    if (who === null) continue;
+    var k = shifts.indexOf(row);
+    var end = scoredEnd(row, shifts[k + 1] ? shifts[k + 1].start : null, timeline.gridAt(row.start));
+    rot.roster.credit(who, units(row.start, Math.min(end, at), timeline.at(row.start).unitsOptions(holidays)));
+  }
+  return { row: ['', formatDateTime(at), '#team', rot.roster.snapshotWhat(), '', '', ''] };
 }
 
 // Fill Shifts Grid over a selection. selectedCells: the ledger columns of the selected rows; tabCells: every

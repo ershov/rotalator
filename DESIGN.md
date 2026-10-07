@@ -1400,6 +1400,32 @@ in `80_runner.js` is the pure cadence, tested with an injected clock) and
 toasts the counts per finished calendar. On the trigger toasts are harmless
 no-ops; in Node they are skipped.
 
+### 10.5 Insert Scores At Cursor
+
+`insertScoresAtCursor()` needs the cursor on a dated row below the header of
+a rotation tab (else a toast). It computes the roster and scores of the
+rotation just before that row's `start` with the run's own pieces
+(`scoresAtCursorRow` in `70_tools.js`: the settings timeline, `applyStateRow`
+for every state row before the instant in 3.6 order, and the credit of every
+shift before it up to the instant, as the snapshot item records them at
+`S`); a row starting at the instant counts for nothing, so a `join` or a
+`shift` dated there is not included. It inserts one row directly above the
+first row with that `start` in sheet order (a tab edited since the last run
+may be unsorted; the next run's sort settles the position): `#team` in
+`type`, the instant in `start`, the roster in roster order as `name=score`
+in `what`, the shape of a `snapshot` and of a `team` row; nothing else is
+written. The row is a comment (3.4), so
+it has no effect on replay, and a dated comment sorts first at its instant,
+which keeps it above that row on the next run. Removing the `#` turns it
+into a `team` row that fixes the roster and the scores there, the archive
+step of 3.4. It is a comment rather than a `score` row because, with the
+informational snapshot, a `score` row would freeze the history above it
+into the scores and make later corrections to that history ineffective. A
+state row before the instant that fails on replay (`leave: unknown member`,
+...) stops the action with its message. The action runs under the script
+lock like Fill Shifts Grid, since it inserts a row a concurrent run may be
+re-sorting.
+
 ## 11. Stages
 
 1. Core, memory and CSV adapters, CLI, tests, DESIGN.md.
