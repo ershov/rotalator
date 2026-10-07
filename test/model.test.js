@@ -216,7 +216,7 @@ test('settings data and parseSetArg with values and bare keys', () => {
   const d = U.defaultSettings();
   assert.equal(d.period, null);
   assert.equal(d.anchor, null);
-  assert.deepEqual(plain(d.horizon), { text: '20w', unit: 'clock', amount: 20, minutes: 20 * 10080 });
+  assert.deepEqual(plain(d.horizon), { text: '30w', unit: 'clock', amount: 30, minutes: 30 * 10080 });
   assert.equal(d.tiebreak, 'order');
   assert.equal(d.baseline, 'median');
   assert.deepEqual(plain(d.precredit), { text: '1ts', unit: 'ts', amount: 1, minutes: null });

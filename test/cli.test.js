@@ -25,7 +25,7 @@ test('init: template ledger, holidays and now; start defaults to the recent Mond
   assert.equal(fs.readFileSync(path.join(dir, 'now.txt'), 'utf8'), '2026-10-07T12:00\n');
   const result = runDir(dir);
   assert.deepEqual(result.errors, []);
-  assert.equal(result.ledgers.primary.filter((r) => r[2] === 'shift').length, 20);
+  assert.equal(result.ledgers.primary.filter((r) => r[2] === 'shift').length, 30);
   assert.throws(() => initDir(dir, { rotation: 'primary', now: '2026-10-07T12:00' }), /already exists/);
   const named = initDir(fresh('default-name'), { now: '2026-10-07T12:00' });
   assert.equal(path.basename(named.files[0]), 'Rotation 1 Primary.csv');

@@ -208,7 +208,7 @@ ledger error.
 | `period` | required | Regular shift length, `Nd` or `Nw` (`w` is `7d`). In a rotation tab a dated `set` row carrying `period` also anchors the grid at its `start`; in `#Global` it never does. |
 | `anchor` | `start` of the `set` row, else the first shift | A grid instant. Shifts start and end at `anchor + k * period`. Also the earliest instant the schedule can begin. Write a bare `anchor` in a `set` row dated at the new grid instant to realign the grid. Without one, the first shift's `start` is the anchor (`implied` in `#Status`). |
 | `grid` | `calendar` | `calendar`: shifts change every `period` of wall-clock time. `counted`: every `period` of counted days, the days not skipped by `skip_weekends` and `skip_holidays`; with `skip_weekends=true` a daily shift starting on Friday runs until Monday, and `1w` means seven counted days and drifts across weekdays. An anchor inside a skipped day counts as the boundary between the surrounding counted days. |
-| `horizon` | `20w` | Interval. Generate shifts up to the first grid boundary at or after the snapshot plus `horizon`. |
+| `horizon` | `30w` | Interval. Generate shifts up to the first grid boundary at or after the snapshot plus `horizon`. |
 | `skip_weekends` | `true` | Saturdays and Sundays credit zero days. |
 | `skip_holidays` | `true` | Dates in `#Holidays` credit zero days. |
 | `tolerance` | `0.5sl` | Members within `tolerance` of the lowest projected score are candidates. A plain number is days of score; `1sl` is what one regular shift earns at that point (honouring skipped days), `1ts` one full cycle, clock units are nominal days. |
@@ -233,7 +233,7 @@ the shift length, one full cycle of the roster as it is at that point
 whole minutes. From a grid instant `1sl` reaches the next boundary; from any
 other instant it is one period along the grid timeline. With `grid=counted`,
 intervals count counted days, so `2d` is two working days, and with
-`skip_weekends` the default `horizon=20w` is 20 counted weeks, about 28
+`skip_weekends` the default `horizon=30w` is 30 counted weeks, about 42
 calendar weeks.
 `period` itself takes clock units only.
 

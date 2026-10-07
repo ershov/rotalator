@@ -23,7 +23,7 @@ next      alice             from 2026-06-01T09:00
   period                                                             default
   anchor                                                             default
   grid           calendar                                            default
-  horizon        20w                                                 default
+  horizon        30w                                                 default
   skip_weekends  true                                                default
   skip_holidays  true                                                default
   tolerance      0.5sl                                               default

@@ -81,7 +81,7 @@ var HELP_TEXT = [
   'period=1w: regular shift length in clock units; required in the first set row of a rotation',
   'anchor: bare key, the row start becomes the grid anchor; every shift starts at anchor + k x period',
   'grid=calendar: or counted, a boundary every period of counted (not skipped) days',
-  'horizon=20w: generate shifts up to this interval after the snapshot',
+  'horizon=30w: generate shifts up to this interval after the snapshot',
   'skip_weekends=true: Saturdays and Sundays credit nothing',
   'skip_holidays=true: dates listed in #Holidays credit nothing',
   'tolerance=0.5sl: days (or an interval) above the lowest score that still count as candidates',

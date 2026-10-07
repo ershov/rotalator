@@ -196,7 +196,7 @@ var SETTINGS = {
   period:        { parse: parsePeriod,             def: null,                 bare: 'none' },
   anchor:        { parse: null,                    def: null,                 bare: 'start' },
   grid:          { parse: parseKeyword(GRID_MODES), def: 'calendar',           bare: 'default' },
-  horizon:       { parse: parsePositiveInterval,   def: parseInterval('20w'), bare: 'default', hint: POSITIVE_INTERVAL_HINT },
+  horizon:       { parse: parsePositiveInterval,   def: parseInterval('30w'), bare: 'default', hint: POSITIVE_INTERVAL_HINT },
   skip_weekends: { parse: parseBoolean,            def: true,                 bare: 'default' },
   skip_holidays: { parse: parseBoolean,            def: true,                 bare: 'default' },
   tolerance:     { parse: parseTolerance,          def: parseTolerance('0.5sl'), bare: 'default', hint: 'a number of days or ' + INTERVAL_HINT },

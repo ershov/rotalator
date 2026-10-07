@@ -7,7 +7,7 @@ pin,start,type,what,end,duration,note
 ,,,,,,"exclude / include: name [, name ...]"
 ,,,,,,"set: key, key=value"
 ,,,,,,"set / team without start: take the date of the nearest dated row above, or apply from the beginning at the top; the dated set anchor row fixes where shifts start"
-,,set,"period=1w, grid=calendar, horizon=20w, skip_weekends=true, skip_holidays=true, tolerance=0.5sl, min_distance=0.5ts, tiebreak=order, seed=0, baseline=median, precredit=1ts, autopin=a:2sl",,,
+,,set,"period=1w, grid=calendar, horizon=30w, skip_weekends=true, skip_holidays=true, tolerance=0.5sl, min_distance=0.5ts, tiebreak=order, seed=0, baseline=median, precredit=1ts, autopin=a:2sl",,,
 ,,team,"alice, bob, carol",,,
 ,2026-10-05,set,anchor,,,
 ,2026-10-05,snapshot,"alice=0, bob=0, carol=0",,,
@@ -31,3 +31,13 @@ a,2026-10-19,shift,carol,,,
 ,2027-02-01,shift,carol,,,
 ,2027-02-08,shift,alice,,,
 ,2027-02-15,shift,bob,,,
+,2027-02-22,shift,carol,,,
+,2027-03-01,shift,alice,,,
+,2027-03-08,shift,bob,,,
+,2027-03-15,shift,carol,,,
+,2027-03-22,shift,alice,,,
+,2027-03-29,shift,bob,,,
+,2027-04-05,shift,carol,,,
+,2027-04-12,shift,alice,,,
+,2027-04-19,shift,bob,,,
+,2027-04-26,shift,carol,,,

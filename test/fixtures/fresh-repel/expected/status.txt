@@ -13,20 +13,20 @@ Rotation 2 Secondary  -
 
 rotation  Rotation 1 Primary
 snapshot  2026-10-05
-horizon   2027-02-22
+horizon   2027-05-03
 current   alice               until 2026-10-12
 next      bob                 from 2026-10-12
 
   member  current  score  projected  last shift  next shift  exclusions
-  alice   x        0      35         2026-10-05  2026-10-26
-  bob              0      35                     2026-10-12
-  carol            0      30                     2026-10-19
+  alice   x        0      50         2026-10-05  2026-10-26
+  bob              0      50                     2026-10-12
+  carol            0      50                     2026-10-19
 
   settings       as of 2026-10-07T12:00  source
   period         1w                      rotation
   anchor         2026-10-05              rotation
   grid           calendar                rotation
-  horizon        20w                     rotation
+  horizon        30w                     rotation
   skip_weekends  true                    rotation
   skip_holidays  true                    rotation
   tolerance      0.5sl                   rotation
@@ -41,20 +41,20 @@ next      bob                 from 2026-10-12
 
 rotation  Rotation 2 Secondary
 snapshot  2026-10-05
-horizon   2027-02-22
+horizon   2027-05-03
 current   bob                   until 2026-10-12
 next      carol                 from 2026-10-12
 
   member  current  score  projected  last shift  next shift  exclusions
-  alice            0      30                     2026-10-19
-  bob     x        0      35         2026-10-05  2026-10-26
-  carol            0      35                     2026-10-12
+  alice            0      50                     2026-10-19
+  bob     x        0      50         2026-10-05  2026-10-26
+  carol            0      50                     2026-10-12
 
   settings       as of 2026-10-07T12:00  source
   period         1w                      rotation
   anchor         2026-10-05              rotation
   grid           calendar                rotation
-  horizon        20w                     rotation
+  horizon        30w                     rotation
   skip_weekends  true                    rotation
   skip_holidays  true                    rotation
   tolerance      0.5sl                   rotation
@@ -89,3 +89,13 @@ start             Rotation 1 Primary  Rotation 2 Secondary
 2027-02-01        carol               alice
 2027-02-08        alice               bob
 2027-02-15        bob                 carol
+2027-02-22        carol               alice
+2027-03-01        alice               bob
+2027-03-08        bob                 carol
+2027-03-15        carol               alice
+2027-03-22        alice               bob
+2027-03-29        bob                 carol
+2027-04-05        carol               alice
+2027-04-12        alice               bob
+2027-04-19        bob                 carol
+2027-04-26        carol               alice

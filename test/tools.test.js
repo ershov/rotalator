@@ -17,7 +17,7 @@ test('recentMonday: most recent Monday 00:00 at or before t', () => {
   assert.equal(U.formatDateTime(U.recentMonday(dt('2026-10-11T23:00'))), '2026-10-05');
 });
 
-const SET_DEFAULTS = 'period=1w, grid=calendar, horizon=20w, skip_weekends=true, skip_holidays=true, tolerance=0.5sl, min_distance=0.5ts, tiebreak=order, seed=0, baseline=median, precredit=1ts, autopin=a:2sl';
+const SET_DEFAULTS = 'period=1w, grid=calendar, horizon=30w, skip_weekends=true, skip_holidays=true, tolerance=0.5sl, min_distance=0.5ts, tiebreak=order, seed=0, baseline=median, precredit=1ts, autopin=a:2sl';
 
 test('templateRows: header, help comments, epoch set and team rows, dated set anchor', () => {
   const rows = plain(U.templateRows(dt('2026-10-05T09:00')));

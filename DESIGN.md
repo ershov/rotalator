@@ -302,7 +302,7 @@ removed on read, so they are purely diagnostic and never accumulate. See 6.
 | period | required | `Nd` or `Nw`; `w` is `7d`. Always `period=value`. |
 | anchor | start of the `set` row, else the first `shift` | A grid instant. Also the earliest instant the schedule can begin. Written as a bare `anchor`; it takes no value and the row's `start` is the anchor. A dated rotation `set` row carrying `period` anchors there too; a global `period` never does. Without one before the first `shift` row, that shift's `start` is the anchor (implied). |
 | grid | calendar | `calendar`: a boundary every `period` of wall-clock time. `counted`: a boundary every `period` of counted days, the days not skipped by `skip_weekends` and `skip_holidays` (see 4); a shift whose boundary would fall in skipped days runs through them to the next counted day. `1w` is then seven counted days and drifts across weekdays when weekends are skipped. |
-| horizon | 20w | Interval. Generate slots up to the first grid boundary at or after the snapshot plus `horizon`. |
+| horizon | 30w | Interval. Generate slots up to the first grid boundary at or after the snapshot plus `horizon`. |
 | skip_weekends | true | Saturdays and Sundays credit zero units. |
 | skip_holidays | true | Dates in `#Holidays` credit zero units. |
 | tolerance | 0.5sl | Candidates are members within `tolerance` of the lowest projected score. A plain number is score units (days). With a unit: `sl` is the units a regular shift earns at the slot's start honouring skips, `ts` that times the roster size, clock units nominal days (`1w` is 7). |
@@ -1268,7 +1268,7 @@ set: key, key=value
 ```
 
 then an epoch `set` row (no `start`) listing every setting explicitly at its
-default except `anchor` (`period=1w`, `horizon=20w`, ...), an epoch `team`
+default except `anchor` (`period=1w`, `horizon=30w`, ...), an epoch `team`
 row with sample names, and one dated `set anchor` row at the most recent
 Monday 00:00 where the first shift starts. `#Global` gets the header, the
 help rows
