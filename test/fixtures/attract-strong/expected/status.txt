@@ -18,10 +18,10 @@ current   alice             until 2026-10-12T09:00
 next      bob               from 2026-10-12T09:00
 
   member  current  score  projected  last shift        next shift        exclusions
-  alice   x               14         2026-10-05T09:00  2026-11-02T09:00
-  bob                     14                           2026-10-12T09:00
-  carol                   7                            2026-10-19T09:00
-  dave                    7                            2026-10-26T09:00
+  alice   x        0      14         2026-10-05T09:00  2026-11-02T09:00
+  bob              0      14                           2026-10-12T09:00
+  carol            0      7                            2026-10-19T09:00
+  dave             0      7                            2026-10-26T09:00
 
   settings       as of 2026-10-05T10:00  source
   period         1w                      rotation
@@ -47,10 +47,10 @@ current   alice             until 2026-10-12T09:00
 next      bob               from 2026-10-12T09:00
 
   member  current  score  projected  last shift        next shift        exclusions
-  alice   x               14         2026-10-05T09:00  2026-11-02T09:00
-  bob                     14                           2026-10-12T09:00
-  carol                   0
-  dave                    14                           2026-10-19T09:00
+  alice   x        0      14         2026-10-05T09:00  2026-11-02T09:00
+  bob              0      14                           2026-10-12T09:00
+  carol            0      0
+  dave             0      14                           2026-10-19T09:00
 
   settings       as of 2026-10-05T10:00  source
   period         1w                      rotation

@@ -325,13 +325,13 @@ var ROW_TYPES = {
   repel:    { order: 4,  what: 'names',  required: true,  extent: true },
   'repel!': { order: 5,  what: 'names',  required: true,  extent: true },
   detach:   { order: 6,  what: 'names',  required: true,  extent: true },
-  snapshot: { order: 7,  what: 'scores', required: false, extent: false },
-  team:     { order: 8,  what: 'team',   required: true,  extent: false },
-  score:    { order: 9,  what: 'team',   required: true,  extent: false },
-  join:     { order: 10, what: 'join',   required: true,  extent: false },
-  leave:    { order: 11, what: 'names',  required: true,  extent: false },
-  exclude:  { order: 12, what: 'names',  required: true,  extent: true },
-  include:  { order: 13, what: 'names',  required: true,  extent: false },
+  team:     { order: 7,  what: 'team',   required: true,  extent: false },
+  score:    { order: 8,  what: 'team',   required: true,  extent: false },
+  join:     { order: 9,  what: 'join',   required: true,  extent: false },
+  leave:    { order: 10, what: 'names',  required: true,  extent: false },
+  exclude:  { order: 11, what: 'names',  required: true,  extent: true },
+  include:  { order: 12, what: 'names',  required: true,  extent: false },
+  snapshot: { order: 13, what: 'scores', required: false, extent: false },
   shift:    { order: 14, what: 'shift',  required: false, extent: true },
 };
 
@@ -1727,8 +1727,8 @@ function autopinRows(rot, rows, now) {
 }
 
 // Script rows go in front of the kept rows so undated comments still attach to the next kept row below them.
-// No snapshot row for a rotation that has none yet and an empty roster at S (a fresh rotation whose team row
-// sorts after S); a rotation that already has one keeps its replay boundary even when the roster empties.
+// No snapshot row for a rotation that has none yet and an empty roster at S (a fresh rotation whose first
+// roster row is dated after S); a rotation that already has one keeps its boundary even when the roster empties.
 function rotationOutput(rot, now) {
   var fresh = rot.snapshotWhat === '' && rot.previousAt === null;
   var rows = fresh ? [] : [makeRow({ type: 'snapshot', start: rot.S, what: rot.snapshotWhat })];

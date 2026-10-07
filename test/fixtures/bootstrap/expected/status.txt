@@ -14,10 +14,10 @@ current
 next      alice             from 2026-06-01T09:00
 
   member  current  score  projected  last shift        next shift        exclusions
-  alice                   14         2026-06-01T09:00  2026-06-29T09:00
-  bob                     14                           2026-06-08T09:00
-  carol                   7                            2026-06-15T09:00
-  dave                    7                            2026-06-22T09:00
+  alice            0      14         2026-06-01T09:00  2026-06-29T09:00
+  bob              0      14                           2026-06-08T09:00
+  carol            0      7                            2026-06-15T09:00
+  dave             0      7                            2026-06-22T09:00
 
   settings       as of 2026-06-01T08:00                              source
   period                                                             default

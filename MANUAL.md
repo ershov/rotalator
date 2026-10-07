@@ -66,10 +66,11 @@ Every list in `what` uses one grammar: items separated by `,` or `;`, each
 item `name`, `name=value`, `name+=n` or `name-=n`. Member ids are any text
 without `,` `;` `=` `+`, matched verbatim. Nobody is an empty `what` on a
 `shift`, `-` or `none`. Rows are kept sorted by `start`; rows with equal
-`start` sort as comment, `error`, `set`, `snapshot`, `team`, `score`, `join`,
-`leave`, `exclude`, `include`, `shift`, so state changes apply before the
-shift that starts at the same instant and a `score` right after the `team`
-row it corrects.
+`start` sort as comment, `error`, `set`, `team`, `score`, `join`, `leave`,
+`exclude`, `include`, `snapshot`, `shift`, so state changes apply before the
+shift that starts at the same instant, a `score` right after the `team` row
+it corrects, and the snapshot records the state after the rows dated at its
+instant.
 
 ## Row types
 
@@ -414,9 +415,8 @@ stay as you typed them.
 archive at another instant, put the cursor on that row and run **Insert
 scores at cursor**, then remove the `#` from the inserted `#team` row. Then
 cut the rows above it to another tab, keeping the undated `set` rows
-(settings are replayed from the top). The schedule does not change; the next
-run writes a new snapshot once the current shift has moved past that row.
-`score` rows below it still need their members on the roster.
+(settings are replayed from the top). The schedule does not change. `score`
+rows below it still need their members on the roster.
 
 **See the scores at an instant.** Put the cursor on a dated row and run
 **Insert scores at cursor**: a `#team` comment row with the roster and

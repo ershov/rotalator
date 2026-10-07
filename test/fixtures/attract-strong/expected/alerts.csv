@@ -1,6 +1,7 @@
 pin,start,type,what,end,duration,note
 ,2026-10-05T09:00,set,"period=1w, horizon=6w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0",,,
 ,2026-10-05T09:00,team,"alice, bob, carol, dave",,,
+,2026-10-05T09:00,snapshot,"alice=0, bob=0, carol=0, dave=0",,,
 a,2026-10-05T09:00,shift,alice,,,
 ,2026-10-12T09:00,shift,bob,,,
 ,2026-10-19T09:00,shift,carol,,,

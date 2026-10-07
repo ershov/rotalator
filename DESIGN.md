@@ -280,14 +280,16 @@ anchor's source and instant.
 
 **snapshot.** One per rotation, written by the script. Its instant is the
 start of the current shift, see 5.2. `what` is the roster in order with scores
-as of that instant: `alice=12.5, bob=11`. The row is informational: replay
-always runs from the top of the ledger and recomputes it, nothing reads it
-back. Its instant `P` is the protection boundary of the next run: rows
-before it are never pruned or rewritten, the shift at it is kept, unpinned
+as of that instant: `alice=12.5, bob=11`, recorded after the state rows
+dated at that instant and before the shift starting there, which is where
+the row sorts (3.6). The row is informational: replay always runs from the
+top of the ledger and recomputes it, nothing reads it back. Its instant `P`
+is the protection boundary of the next run: rows before it are never pruned
+or rewritten, the shift at it is kept, unpinned
 shifts after it are regenerated and every uncovered span from it on is
 filled (5.3, 5.4). No snapshot row is written for a rotation that has none
-yet and an empty roster at `S` (a fresh rotation whose `team` row sorts
-after `S`); the next run writes it once a roster exists. A rotation that
+yet and an empty roster at `S` (a fresh rotation whose first roster row is
+dated after `S`); the next run writes it once a roster exists. A rotation that
 already has a snapshot keeps one even when its roster empties, so its
 boundary survives dormancy. The script never moves the snapshot backwards.
 Deleting the snapshot drops `P` for one run, which then prunes and
@@ -376,15 +378,16 @@ rotation that hands over during the day sets its own time in the `set` row.
 ### 3.6 Same-instant ordering
 
 Rows with equal `start` sort as: comment, `error`, `set`, `attract`,
-`attract!`, `repel`, `repel!`, `detach`, `snapshot`, `team`, `score`, `join`,
-`leave`, `exclude`,
-`include`, `shift`. State changes at an instant therefore apply before the shift
-starting at it, and a `score` correction applies right after the `team` row
-of the same instant. Sorting is stable, so user order is kept otherwise, so
-several undated rows that inherited one instant (3.4) keep their document
-order. Epoch rows (3.4) sort before every dated row, in the same type order
-among themselves, and an undated comment above an epoch row attaches to it
-and stays on top of the tab.
+`attract!`, `repel`, `repel!`, `detach`, `team`, `score`, `join`, `leave`,
+`exclude`, `include`, `snapshot`, `shift`. State changes at an instant
+therefore apply before the shift starting at it, a `score` correction
+applies right after the `team` row of the same instant, and the snapshot
+records the roster and scores after the state rows dated at `S`, before the
+shift starting there and before the pre-credit of 5.5. Sorting is stable,
+so user order is kept otherwise, so several undated rows that inherited one
+instant (3.4) keep their document order. Epoch rows (3.4) sort before every
+dated row, in the same type order among themselves, and an undated comment
+above an epoch row attaches to it and stays on top of the tab.
 
 An undated comment attaches to the next dated row below it in the ledger as
 read: its sort key becomes that row's `start` with an order just before that

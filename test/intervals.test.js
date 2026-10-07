@@ -135,8 +135,8 @@ test('advance resolves sl durations before looking for the shift containing now'
   assert.equal(fmt(U.advance(pinned('2sl'), dt('2026-10-14T12:00'))), '2026-10-05T09:00');
   assert.equal(fmt(U.advance(pinned('1sl'), dt('2026-10-14T12:00'))), '2026-10-12T09:00');
   const out = run([set('period=1w, horizon=5w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), TEAM, R('x', '2026-10-05T09:00', 'shift', 'carol', '', '2sl')], '2026-10-14T12:00');
-  // The roster is empty at S (team row at the same instant), so no snapshot row is written; the status shows S.
-  assert.equal(out.rotations[0].rows.some((r) => r.type === 'snapshot'), false);
+  // The team row at S applies before the snapshot, which is written at S with nothing credited yet.
+  assert.equal(out.rotations[0].rows.find((r) => r.type === 'snapshot').what, 'alice=0, bob=0, carol=0');
   assert.equal(fmt(out.status.rotations[0].snapshotAt), '2026-10-05T09:00');
 });
 

@@ -143,7 +143,7 @@ test('a Saturday anchor or roster row never leaves the snapshot inside skipped d
   assert.equal(shifts(lateTeam)[0][0], '2026-10-12T09:00');
   const calendarTeam = run([R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=3w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), R('', '2026-10-14T09:00', 'team', 'alice')], '2026-10-06T10:00');
   assert.equal(fmt(calendarTeam.status.rotations[0].snapshotAt), '2026-10-14T09:00');
-  assert.equal(ofType(calendarTeam, 'snapshot').length, 0, 'no snapshot row while the roster at S is empty');
+  assert.equal(ofType(calendarTeam, 'snapshot')[0].what, 'alice=0', 'the roster row at S applies before the snapshot');
 });
 
 test('the Grid of a timeline entry is reused and a long counted horizon is fast', () => {

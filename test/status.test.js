@@ -38,12 +38,12 @@ test('status: scores, last and next shift, active exclusions, instants', () => {
   assert.deepEqual(primary.next, { who: 'carol', start: dt('2026-10-12T09:00'), end: dt('2026-10-19T09:00') });
   assert.equal(status.at, dt(NOW));
   assert.deepEqual(primary.roster, [
-    { name: 'alice', score: null, projected: 7, lastShift: dt('2026-10-05T09:00'), nextShift: null, exclusions: [] },
-    { name: 'bob', score: null, projected: 0, lastShift: null, nextShift: null, exclusions: [{ from: dt('2026-10-05T09:00'), to: dt('2026-10-15T09:00') }] },
-    { name: 'carol', score: null, projected: 14, lastShift: null, nextShift: dt('2026-10-12T09:00'), exclusions: [] },
+    { name: 'alice', score: 0, projected: 7, lastShift: dt('2026-10-05T09:00'), nextShift: null, exclusions: [] },
+    { name: 'bob', score: 0, projected: 0, lastShift: null, nextShift: null, exclusions: [{ from: dt('2026-10-05T09:00'), to: dt('2026-10-15T09:00') }] },
+    { name: 'carol', score: 0, projected: 14, lastShift: null, nextShift: dt('2026-10-12T09:00'), exclusions: [] },
   ]);
   assert.deepEqual(secondary.roster, [
-    { name: 'dave', score: null, projected: 21, lastShift: dt('2026-10-05T09:00'), nextShift: dt('2026-10-12T09:00'), exclusions: [] },
+    { name: 'dave', score: 0, projected: 21, lastShift: dt('2026-10-05T09:00'), nextShift: dt('2026-10-12T09:00'), exclusions: [] },
   ]);
   assert.deepEqual(status.warnings, []);
   assert.deepEqual(status.errors, []);
@@ -92,8 +92,8 @@ test('statusRows and shiftsRows: rows, header and divider metadata', () => {
   assert.deepEqual(rows[12].slice(0, 3), ['current', 'alice', 'until 2026-10-12T09:00']);
   assert.deepEqual(rows[13].slice(0, 3), ['next', 'carol', 'from 2026-10-12T09:00']);
   assert.deepEqual(rows[14].slice(0, 3), ['', '', '']);
-  assert.deepEqual(rows[10].slice(5, 9), ['alice', 'x', '', '7']);
-  assert.deepEqual(rows[11].slice(5, 12), ['bob', '', '', '0', '', '', '2026-10-05T09:00 to 2026-10-15T09:00']);
+  assert.deepEqual(rows[10].slice(5, 9), ['alice', 'x', '0', '7']);
+  assert.deepEqual(rows[11].slice(5, 12), ['bob', '', '0', '0', '', '', '2026-10-05T09:00 to 2026-10-15T09:00']);
   assert.deepEqual(rows[13].slice(5, 12), ['', '', '', '', '', '', '']);
   assert.deepEqual(rows[10].slice(14, 17), ['period', '1w', 'rotation']);
   assert.deepEqual(rows[11].slice(14, 17), ['anchor', '2026-10-05T09:00', 'rotation']);
@@ -143,7 +143,7 @@ test('statusRowsVertical: the CLI stacks the three groups of a rotation', () => 
     [],
     ['', 'member', 'current', 'score', 'projected', 'last shift', 'next shift', 'exclusions'],
   ]);
-  assert.deepEqual(rows[i + 7].slice(0, 5), ['', 'alice', 'x', '', '7']);
+  assert.deepEqual(rows[i + 7].slice(0, 5), ['', 'alice', 'x', '0', '7']);
   assert.deepEqual(rows[i + 11], ['', 'settings', 'as of 2026-10-05T10:00', 'source']);
   assert.deepEqual(rows[i + 12], ['', 'period', '1w', 'rotation']);
   const headers = structuredClone(out.headerRows);
