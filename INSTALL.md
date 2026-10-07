@@ -137,9 +137,10 @@ script, then reload.
    - rewrites the `#Help` tab (plain text: columns, row types, settings,
      intervals, relations, menu) and keeps it as the last tab;
    - on every rotation, `#Holidays`, `#Global` and `#All shifts` tab: Roboto
-     Mono font and top-left alignment on the whole columns, plain text
-     format on the whole ledger columns (`A:G`), so rows added later keep
-     them, bold grey frozen header, column widths,
+     Mono font and top-left alignment on the whole columns, wrapped text
+     except on `#All shifts`, plain text format on the whole ledger columns
+     (`A:G`), so rows added later keep them, bold grey frozen header, column
+     widths,
      a note on each header cell explaining the column, spare empty columns
      beyond the last one removed;
    - on rotation tabs and `#Global`: conditional row colours by `type`

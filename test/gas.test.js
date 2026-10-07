@@ -119,6 +119,9 @@ test('Set Up Spreadsheet formats whole columns and sets the theme font, so rows 
     assert.ok(calls.includes(`${m} A:Z`), `${m} on the whole columns`);
   }
   assert.ok(calls.includes('setNumberFormat A:G'));
+  // Ledger-layout tabs and #Holidays wrap their text; the status tabs do not.
+  for (const n of ['Rotation 1 Primary', '#Global', '#Holidays']) assert.ok(ss.getSheetByName(n).calls.includes('setWrap A:Z'), `${n} wraps`);
+  for (const n of ['#Status', '#All shifts']) assert.ok(!ss.getSheetByName(n).calls.some((c) => c.startsWith('setWrap')), `${n} does not wrap`);
   // A spreadsheet without a theme is left alone and still set up.
   const bare = spreadsheet([], null);
   bare.run('setupSpreadsheet()');

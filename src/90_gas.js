@@ -417,13 +417,13 @@ function writeHeaderRow(sheet, header) {
 function tabLayout(sheet) {
   var name = sheet.getName();
   if (extensionTabOwner(name) !== null) return null;
-  if (name === HOLIDAYS_TAB) return { header: HOLIDAYS_HEADER, widths: HOLIDAYS_COLUMN_WIDTHS, notes: true, freeze: true };
+  if (name === HOLIDAYS_TAB) return { header: HOLIDAYS_HEADER, widths: HOLIDAYS_COLUMN_WIDTHS, notes: true, freeze: true, wrap: true };
   if (name === ALL_SHIFTS_TAB) return { header: null, widths: null, notes: false, freeze: false };
   if (name === STATUS_TAB) return { header: null, widths: STATUS_COLUMN_WIDTHS, notes: false, freeze: false };
   if (name === HELP_TAB) return { header: null, widths: [HELP_COLUMN_WIDTH], keep: HELP_COLUMNS, notes: false, freeze: false };
   if (isSystemTab(name) && !isKnownSystemTab(name)) return null;
   if (!isSystemTab(name) && !isEmptySheet(sheet) && !isLedgerHeader(headerCells(sheet))) return null;
-  return { header: LEDGER_HEADER, widths: LEDGER_COLUMN_WIDTHS, notes: true, freeze: true };
+  return { header: LEDGER_HEADER, widths: LEDGER_COLUMN_WIDTHS, notes: true, freeze: true, wrap: true };
 }
 
 // First-row cells of the ledger columns, padded to the ledger width; a tab narrower than the ledger has no
@@ -459,6 +459,7 @@ function formatTab(sheet) {
   var all = wholeColumns(sheet, sheet.getMaxColumns());
   all.setFontFamily(FONT_FAMILY);
   alignTopLeft(all);
+  if (layout.wrap) all.setWrap(true);
   var width = layout.header ? layout.header.length : layout.widths ? layout.widths.length : STATUS_WIDTH;
   var present = Math.min(width, sheet.getMaxColumns());
   wholeColumns(sheet, present).setNumberFormat('@');

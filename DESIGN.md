@@ -1186,8 +1186,11 @@ and empty non-`#` tabs: Roboto Mono and top-left alignment on the whole
 columns present (`A:<last column>`, `setVerticalAlignment('top')` and
 `setHorizontalAlignment('left')`, re-applied by `writeTextCells` on every
 range the script writes, since generated tabs are cleared with their
-formats), plain text number format on the whole ledger columns (`A:G`), and
-on tabs that have their header a bold header row on a light grey
+formats), wrapped text (`setWrap(true)`) on the same columns of the tabs
+with the ledger layout (rotation tabs, previews, `#Global`) and of
+`#Holidays`, not of `#Status` and `#All shifts`, plain text number format on
+the whole ledger columns (`A:G`), and on tabs that have their header a bold
+header row on a light grey
 background, frozen, column widths per column (`note` twice as wide as
 `what`), a note on each header cell explaining the column and empty columns
 beyond the last one deleted; plus a tab colour on `#` tabs (blue for the
