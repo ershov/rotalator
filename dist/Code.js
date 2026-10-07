@@ -3727,11 +3727,25 @@ function formatPresetTab(sheet, widths, rules) {
   sheet.setTabColor(TAB_COLOR_EDITABLE);
 }
 
-// #Global directly before #Holidays; only moves when both exist and #Holidays comes first.
-function orderGlobalBeforeHolidays(ss) {
-  var global = ss.getSheetByName(GLOBAL_TAB);
-  var holidays = ss.getSheetByName(HOLIDAYS_TAB);
-  if (global && holidays && holidays.getIndex() < global.getIndex()) moveTab(ss, global, holidays.getIndex());
+// Tab order (DESIGN 3.1, 10.1): the non-# tabs first in their existing order, each followed by its preview
+// tab, then #All shifts, #Status, #Global, #Holidays. A tab is moved only when it is not already directly
+// after the previous one, so tabs not listed here are never moved and end up after this block; extension
+// hooks place their tabs after #Holidays and writeHelpTab moves #Help last.
+function orderCoreTabs(ss) {
+  var ordered = [];
+  ss.getSheets().forEach(function (sheet) {
+    if (isSystemTab(sheet.getName())) return;
+    ordered.push(sheet);
+    var preview = ss.getSheetByName(previewTabName(sheet.getName()));
+    if (preview) ordered.push(preview);
+  });
+  [ALL_SHIFTS_TAB, STATUS_TAB, GLOBAL_TAB, HOLIDAYS_TAB].forEach(function (name) {
+    var sheet = ss.getSheetByName(name);
+    if (sheet) ordered.push(sheet);
+  });
+  ordered.forEach(function (sheet, i) {
+    if (i === 0) { if (sheet.getIndex() !== 1) moveTab(ss, sheet, 1); } else placeTabAfter(ss, sheet, ordered[i - 1]);
+  });
 }
 
 // #Help: helpText() in column A, first line and headings bold, moved to the last position; the active tab is kept.
@@ -3799,7 +3813,7 @@ function setupSpreadsheetUnlocked() {
   ensureTemplateTab(ss, HOLIDAYS_TAB, storage);
   ensureTab(ss, STATUS_TAB, null);
   ensureTab(ss, ALL_SHIFTS_TAB, SHIFTS_HEADER);
-  orderGlobalBeforeHolidays(ss);
+  orderCoreTabs(ss);
   setThemeFont(ss);
   var failed = [];
   callExtensionHooks('setup', [ss], function (h, e) { logExtensionError(h, e); failed.push(extensionErrorMessage(h, e)); });

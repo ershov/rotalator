@@ -88,12 +88,12 @@ function slackFormatTab(sheet) {
   formatPresetTab(sheet, SLACK_COLUMN_WIDTHS, slackFormatRules());
 }
 
-// The tab #Slack follows: #GCal when present, else #Global.
+// The tab #Slack follows: #GCal when present, else #Holidays.
 function slackAnchorTab(ss) {
-  return ss.getSheetByName(GCAL_TAB) || ss.getSheetByName(GLOBAL_TAB);
+  return ss.getSheetByName(GCAL_TAB) || ss.getSheetByName(HOLIDAYS_TAB);
 }
 
-// Hook: creates #Slack after #GCal or #Global with the template when missing or empty, places and formats it;
+// Hook: creates #Slack after #GCal or #Holidays with the template when missing or empty, places and formats it;
 // an existing #Slack state gets the colour of the script-written tabs.
 function slack_setup(ss) {
   var sheet = ss.getSheetByName(SLACK_TAB);

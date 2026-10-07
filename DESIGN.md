@@ -78,9 +78,12 @@ renaming it back later behaves like a stale run (5.2). The
 `#Status` tab starts with a block listing the rotations found, the number of
 holidays and `#Global` rows read, and the tabs ignored (including
 `#`-prefixed tabs that are not system tabs, so a disabled rotation is visible
-there). A missing
-preview tab is created right after the tab it previews and never moved
-afterwards.
+there). A missing preview tab is created right after the tab it previews;
+Set Up Spreadsheet keeps it there. Set Up Spreadsheet orders the tabs it
+knows: the non-`#` tabs first in their existing order, each followed by its
+preview tab, then `#All shifts`, `#Status`, `#Global`, `#Holidays`, the
+extension tabs (`#GCal`, then `#Slack`) and `#Help` last; other `#` tabs
+are not moved and end up between `#Holidays` and `#Help` (10.1).
 
 ### 3.2 Ledger columns
 
@@ -1174,15 +1177,20 @@ Primary` from the rotation template when no rotation exists, rewrites the
 `#Help` tab from `HELP_TEXT` in `70_tools.js` (one line per row in column A,
 first row bold, column width 900, tab colour light cyan 1 `#76a5af`, no
 conditional rules, columns beyond A removed) and moves it to the last
-position, creates `#Global` before `#Holidays` and moves an existing
-`#Global` directly before `#Holidays` when it comes after it, calls each
-installed extension's `<prefix>_setup(ss)` (8, Extensions) before `#Help` is
-placed, sets the spreadsheet theme font to Roboto Mono once when the
-spreadsheet has a theme (`getSpreadsheetTheme()` is null otherwise), so
-cells, tabs and columns without an explicit font default to it, flushes the
-pending inserts and moves (`SpreadsheetApp.flush()`) before enumerating the
-tabs, and formats every rotation tab, `#Holidays`, `#Global`, `#All shifts`
-and empty non-`#` tabs: Roboto Mono and top-left alignment on the whole
+position, orders the tabs (`orderCoreTabs`, 3.1): every non-`#` tab first in
+its existing order, each followed by its `#Preview` tab, then `#All shifts`,
+`#Status`, `#Global`, `#Holidays`, each moved only when it is not already
+directly after the previous one, so `#` tabs the core does not know are
+never moved and end up after that block; then calls each installed
+extension's `<prefix>_setup(ss)` (8, Extensions), which place `#GCal`
+directly after `#Holidays` and `#Slack` after `#GCal` (13.5, 14.5), before
+`#Help` is placed last; sets the spreadsheet theme font to Roboto Mono once
+when the spreadsheet has a theme (`getSpreadsheetTheme()` is null
+otherwise), so cells, tabs and columns without an explicit font default to
+it, flushes the pending inserts and moves (`SpreadsheetApp.flush()`) before
+enumerating the tabs, and formats every rotation tab, `#Holidays`,
+`#Global`, `#All shifts` and empty non-`#` tabs: Roboto Mono and top-left
+alignment on the whole
 columns present (`A:<last column>`, `setVerticalAlignment('top')` and
 `setHorizontalAlignment('left')`, re-applied by `writeTextCells` on every
 range the script writes, since generated tabs are cleared with their
@@ -1647,13 +1655,13 @@ preset` takes the preset from the active cell's row in `#GCal`, walking up
 from a setting row to its preset row, and deletes every Rotalator event of
 that calendar in the window above.
 
-`gcal_setup(ss)` creates `#GCal` directly after `#Global` when missing, and
-moves an existing one there when it sits elsewhere (once; a tab coming from
-before `#Global` is moved to `#Global`'s current index, since `#Global`
-shifts up when the tab leaves), so on a fresh spreadsheet the editable tabs
-read `#Global`, `#GCal`, `#Holidays` (on an existing one `#Holidays` follows
-only when it already followed `#Global`, 10.1) and `#Help` stays last. An
-empty tab gets the template
+`gcal_setup(ss)` creates `#GCal` directly after `#Holidays` when missing,
+and moves an existing one there when it sits elsewhere (once, with the
+core's `placeTabAfter`; a tab coming from before `#Holidays` is moved to
+`#Holidays`' current index, since `#Holidays` shifts up when the tab
+leaves), so the system tabs read `#All shifts`, `#Status`, `#Global`,
+`#Holidays`, `#GCal` and `#Help` stays last (10.1). An empty tab gets the
+template
 (`gcalTemplateRows`): the header, the cheat sheet `gcalCheatSheet()` as
 comment rows in column C (a `SETTINGS` heading, one line per setting with
 its values and default, a `TEMPLATES` line with the variables and the
@@ -1951,7 +1959,7 @@ like the calendar actions; the token items and the trigger installers take
 no lock, like the core's.
 
 `slack_setup(ss)` creates `#Slack` directly after `#GCal` when that tab
-exists, else after `#Global`, and moves an existing one there once, following
+exists, else after `#Holidays`, and moves an existing one there once, following
 the `#GCal` rules (13.5); the hooks run in `EXTENSIONS` order, so `#GCal`
 is in place first. An empty tab gets the template
 (`slackTemplateRows`): the header, the cheat sheet `slackCheatSheet()` as

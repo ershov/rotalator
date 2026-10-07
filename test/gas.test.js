@@ -108,6 +108,19 @@ test('Set Up Spreadsheet survives a sheet that cannot be formatted: flushes firs
   assert.deepEqual(clean.log, []);
 });
 
+test('Set Up Spreadsheet orders the tabs: rotations with their previews, then the system tabs, unknown # tabs untouched, #Help last', () => {
+  const header = ['pin', 'start', 'type', 'what', 'end', 'duration', 'note'];
+  const ledger = (name) => new Sheet(name, [header.slice(), ['', '2026-10-05T09:00', 'set', 'period=1w', '', '', '']]);
+  const shuffled = ['#Help', '#Holidays', ledger('Rotation B'), '#Status', '#Preview Rotation B', '#Custom', '#Global', ledger('Rotation A'), '#All shifts', new Sheet('Notes', [['hello']])];
+  const { ss, run } = spreadsheet(shuffled.map((s) => (typeof s === 'string' ? new Sheet(s) : s)));
+  run('setupSpreadsheet()');
+  assert.deepEqual(ss.sheets.map((s) => s.name), ['Rotation B', '#Preview Rotation B', 'Rotation A', 'Notes', '#All shifts', '#Status', '#Global', '#Holidays', '#Custom', '#Help']);
+  // Idempotent: a second setup moves nothing.
+  const before = ss.sheets.slice();
+  run('setupSpreadsheet()');
+  assert.deepEqual(ss.sheets, before);
+});
+
 test('Set Up Spreadsheet formats whole columns and sets the theme font, so rows added later inherit them', () => {
   const { ss, run } = spreadsheet([]);
   run('setupSpreadsheet()');

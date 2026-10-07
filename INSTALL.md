@@ -132,6 +132,9 @@ script, then reload.
      year and `#Global` its help rows and a `set` row of defaults;
    - creates a first rotation tab `Rotation 1 Primary` from the template when
      the spreadsheet has no rotation yet;
+   - orders the tabs: rotations first, then `#All shifts`, `#Status`,
+     `#Global`, `#Holidays`, the extension tabs and `#Help` last; other `#`
+     tabs are left where they are;
    - lets each installed extension create its own tabs (`#GCal` for the
      calendar extension, `#Slack` for the Slack extension);
    - rewrites the `#Help` tab (plain text: columns, row types, settings,
@@ -186,7 +189,7 @@ script, then reload.
 ## 4a. Google Calendar extension
 
 With `GCal.js` installed, **Set Up Spreadsheet** creates the `#GCal` tab
-(`preset | setting | value`) right after `#Global`, with a cheat sheet of
+(`preset | setting | value`) right after `#Holidays`, with a cheat sheet of
 the settings and a first preset `preset-1` to fill in, and the **Rotalator**
 menu gains the re-export and clean items. Then:
 
@@ -212,7 +215,7 @@ scopes were not granted yet (section 1).
 ## 4b. Slack extension
 
 With `Slack.js` installed, **Set Up Spreadsheet** creates the `#Slack` tab
-(`preset | setting | value`) right after `#GCal` (or `#Global`), with a
+(`preset | setting | value`) right after `#GCal` (or `#Holidays`), with a
 cheat sheet of the settings and two presets to fill in, `team` (a channel
 message and the `@oncall` group) and `heads-up` (a reminder to the person
 three days before), and the **Rotalator** menu gains the Slack items. The

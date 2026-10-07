@@ -288,10 +288,11 @@ INSTALL.md).
   `#Global` get conditional row colours by `type` (errors red, settings blue,
   roster changes teal, snapshot green, comment rows yellow, `attract` and
   `repel` green, `detach` grey); the tab's existing conditional rules are
-  replaced. New `#Holidays` and `#Global` tabs get their templates, `#Global`
-  is kept directly before `#Holidays`, the `#Help` tab is rewritten and moved
-  to the end, and unused columns beyond each tab's content are removed. It is
-  idempotent.
+  replaced. New `#Holidays` and `#Global` tabs get their templates, the tabs
+  are ordered as rotations (each with its preview), `#All shifts`, `#Status`,
+  `#Global`, `#Holidays`, then the extension tabs, with `#Help` rewritten and
+  kept last (tabs the script does not know keep their place), and unused
+  columns beyond each tab's content are removed. It is idempotent.
 - **Set Up Tab** fills the active tab from its name. An empty rotation tab
   gets the header, help rows (comments listing what each row type takes in
   `what`, kept at the top of the tab), a `set` row with every setting at its
@@ -627,7 +628,7 @@ Setting it up:
 
 1. Install `GCal.js` next to the core and authorise the calendar access
    (INSTALL.md). **Set Up Spreadsheet** then creates the `#GCal` tab right
-   after `#Global` with a cheat sheet of the settings and a first preset,
+   after `#Holidays` with a cheat sheet of the settings and a first preset,
    `preset-1`, whose `id` reads `FILL IN WITH CALENDAR ID`; `#Help` gains a
    `CALENDAR` section. **Set Up Tab** on an empty `#GCal` writes the same
    template.
@@ -704,7 +705,7 @@ Setting up:
 1. Install `Slack.js` next to the core, create the Slack app from the
    manifest in INSTALL.md and install it to the workspace.
 2. **Set Up Spreadsheet** creates `#Slack` right after `#GCal` (or
-   `#Global`) with a cheat sheet of the settings and the two presets above,
+   `#Holidays`) with a cheat sheet of the settings and the two presets above,
    `team` with `to` reading `#FILL-IN-WITH-CHANNEL`; `#Help` gains a `SLACK`
    section. **Set Up Tab** on an empty `#Slack` writes the same template.
 3. **Set Slack token…** stores the bot token (`xoxb-…`) in a script

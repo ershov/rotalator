@@ -86,15 +86,15 @@ function gcalFormatTab(sheet) {
   formatPresetTab(sheet, GCAL_COLUMN_WIDTHS, gcalFormatRules());
 }
 
-// Hook: creates #GCal after #Global with the template when missing or empty, places and formats it.
+// Hook: creates #GCal after #Holidays with the template when missing or empty, places and formats it.
 function gcal_setup(ss) {
   var sheet = ss.getSheetByName(GCAL_TAB);
   if (!sheet) {
-    var global = ss.getSheetByName(GLOBAL_TAB);
-    sheet = ss.insertSheet(GCAL_TAB, global ? global.getIndex() : ss.getNumSheets());
+    var holidays = ss.getSheetByName(HOLIDAYS_TAB);
+    sheet = ss.insertSheet(GCAL_TAB, holidays ? holidays.getIndex() : ss.getNumSheets());
   }
   if (isEmptySheet(sheet)) writeTextCells(sheet, 1, gcalTemplateRows());
-  placeTabAfter(ss, sheet, ss.getSheetByName(GLOBAL_TAB));
+  placeTabAfter(ss, sheet, ss.getSheetByName(HOLIDAYS_TAB));
   gcalFormatTab(sheet);
   return sheet;
 }
