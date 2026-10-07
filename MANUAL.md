@@ -77,8 +77,8 @@ instant.
 | type | what | end/duration | written by | meaning |
 |---|---|---|---|---|
 | `shift` | one member, or nobody | optional | users, script | The member is on call from `start`. |
-| `team` | `name`, `name=baseline`, `name=number`, `name+=n`, `name-=n` | | users | Sets the full roster. Diffed against the current roster. |
-| `join` | `name`, `name=baseline`, `name=number`; one or more | | users | Members join. |
+| `team` | `name`, `name=number`, `name+=n`, `name-=n` | | users | Sets the full roster. Diffed against the current roster. |
+| `join` | `name`, `name=number`; one or more | | users | Members join. |
 | `leave` | `name`; one or more | | users | Members leave; scores discarded. |
 | `exclude` | `name`; one or more | optional | users | Members are not eligible from `start` until `end`, `duration`, or an `include`. Scores kept. |
 | `include` | `name`; one or more | | users | Ends active exclusions. |
@@ -107,15 +107,15 @@ Example rows, one per item form:
 | pin | start | type | what | end | duration | note |
 |---|---|---|---|---|---|---|
 | | `2026-06-01T09:00` | `set` | `period=1w, horizon=12w` | | | |
-| | `2026-06-01T09:00` | `team` | `alice, bob, carol=median, dave=12, erin+=2` | | | |
+| | `2026-06-01T09:00` | `team` | `alice, bob, carol, dave=12, erin+=2` | | | |
 | | `2026-06-01T09:00` | `shift` | `alice` | | | |
 | `x` | `2026-06-09T09:00` | `shift` | `dave` | | `1d` | covering for bob |
 | | `2026-06-29T09:00` | `shift` | `-` | | | nobody on call |
-| | `2026-09-14T09:00` | `join` | `frank=min, gina` | | | |
+| | `2026-09-14T09:00` | `join` | `frank=12, gina` | | | |
 | | `2026-07-13T09:00` | `leave` | `bob` | | | |
 | | `2026-09-21` | `exclude` | `bob, carol` | | `3w` | offsite |
 | | `2026-09-28` | `include` | `bob` | | | back early |
-| | `2026-06-01T09:00` | `score` | `alice=10, bob+=2, carol-=1, dave=mean` | | | pre-history |
+| | `2026-06-01T09:00` | `score` | `alice=10, bob+=2, carol-=1, dave` | | | pre-history |
 | | `2026-10-05T09:00` | `set` | `anchor, tolerance` | | | re-anchor, tolerance back to 0 |
 | | `2026-09-07T09:00` | `snapshot` | `alice=28, bob=28, carol=21` | | | |
 | | `2026-09-15T09:00` | `error` | `unknown type "vacation"` | | | |
@@ -138,23 +138,26 @@ Details per type:
   start and the next grid boundary, so it counts as at most one period. When
   you enter history by hand, give every shift that spans several periods a
   `duration` or an `end`; otherwise only its first period is credited.
-- **team.** `alice, bob, carol=median, dave=12, erin+=2`. Members absent from
-  the list leave, new members join with the given baseline or the `baseline`
-  setting, `name=number` sets a score, `name=median|mean|min|max` sets an
-  existing member to that aggregate, `name+=n` and `name-=n` adjust one. The
-  list order becomes the roster order used by the `order` tiebreak.
-- **join.** One or more members: `frank=min, gina`. The value is `median`,
-  `mean`, `min`, `max` or a number, default the `baseline` setting. Baselines
-  are computed from the projected scores of the roster at that instant,
-  including excluded members; joiners are added one by one. Joining a current
-  member is an error.
-- **leave.** One or more members. A later `join` starts fresh with a baseline.
+- **team.** `alice, bob, carol, dave=12, erin+=2`. Members absent from the
+  list leave; a new name joins, at the roster minimum when bare or at the
+  number given; an existing member listed bare keeps their score, so you can
+  re-list the roster to reorder it; `name=number` sets a score, `name+=n`
+  and `name-=n` adjust one. The list order becomes the roster order used by
+  the `order` tiebreak. One rule everywhere: a name without a number scores
+  the roster minimum at that instant (the lowest projected score on the
+  current roster, excluded members included; zero on an empty roster), and
+  items apply one by one.
+- **join.** One or more members: `frank=12, gina`. A bare name joins at the
+  roster minimum, `name=number` at that score. Joining a current member is an
+  error.
+- **leave.** One or more members. A later `join` starts fresh.
 - **exclude / include.** One or more members; `end` or `duration` apply to
   all of them. Without `end`, `duration` or a later `include` the exclusion is
-  open-ended. The members still count for baselines.
-- **score.** `alice=10, bob+=2, carol-=1, dave=mean`. Same forms as `team`,
-  but only the members mentioned change and they must be on the roster; a
-  bare name does nothing. Use it for history that is not in the ledger.
+  open-ended. The members still count for the roster minimum.
+- **score.** `alice=10, bob+=2, carol-=1, dave`. Same forms as `team`, but
+  only the members mentioned change and they must be on the roster; a bare
+  name sets the member to the roster minimum, which re-levels someone after a
+  long absence. Use it for history that is not in the ledger.
 - **set.** `key=value` items, or a bare `key` to apply the key's default
   (`anchor` takes the row's `start`). Always replayed from the top of the
   ledger, even when older than the snapshot. A dated `set` carrying `period`
@@ -220,7 +223,6 @@ ledger error.
 | `min_distance` | `0.5ts` | Interval of rest required on both sides of a slot: `2sl` is two regular shifts, `3d` three days. Relaxed one shift length at a time when nobody is eligible. A plain number other than `0` is an error. |
 | `tiebreak` | `order` | `order`: walk the roster cyclically after the previous assignee. `shuffle`: deterministic hash of seed, rotation, slot start and member. |
 | `seed` | `0` | Integer mixed into the shuffle hash. |
-| `baseline` | `median` | Default score for joiners: `median`, `mean`, `min`, `max`. |
 | `precredit` | `1ts` | Interval after the snapshot within which pinned shifts are credited before slots are assigned; `1ts` is one full cycle of the current roster. `0` disables. |
 | `autopin` | `a:2sl` | After each run, every shift starting up to `now + autopin` whose pin cell is empty gets the marker `a`: `0` pins the shifts that have started, `2w` also the next two weeks, `-2w` leaves the last two weeks unpinned, `1sl` and `0.5ts` are grid units, `false` pins nothing. `a:2w` (anything before the last colon) sets the marker. Existing pins are kept. |
 | `cal` | empty | Space-separated names of calendar presets from the `#GCal` tab (`cal=team backup`; names are letters, digits, `-` and `_`). The Google Calendar extension exports the rotation's shifts to those calendars; without the extension the setting is accepted and `#Status` warns `calendar extension not installed`. |
@@ -366,8 +368,10 @@ INSTALL.md has the step by step.
 ## Everyday tasks
 
 **Update the team.** Add a `team` row dated when the change takes effect with
-the complete new list, or a `join` or `leave` row for one person. The future
-is regenerated from that instant.
+the complete new list, or a `join` or `leave` row for one person. A newcomer
+named without a number starts at the roster minimum, so they are next in
+line; give `name=number` to start them elsewhere. The future is regenerated
+from that instant.
 
 **Amend a future shift.** Edit the generated row's `what`, put anything in
 `pin`, and run. Pins inside the next `precredit` shifts are credited up front,

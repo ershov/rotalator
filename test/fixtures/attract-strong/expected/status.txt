@@ -34,7 +34,6 @@ next      bob               from 2026-10-12T09:00
   min_distance   0                       rotation
   tiebreak       order                   default
   seed           0                       default
-  baseline       median                  default
   precredit      1ts                     default
   autopin        a:0                     rotation
   cal                                    default
@@ -63,7 +62,6 @@ next      bob               from 2026-10-12T09:00
   min_distance   0                       rotation
   tiebreak       order                   default
   seed           0                       default
-  baseline       median                  default
   precredit      1ts                     default
   autopin        a:0                     rotation
   cal                                    default

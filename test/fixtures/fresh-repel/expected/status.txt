@@ -33,7 +33,6 @@ next      bob                 from 2026-10-12
   min_distance   0.5ts                   rotation
   tiebreak       order                   rotation
   seed           0                       rotation
-  baseline       median                  rotation
   precredit      1ts                     rotation
   autopin        a:2sl                   rotation
   cal                                    default
@@ -61,7 +60,6 @@ next      carol                 from 2026-10-12
   min_distance   0.5ts                   rotation
   tiebreak       order                   rotation
   seed           0                       rotation
-  baseline       median                  rotation
   precredit      1ts                     rotation
   autopin        a:2sl                   rotation
   cal                                    default

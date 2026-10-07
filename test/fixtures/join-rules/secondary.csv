@@ -21,6 +21,6 @@ pin,start,type,what,end,duration,note
 ,2026-09-21T09:00,shift,frank,,,
 ,2026-09-28T09:00,shift,gina,,,
 ,2026-10-05T09:00,shift,erin,,,
-,2026-09-14T09:00,join,hank=mean,,,
-,2026-09-21T09:00,join,ivan=max,,,
+,2026-09-14T09:00,join,hank,,,
+,2026-09-21T09:00,join,ivan=42,,,
 ,2026-09-21T09:00,join,judy=30,,,

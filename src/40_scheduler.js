@@ -95,8 +95,8 @@ function rosterNamesAt(rows) {
   var points = [];
   rows.forEach(function (row) {
     if (row.start === null) return;
-    if (row.type === 'team') roster.team(whatItems(row), 'median');
-    else if (row.type === 'join') roster.join(whatItems(row), 'median');
+    if (row.type === 'team') roster.team(whatItems(row));
+    else if (row.type === 'join') roster.join(whatItems(row));
     else if (row.type === 'leave') roster.leave(whatNames(row));
     else return;
     points.push({ t: row.start, names: roster.names() });
@@ -259,10 +259,9 @@ function mergeItems(rots) {
 function applyStateRow(rot, item) {
   var row = item.row;
   var roster = rot.roster;
-  var settings = rot.timeline.at(item.start);
   switch (row.type) {
-    case 'team': return roster.team(whatItems(row), settings.get('baseline'));
-    case 'join': return roster.join(whatItems(row), settings.get('baseline'));
+    case 'team': return roster.team(whatItems(row));
+    case 'join': return roster.join(whatItems(row));
     case 'leave': return roster.leave(whatNames(row));
     case 'score': return roster.score(whatItems(row));
     case 'exclude': return roster.exclude(whatNames(row), row.start, row.end);

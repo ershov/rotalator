@@ -30,7 +30,6 @@ next      bob               from 2026-07-06T09:00
   min_distance   0                       rotation
   tiebreak       order                   default
   seed           3                       rotation
-  baseline       min                     global
   precredit      0                       global
   autopin        a:0                     rotation
   cal                                    default

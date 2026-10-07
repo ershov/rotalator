@@ -96,7 +96,6 @@ function inheritStarts(rows) {
   return rows;
 }
 
-var BASELINE_KEYWORDS = ['median', 'mean', 'min', 'max'];
 var TIEBREAKS = ['order', 'shuffle'];
 var GRID_MODES = ['calendar', 'counted'];
 
@@ -147,14 +146,6 @@ function parseKeyword(list) {
   };
 }
 
-var parseBaselineKeyword = parseKeyword(BASELINE_KEYWORDS);
-
-// '=' values of join, team and score items: baseline keyword or number.
-function parseBaseline(text) {
-  var kw = parseBaselineKeyword(text);
-  return kw !== null ? kw : parseNumber(text);
-}
-
 var INTERVAL_HINT = 'an interval like 2sl, 1ts, 3d or 0';
 var POSITIVE_INTERVAL_HINT = 'a positive interval like 2sl, 1ts or 3d';
 var AUTOPIN_HINT = 'false, or an interval relative to now like 0, 2w, -2w or 1sl, optionally marker:interval';
@@ -203,7 +194,6 @@ var SETTINGS = {
   min_distance:  { parse: parseInterval,           def: parseInterval('0.5ts'), bare: 'default', hint: INTERVAL_HINT },
   tiebreak:      { parse: parseKeyword(TIEBREAKS), def: 'order',              bare: 'default' },
   seed:          { parse: parseInteger,            def: 0,                    bare: 'default' },
-  baseline:      { parse: parseBaselineKeyword,    def: 'median',             bare: 'default' },
   precredit:     { parse: parseInterval,           def: parseInterval('1ts'), bare: 'default', hint: INTERVAL_HINT },
   autopin:       { parse: parseAutopin,            def: parseAutopin('a:2sl'), bare: 'default', hint: AUTOPIN_HINT },
   cal:           { parse: parsePresetNames,        def: '',                   bare: 'default', hint: PRESET_NAMES_HINT },
@@ -411,16 +401,15 @@ function sortRows(rows) {
   return index.map(function (i) { return rows[i]; });
 }
 
-// One item grammar (DESIGN 3.3): name, name=value, name+=n, name-=n. Which forms a type accepts:
-// names: bare names. join: name or name=baseline. team: all four, '=' baseline or number. scores: name=number.
+// One item grammar (DESIGN 3.3): name, name=number, name+=n, name-=n. Which forms a type accepts:
+// names: bare names. join: name or name=number. team: all four. scores: name=number.
 function validateItem(grammar, type, it) {
   if (!isValidMemberId(it.name)) return 'bad member id "' + it.name + '"';
   if (grammar === 'names' && it.op !== null) return type + ' takes names only, got "' + it.name + it.op + '"';
-  if (grammar === 'join' && it.op !== null && it.op !== '=') return 'join takes name or name=baseline, got "' + it.name + it.op + '"';
+  if (grammar === 'join' && it.op !== null && it.op !== '=') return 'join takes name or name=number, got "' + it.name + it.op + '"';
   if (grammar === 'scores' && it.op !== '=') return type + ' expects name=number, got "' + it.name + (it.op || '') + '"';
   if (it.op === '=') {
-    var ok = grammar === 'scores' ? parseNumber(it.value) : parseBaseline(it.value);
-    if (ok === null) return 'bad value for ' + it.name + ': "' + it.value + '"';
+    if (parseNumber(it.value) === null) return 'bad value for ' + it.name + ': "' + it.value + '"';
   } else if (it.op !== null && parseNumber(it.value) === null) {
     return 'bad adjustment for ' + it.name + ': "' + it.value + '"';
   }

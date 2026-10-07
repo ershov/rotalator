@@ -22,4 +22,4 @@ pin,start,type,what,end,duration,note
 ,2026-09-28T09:00,shift,bob,,,
 ,2026-10-05T09:00,shift,carol,,,
 ,2026-09-14T09:00,join,erin,,,
-,2026-09-14T09:00,join,frank=min,,,
+,2026-09-14T09:00,join,frank,,,

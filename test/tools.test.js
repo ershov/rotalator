@@ -17,7 +17,7 @@ test('recentMonday: most recent Monday 00:00 at or before t', () => {
   assert.equal(U.formatDateTime(U.recentMonday(dt('2026-10-11T23:00'))), '2026-10-05');
 });
 
-const SET_DEFAULTS = 'period=1w, grid=calendar, horizon=30w, skip_weekends=true, skip_holidays=true, tolerance=0.5sl, min_distance=0.5ts, tiebreak=order, seed=0, baseline=median, precredit=1ts, autopin=a:2sl';
+const SET_DEFAULTS = 'period=1w, grid=calendar, horizon=30w, skip_weekends=true, skip_holidays=true, tolerance=0.5sl, min_distance=0.5ts, tiebreak=order, seed=0, precredit=1ts, autopin=a:2sl';
 
 test('templateRows: header, help comments, epoch set and team rows, dated set anchor', () => {
   const rows = plain(U.templateRows(dt('2026-10-05T09:00')));
@@ -25,8 +25,8 @@ test('templateRows: header, help comments, epoch set and team rows, dated set an
   assert.deepEqual(rows.slice(1, 9).map((r) => r[6]), [
     'ROWS:',
     'shift: one member, or nobody',
-    'team / score: name, name=baseline, name=number, name+=n, name-=n [, ...]',
-    'join: name, name=baseline, name=number [, ...]',
+    'team / score: name, name=number, name+=n, name-=n [, ...]; a bare name scores the roster minimum (a newcomer in team, anyone in score)',
+    'join: name, name=number [, ...]; a bare name joins at the roster minimum',
     'leave: name [, name ...]',
     'exclude / include: name [, name ...]',
     'set: key, key=value',
@@ -203,7 +203,7 @@ test('scoresAtCursorRow: roster and scores just before the instant as a #team co
   assert.deepEqual(at('2026-10-19T09:00'), { row: ['', '2026-10-19T09:00', '#team', 'alice=7, bob=7', '', '', ''] }, 'the join and the shift at the instant are not counted');
   assert.deepEqual(at('2026-10-12T09:00').row[3], 'alice=7, bob=0');
   assert.deepEqual(at('2026-10-15T09:00').row[3], 'alice=7, bob=3', 'a shift in progress is credited up to the instant');
-  assert.deepEqual(at('2026-10-26T09:00').row[3], 'alice=14, bob=7, carol=7', 'carol joined at the median');
+  assert.deepEqual(at('2026-10-26T09:00').row[3], 'alice=14, bob=7, carol=7', 'carol joined at the roster minimum');
   assert.deepEqual(at('2026-10-05T09:00').row[3], '', 'nothing before the first row');
   // The comment sorts first at its instant, so a run keeps it above the rows it describes.
   const sorted = U.sortRows(U.rowsFromCells([tab[4], at('2026-10-19T09:00').row, tab[5]]));

@@ -11,13 +11,13 @@ rotation  primary
 snapshot  2026-09-07T09:00
 horizon   2026-10-19T09:00
 current   carol             until 2026-09-14T09:00
-next      dave              from 2026-09-14T09:00
+next      erin              from 2026-09-14T09:00
 
   member  current  score  projected  last shift        next shift        exclusions
-  carol   x        21     35         2026-09-07T09:00  2026-09-21T09:00
-  alice            28     35         2026-08-24T09:00  2026-09-28T09:00
-  erin                    35                           2026-10-05T09:00
-  dave             21     38         2026-08-17T09:00  2026-09-14T09:00
+  carol   x        21     35         2026-09-07T09:00  2026-09-28T09:00
+  alice            28     35         2026-08-24T09:00  2026-10-05T09:00
+  erin                    35                           2026-09-14T09:00
+  dave             21     31         2026-08-17T09:00  2026-09-21T09:00
 
   settings       as of 2026-09-08T10:00  source
   period         1w                      rotation
@@ -30,7 +30,6 @@ next      dave              from 2026-09-14T09:00
   min_distance   0                       rotation
   tiebreak       order                   default
   seed           0                       default
-  baseline       median                  default
   precredit      1ts                     default
   autopin        a:0                     rotation
   cal                                    default
@@ -53,8 +52,8 @@ start             primary
 2026-08-31T09:00  bob
 2026-09-07T09:00  carol
 2026-09-08T10:00  --now--
-2026-09-14T09:00  dave
-2026-09-21T09:00  carol
-2026-09-28T09:00  alice
-2026-10-05T09:00  erin
-2026-10-12T09:00  dave
+2026-09-14T09:00  erin
+2026-09-21T09:00  dave
+2026-09-28T09:00  carol
+2026-10-05T09:00  alice
+2026-10-12T09:00  erin

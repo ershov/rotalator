@@ -3,5 +3,5 @@ pin,start,type,what,end,duration,note
 ,,,,,,"repel / repel! / attract / attract! / detach: Rotation1, Rotation2"
 ,,,,,,"set: key, key=value"
 ,,,,,,"set / repel / repel! / attract / attract! without start: take the date of the nearest dated row above, or apply from the beginning at the top"
-,,set,"period=1w, grid=calendar, horizon=30w, skip_weekends=true, skip_holidays=true, tolerance=0.5sl, min_distance=0.5ts, tiebreak=order, seed=0, baseline=median, precredit=1ts, autopin=a:2sl",,,
+,,set,"period=1w, grid=calendar, horizon=30w, skip_weekends=true, skip_holidays=true, tolerance=0.5sl, min_distance=0.5ts, tiebreak=order, seed=0, precredit=1ts, autopin=a:2sl",,,
 ,2026-10-07T12:00,repel,"Rotation 1 Primary, Rotation 2 Secondary",,,typed mid-week on the first day

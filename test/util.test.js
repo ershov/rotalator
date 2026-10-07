@@ -100,10 +100,10 @@ test('splitList', () => {
 });
 
 test('parseAssignments', () => {
-  assert.deepEqual(plain(U.parseAssignments('alice, bob, carol=median, dave = 12, erin+=2; frank-=1.5')), [
+  assert.deepEqual(plain(U.parseAssignments('alice, bob, carol=7, dave = 12, erin+=2; frank-=1.5')), [
     { name: 'alice', op: null, value: null },
     { name: 'bob', op: null, value: null },
-    { name: 'carol', op: '=', value: 'median' },
+    { name: 'carol', op: '=', value: '7' },
     { name: 'dave', op: '=', value: '12' },
     { name: 'erin', op: '+=', value: '2' },
     { name: 'frank', op: '-=', value: '1.5' },

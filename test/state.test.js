@@ -92,7 +92,7 @@ test('SettingsTimeline: global set rows layer under the rotation; bare keys retu
   assert.equal(src('2026-10-26T09:00', 'tolerance'), 'global');
   assert.equal(at('2026-10-26T09:00').get('seed'), 3);
   assert.equal(src('2026-10-26T09:00', 'seed'), 'global');
-  assert.equal(src('2026-10-26T09:00', 'baseline'), 'default');
+  assert.equal(src('2026-10-26T09:00', 'precredit'), 'default');
   assert.deepEqual(plain(tl.entries.map((e) => U.formatDateTime(e.start))), [
     '2026-09-01', '2026-10-05T09:00', '2026-10-12T09:00', '2026-10-19T09:00', '2026-10-26T09:00',
   ]);
@@ -227,84 +227,83 @@ test('SettingsTimeline replays set rows with start <= t and lists grid-changing 
 test('Roster join, leave and stateful errors', () => {
   const r = new U.Roster();
   assert.equal(r.size(), 0);
-  assert.equal(r.join(items('alice'), 'median'), null);
-  assert.equal(r.join(items('bob=5'), 'median'), null);
-  assert.equal(r.join(items('alice'), 'median'), 'join: "alice" is already a member');
+  assert.equal(r.join(items('alice')), null);
+  assert.equal(r.join(items('bob=5')), null);
+  assert.equal(r.join(items('alice')), 'join: "alice" is already a member');
   assert.deepEqual(plain(r.names()), ['alice', 'bob']);
   assert.deepEqual(plain(r.scores()), { alice: 0, bob: 5 });
   assert.equal(r.leave(['carol']), 'leave: unknown member "carol"');
   assert.equal(r.leave(['alice']), null);
   assert.deepEqual(plain(r.names()), ['bob']);
   assert.equal(r.has('alice'), false);
-  assert.equal(r.join(items('alice'), 'median'), null);
+  assert.equal(r.join(items('alice')), null);
   assert.equal(r.get('alice').score, 5);
-  assert.equal(r.join(items('carol=max, dave'), 'min'), null);
+  assert.equal(r.join(items('carol=5, dave')), null);
   assert.deepEqual(plain(r.scores()), { bob: 5, alice: 5, carol: 5, dave: 5 });
-  assert.equal(r.join(items('erin=20, frank=max'), 'median'), null);
-  assert.equal(r.get('frank').score, 20);
-  assert.equal(r.join(items('gina, erin'), 'median'), 'join: "erin" is already a member');
+  assert.equal(r.join(items('erin=20, frank')), null);
+  assert.equal(r.get('frank').score, 5, 'a bare name takes the roster minimum, not the previous item');
+  assert.equal(r.join(items('gina, erin')), 'join: "erin" is already a member');
   assert.equal(r.has('gina'), false);
   assert.equal(r.leave(['erin', 'zed']), 'leave: unknown member "zed"');
   assert.equal(r.leave(['erin', 'frank']), null);
   assert.deepEqual(plain(r.names()), ['bob', 'alice', 'carol', 'dave']);
 });
 
-test('Roster baseline kinds', () => {
+test('Roster min: zero on an empty roster, the lowest score otherwise, what a bare name gets', () => {
   const r = new U.Roster();
-  assert.equal(r.baseline('median'), 0);
-  assert.equal(r.baseline('mean'), 0);
-  assert.equal(r.baseline('min'), 0);
-  assert.equal(r.baseline('max'), 0);
-  assert.equal(r.baseline(3.5), 3.5);
-  r.team(items('a=1, b=4, c=10, d=7'), 'median');
-  assert.equal(r.baseline('median'), 5.5);
-  assert.equal(r.baseline('mean'), 5.5);
-  assert.equal(r.baseline('min'), 1);
-  assert.equal(r.baseline('max'), 10);
-  r.join(items('e=100'), 'median');
-  assert.equal(r.baseline('median'), 7);
-  assert.equal(r.baseline('mean'), 24.4);
-  assert.deepEqual(plain(r.names()), ['a', 'b', 'c', 'd', 'e']);
+  assert.equal(r.min(), 0);
+  r.team(items('a=1, b=4, c=10, d=7'));
+  assert.equal(r.min(), 1);
+  r.join(items('e, f=100'));
+  assert.equal(r.scores().e, 1);
+  assert.equal(r.scores().f, 100);
+  assert.equal(r.min(), 1);
+  assert.deepEqual(plain(r.names()), ['a', 'b', 'c', 'd', 'e', 'f']);
+  // Items apply one by one: a later bare joiner sees the earlier one.
+  const fresh = new U.Roster();
+  fresh.join(items('x=5, y, z=2, w'));
+  assert.deepEqual(plain(fresh.scores()), { x: 5, y: 5, z: 2, w: 2 });
 });
 
-test('Roster team diff: leavers, joiners with baselines, reorder, adjustments after joining', () => {
+test('Roster team diff: leavers, bare newcomers at min, existing bare members keep their score, reorder, adjustments', () => {
   const r = new U.Roster();
-  r.team(items('alice=10, bob=6, carol=2'), 'median');
-  assert.equal(r.team(items('carol, alice, dave, erin=mean, frank=12, bob+=2, gina-=1'), 'median'), null);
+  r.team(items('alice=10, bob=6, carol=2'));
+  assert.equal(r.team(items('carol, alice, dave, erin, frank=12, bob+=2, gina-=1')), null);
   assert.deepEqual(plain(r.names()), ['carol', 'alice', 'dave', 'erin', 'frank', 'bob', 'gina']);
   const s = r.scores();
-  assert.equal(s.dave, 6);
-  assert.equal(s.erin, 6);
+  assert.equal(s.carol, 2, 'an existing member listed bare keeps the score');
+  assert.equal(s.alice, 10);
+  assert.equal(s.dave, 2, 'a newcomer listed bare joins at min');
+  assert.equal(s.erin, 2);
   assert.equal(s.frank, 12);
   assert.equal(s.bob, 8);
-  assert.equal(s.gina, 5);
-  assert.equal(r.team(items('alice=min, bob'), 'median'), null);
+  assert.equal(s.gina, 1, 'a newcomer joins at min, then the adjustment applies');
+  assert.equal(r.team(items('alice=8, bob')), null);
   assert.deepEqual(plain(r.names()), ['alice', 'bob']);
   assert.equal(r.scores().alice, 8);
   assert.equal(r.scores().bob, 8);
-  assert.equal(r.team(items('bob, bob'), 'median'), 'team: duplicate member "bob"');
+  assert.equal(r.team(items('bob, bob')), 'team: duplicate member "bob"');
 });
 
-test('Roster score adjustments: numbers, aggregates, bare names', () => {
+test('Roster score adjustments: numbers, bare names re-level to min', () => {
   const r = new U.Roster();
-  r.team(items('alice=10, bob=6'), 'median');
+  r.team(items('alice=10, bob=6'));
   assert.equal(r.score(items('alice=1, bob+=2')), null);
   assert.deepEqual(plain(r.scores()), { alice: 1, bob: 8 });
   assert.equal(r.score(items('bob-=0.5')), null);
   assert.equal(r.scores().bob, 7.5);
   assert.equal(r.score(items('carol=1')), 'score: unknown member "carol"');
-  assert.equal(r.score(items('alice, bob')), null);
-  assert.deepEqual(plain(r.scores()), { alice: 1, bob: 7.5 });
-  assert.equal(r.score(items('alice=max')), null);
-  assert.equal(r.scores().alice, 7.5);
-  assert.equal(r.score(items('bob=min, alice=mean')), null);
-  assert.deepEqual(plain(r.scores()), { alice: 7.5, bob: 7.5 });
+  assert.equal(r.score(items('bob')), null, 'a bare name in score sets the member to the roster minimum');
+  assert.deepEqual(plain(r.scores()), { alice: 1, bob: 1 });
+  assert.equal(r.score(items('alice=7.5')), null);
+  assert.equal(r.score(items('alice, bob+=3')), null);
+  assert.deepEqual(plain(r.scores()), { alice: 1, bob: 4 });
   assert.equal(r.score(items('alice=2, zed')), 'score: unknown member "zed"');
 });
 
 test('Roster exclusions, include closes the open one, isExcluded overlaps', () => {
   const r = new U.Roster();
-  r.team(items('alice=0, bob=0'), 'median');
+  r.team(items('alice=0, bob=0'));
   assert.equal(r.exclude(['carol'], MON, null), 'exclude: unknown member "carol"');
   assert.equal(r.exclude(['alice', 'carol'], MON, null), 'exclude: unknown member "carol"');
   assert.equal(r.include(['alice'], MON), 'include: no active exclusion for "alice"');
@@ -334,18 +333,18 @@ test('Roster exclusions, include closes the open one, isExcluded overlaps', () =
 
 test('Roster credit and snapshot round trip with two decimals: the snapshot text makes a team row that restores the roster', () => {
   const r = new U.Roster();
-  r.team(items('alice=12.5, bob=11'), 'median');
+  r.team(items('alice=12.5, bob=11'));
   r.credit('alice', 0.125);
   r.credit('nobody', 5);
   assert.equal(r.snapshotWhat(), 'alice=12.63, bob=11');
   const back = new U.Roster();
-  back.team(items(r.snapshotWhat()), 'median');
+  back.team(items(r.snapshotWhat()));
   assert.deepEqual(plain(back.scores()), { alice: 12.63, bob: 11 });
   assert.deepEqual(plain(back.names()), ['alice', 'bob']);
   back.credit('bob', -11.001);
   assert.equal(back.snapshotWhat(), 'alice=12.63, bob=0');
   const empty = new U.Roster();
-  empty.team(items(''), 'median');
+  empty.team(items(''));
   assert.equal(empty.size(), 0);
   assert.equal(empty.snapshotWhat(), '');
   assert.equal(U.formatScore(-0.004), '0');

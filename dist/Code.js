@@ -371,7 +371,6 @@ function inheritStarts(rows) {
   return rows;
 }
 
-var BASELINE_KEYWORDS = ['median', 'mean', 'min', 'max'];
 var TIEBREAKS = ['order', 'shuffle'];
 var GRID_MODES = ['calendar', 'counted'];
 
@@ -422,14 +421,6 @@ function parseKeyword(list) {
   };
 }
 
-var parseBaselineKeyword = parseKeyword(BASELINE_KEYWORDS);
-
-// '=' values of join, team and score items: baseline keyword or number.
-function parseBaseline(text) {
-  var kw = parseBaselineKeyword(text);
-  return kw !== null ? kw : parseNumber(text);
-}
-
 var INTERVAL_HINT = 'an interval like 2sl, 1ts, 3d or 0';
 var POSITIVE_INTERVAL_HINT = 'a positive interval like 2sl, 1ts or 3d';
 var AUTOPIN_HINT = 'false, or an interval relative to now like 0, 2w, -2w or 1sl, optionally marker:interval';
@@ -478,7 +469,6 @@ var SETTINGS = {
   min_distance:  { parse: parseInterval,           def: parseInterval('0.5ts'), bare: 'default', hint: INTERVAL_HINT },
   tiebreak:      { parse: parseKeyword(TIEBREAKS), def: 'order',              bare: 'default' },
   seed:          { parse: parseInteger,            def: 0,                    bare: 'default' },
-  baseline:      { parse: parseBaselineKeyword,    def: 'median',             bare: 'default' },
   precredit:     { parse: parseInterval,           def: parseInterval('1ts'), bare: 'default', hint: INTERVAL_HINT },
   autopin:       { parse: parseAutopin,            def: parseAutopin('a:2sl'), bare: 'default', hint: AUTOPIN_HINT },
   cal:           { parse: parsePresetNames,        def: '',                   bare: 'default', hint: PRESET_NAMES_HINT },
@@ -686,16 +676,15 @@ function sortRows(rows) {
   return index.map(function (i) { return rows[i]; });
 }
 
-// One item grammar (DESIGN 3.3): name, name=value, name+=n, name-=n. Which forms a type accepts:
-// names: bare names. join: name or name=baseline. team: all four, '=' baseline or number. scores: name=number.
+// One item grammar (DESIGN 3.3): name, name=number, name+=n, name-=n. Which forms a type accepts:
+// names: bare names. join: name or name=number. team: all four. scores: name=number.
 function validateItem(grammar, type, it) {
   if (!isValidMemberId(it.name)) return 'bad member id "' + it.name + '"';
   if (grammar === 'names' && it.op !== null) return type + ' takes names only, got "' + it.name + it.op + '"';
-  if (grammar === 'join' && it.op !== null && it.op !== '=') return 'join takes name or name=baseline, got "' + it.name + it.op + '"';
+  if (grammar === 'join' && it.op !== null && it.op !== '=') return 'join takes name or name=number, got "' + it.name + it.op + '"';
   if (grammar === 'scores' && it.op !== '=') return type + ' expects name=number, got "' + it.name + (it.op || '') + '"';
   if (it.op === '=') {
-    var ok = grammar === 'scores' ? parseNumber(it.value) : parseBaseline(it.value);
-    if (ok === null) return 'bad value for ' + it.name + ': "' + it.value + '"';
+    if (parseNumber(it.value) === null) return 'bad value for ' + it.name + ': "' + it.value + '"';
   } else if (it.op !== null && parseNumber(it.value) === null) {
     return 'bad adjustment for ' + it.name + ': "' + it.value + '"';
   }
@@ -1087,31 +1076,24 @@ class Roster {
     return out;
   }
 
-  // kind: number, or 'median' | 'mean' | 'min' | 'max' over current scores. Empty roster gives 0.
-  baseline(kind) {
-    if (typeof kind === 'number') return kind;
-    var scores = this.members.map(function (m) { return m.score; });
-    if (!scores.length) return 0;
-    if (kind === 'min') return Math.min.apply(null, scores);
-    if (kind === 'max') return Math.max.apply(null, scores);
-    var sum = scores.reduce(function (a, b) { return a + b; }, 0);
-    if (kind === 'mean') return sum / scores.length;
-    scores.sort(function (a, b) { return a - b; });
-    var mid = scores.length >> 1;
-    return scores.length % 2 ? scores[mid] : (scores[mid - 1] + scores[mid]) / 2;
+  // Lowest score on the roster, excluded members included; 0 on an empty roster. A bare name in a team, join
+  // or score item scores this (DESIGN 3.4).
+  min() {
+    return this.members.length ? Math.min.apply(null, this.members.map(function (m) { return m.score; })) : 0;
   }
 
-  addMember(name, baselineKind) {
-    this.members.push({ name: name, score: this.baseline(baselineKind), exclusions: [] });
+  // A newcomer: name=number sets the score, a bare name takes the roster minimum at that point.
+  addMember(it) {
+    this.members.push({ name: it.name, score: it.op === '=' ? Number(it.value) : this.min(), exclusions: [] });
   }
 
-  // items of a join row: name or name=baseline. Joiners are added one by one, so later baselines see earlier joiners.
-  join(items, defaultBaseline) {
+  // items of a join row: name or name=number. Joiners are added one by one, so a later bare name sees the earlier joiners.
+  join(items) {
     for (var i = 0; i < items.length; i++) {
       if (this.has(items[i].name)) return 'join: "' + items[i].name + '" is already a member';
     }
     var self = this;
-    items.forEach(function (it) { self.addMember(it.name, it.op === '=' ? parseBaseline(it.value) : defaultBaseline); });
+    items.forEach(function (it) { self.addMember(it); });
     return null;
   }
 
@@ -1122,8 +1104,9 @@ class Roster {
     return null;
   }
 
-  // items of a team row. Leavers removed, joiners added, roster reordered, adjustments applied last.
-  team(items, defaultBaseline) {
+  // items of a team row. Leavers removed, joiners added, roster reordered, adjustments applied last; an existing
+  // member listed bare keeps their score.
+  team(items) {
     var names = new Set();
     for (var i = 0; i < items.length; i++) {
       if (names.has(items[i].name)) return 'team: duplicate member "' + items[i].name + '"';
@@ -1133,7 +1116,7 @@ class Roster {
     var existing = new Set(this.names());
     var self = this;
     items.forEach(function (it) {
-      if (!existing.has(it.name)) self.addMember(it.name, it.op === '=' ? parseBaseline(it.value) : defaultBaseline);
+      if (!existing.has(it.name)) self.addMember(it);
     });
     this.members = items.map(function (it) { return self.get(it.name); });
     items.forEach(function (it) {
@@ -1142,19 +1125,20 @@ class Roster {
     return null;
   }
 
-  // '=' sets to a number or to an aggregate of the current scores; '+=' and '-=' adjust; a bare name does nothing.
+  // '=' sets a number; '+=' and '-=' adjust; a bare name is left to the caller.
   adjust(member, it) {
-    if (it.op === '=') member.score = this.baseline(parseBaseline(it.value));
+    if (it.op === '=') member.score = Number(it.value);
     else if (it.op === '+=') member.score += Number(it.value);
     else if (it.op === '-=') member.score -= Number(it.value);
   }
 
-  // items of a score row: same forms as team, only the members mentioned change.
+  // items of a score row: same forms as team, only the members mentioned change; a bare name re-levels the
+  // member to the roster minimum.
   score(items) {
     for (var i = 0; i < items.length; i++) {
       var m = this.get(items[i].name);
       if (!m) return 'score: unknown member "' + items[i].name + '"';
-      this.adjust(m, items[i]);
+      if (items[i].op === null) m.score = this.min(); else this.adjust(m, items[i]);
     }
     return null;
   }
@@ -1301,8 +1285,8 @@ function rosterNamesAt(rows) {
   var points = [];
   rows.forEach(function (row) {
     if (row.start === null) return;
-    if (row.type === 'team') roster.team(whatItems(row), 'median');
-    else if (row.type === 'join') roster.join(whatItems(row), 'median');
+    if (row.type === 'team') roster.team(whatItems(row));
+    else if (row.type === 'join') roster.join(whatItems(row));
     else if (row.type === 'leave') roster.leave(whatNames(row));
     else return;
     points.push({ t: row.start, names: roster.names() });
@@ -1465,10 +1449,9 @@ function mergeItems(rots) {
 function applyStateRow(rot, item) {
   var row = item.row;
   var roster = rot.roster;
-  var settings = rot.timeline.at(item.start);
   switch (row.type) {
-    case 'team': return roster.team(whatItems(row), settings.get('baseline'));
-    case 'join': return roster.join(whatItems(row), settings.get('baseline'));
+    case 'team': return roster.team(whatItems(row));
+    case 'join': return roster.join(whatItems(row));
     case 'leave': return roster.leave(whatNames(row));
     case 'score': return roster.score(whatItems(row));
     case 'exclude': return roster.exclude(whatNames(row), row.start, row.end);
@@ -2424,8 +2407,8 @@ function templateSetWhat() {
 var ROTATION_HELP = [
   'ROWS:',
   'shift: one member, or nobody',
-  'team / score: name, name=baseline, name=number, name+=n, name-=n [, ...]',
-  'join: name, name=baseline, name=number [, ...]',
+  'team / score: name, name=number, name+=n, name-=n [, ...]; a bare name scores the roster minimum (a newcomer in team, anyone in score)',
+  'join: name, name=number [, ...]; a bare name joins at the roster minimum',
   'leave: name [, name ...]',
   'exclude / include: name [, name ...]',
   'set: key, key=value',
@@ -2454,8 +2437,8 @@ var HELP_TEXT = [
   '',
   'ROWS:',
   'shift: one member, or nobody (empty, - or none)',
-  'team / score: name, name=baseline, name=number, name+=n, name-=n [, ...]',
-  'join: name, name=baseline, name=number [, ...]',
+  'team / score: name, name=number, name+=n, name-=n [, ...]; a bare name scores the roster minimum (a newcomer in team, anyone in score)',
+  'join: name, name=number [, ...]; a bare name joins at the roster minimum',
   'leave: name [, name ...]',
   'exclude / include: name [, name ...]; exclude takes end or duration, otherwise it lasts until an include',
   'set: key, key=value',
@@ -2477,7 +2460,6 @@ var HELP_TEXT = [
   'min_distance=0.5ts: rest required on both sides of a shift, as an interval',
   'tiebreak=order: or shuffle (deterministic hash with seed)',
   'seed=0: integer mixed into the shuffle',
-  'baseline=median: score given to a joiner: median, mean, min or max of the roster',
   'precredit=1ts: how far ahead pinned shifts are credited before turns are decided',
   'autopin=a:2sl: after each run, shifts starting up to now + this interval get the pin marker a (false: never; a:2w sets the marker); pinned shifts are kept, so this fixes the near future',
   'cal: space-separated names of calendar presets from the #GCal tab (cal=team backup); exported by the GCal extension, a warning in #Status when it is not installed',

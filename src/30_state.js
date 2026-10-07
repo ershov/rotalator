@@ -178,31 +178,24 @@ class Roster {
     return out;
   }
 
-  // kind: number, or 'median' | 'mean' | 'min' | 'max' over current scores. Empty roster gives 0.
-  baseline(kind) {
-    if (typeof kind === 'number') return kind;
-    var scores = this.members.map(function (m) { return m.score; });
-    if (!scores.length) return 0;
-    if (kind === 'min') return Math.min.apply(null, scores);
-    if (kind === 'max') return Math.max.apply(null, scores);
-    var sum = scores.reduce(function (a, b) { return a + b; }, 0);
-    if (kind === 'mean') return sum / scores.length;
-    scores.sort(function (a, b) { return a - b; });
-    var mid = scores.length >> 1;
-    return scores.length % 2 ? scores[mid] : (scores[mid - 1] + scores[mid]) / 2;
+  // Lowest score on the roster, excluded members included; 0 on an empty roster. A bare name in a team, join
+  // or score item scores this (DESIGN 3.4).
+  min() {
+    return this.members.length ? Math.min.apply(null, this.members.map(function (m) { return m.score; })) : 0;
   }
 
-  addMember(name, baselineKind) {
-    this.members.push({ name: name, score: this.baseline(baselineKind), exclusions: [] });
+  // A newcomer: name=number sets the score, a bare name takes the roster minimum at that point.
+  addMember(it) {
+    this.members.push({ name: it.name, score: it.op === '=' ? Number(it.value) : this.min(), exclusions: [] });
   }
 
-  // items of a join row: name or name=baseline. Joiners are added one by one, so later baselines see earlier joiners.
-  join(items, defaultBaseline) {
+  // items of a join row: name or name=number. Joiners are added one by one, so a later bare name sees the earlier joiners.
+  join(items) {
     for (var i = 0; i < items.length; i++) {
       if (this.has(items[i].name)) return 'join: "' + items[i].name + '" is already a member';
     }
     var self = this;
-    items.forEach(function (it) { self.addMember(it.name, it.op === '=' ? parseBaseline(it.value) : defaultBaseline); });
+    items.forEach(function (it) { self.addMember(it); });
     return null;
   }
 
@@ -213,8 +206,9 @@ class Roster {
     return null;
   }
 
-  // items of a team row. Leavers removed, joiners added, roster reordered, adjustments applied last.
-  team(items, defaultBaseline) {
+  // items of a team row. Leavers removed, joiners added, roster reordered, adjustments applied last; an existing
+  // member listed bare keeps their score.
+  team(items) {
     var names = new Set();
     for (var i = 0; i < items.length; i++) {
       if (names.has(items[i].name)) return 'team: duplicate member "' + items[i].name + '"';
@@ -224,7 +218,7 @@ class Roster {
     var existing = new Set(this.names());
     var self = this;
     items.forEach(function (it) {
-      if (!existing.has(it.name)) self.addMember(it.name, it.op === '=' ? parseBaseline(it.value) : defaultBaseline);
+      if (!existing.has(it.name)) self.addMember(it);
     });
     this.members = items.map(function (it) { return self.get(it.name); });
     items.forEach(function (it) {
@@ -233,19 +227,20 @@ class Roster {
     return null;
   }
 
-  // '=' sets to a number or to an aggregate of the current scores; '+=' and '-=' adjust; a bare name does nothing.
+  // '=' sets a number; '+=' and '-=' adjust; a bare name is left to the caller.
   adjust(member, it) {
-    if (it.op === '=') member.score = this.baseline(parseBaseline(it.value));
+    if (it.op === '=') member.score = Number(it.value);
     else if (it.op === '+=') member.score += Number(it.value);
     else if (it.op === '-=') member.score -= Number(it.value);
   }
 
-  // items of a score row: same forms as team, only the members mentioned change.
+  // items of a score row: same forms as team, only the members mentioned change; a bare name re-levels the
+  // member to the roster minimum.
   score(items) {
     for (var i = 0; i < items.length; i++) {
       var m = this.get(items[i].name);
       if (!m) return 'score: unknown member "' + items[i].name + '"';
-      this.adjust(m, items[i]);
+      if (items[i].op === null) m.score = this.min(); else this.adjust(m, items[i]);
     }
     return null;
   }

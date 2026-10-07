@@ -1,12 +1,12 @@
 pin,start,type,what,end,duration,note
 ,,,,,,ROWS:
 ,,,,,,"shift: one member, or nobody"
-,,,,,,"team / score: name, name=baseline, name=number, name+=n, name-=n [, ...]"
-,,,,,,"join: name, name=baseline, name=number [, ...]"
+,,,,,,"team / score: name, name=number, name+=n, name-=n [, ...]; a bare name scores the roster minimum (a newcomer in team, anyone in score)"
+,,,,,,"join: name, name=number [, ...]; a bare name joins at the roster minimum"
 ,,,,,,"leave: name [, name ...]"
 ,,,,,,"exclude / include: name [, name ...]"
 ,,,,,,"set: key, key=value"
 ,,,,,,"set / team without start: take the date of the nearest dated row above, or apply from the beginning at the top; the dated set anchor row fixes where shifts start"
-,,set,"period=1w, grid=calendar, horizon=30w, skip_weekends=true, skip_holidays=true, tolerance=0.5sl, min_distance=0.5ts, tiebreak=order, seed=0, baseline=median, precredit=1ts, autopin=a:2sl",,,
+,,set,"period=1w, grid=calendar, horizon=30w, skip_weekends=true, skip_holidays=true, tolerance=0.5sl, min_distance=0.5ts, tiebreak=order, seed=0, precredit=1ts, autopin=a:2sl",,,
 ,,team,"alice, bob, carol",,,
 ,2026-10-05,set,anchor,,,

@@ -43,7 +43,7 @@ the reserved `#GCal` and `#Slack` tabs.
 | ledger | Time-sorted rows of a rotation: shifts and events. |
 | member | A person, identified by the verbatim string used in the spreadsheet. |
 | roster | Ordered list of current members and their scores. |
-| score | Fractional days a member has been on call, plus baseline adjustments. |
+| score | Fractional days a member has been on call, plus manual adjustments. |
 | units | Days credited for an interval, honouring `skip_weekends` and `skip_holidays`. |
 | period | Regular shift length: `Nd` or `Nw`. |
 | grid | Instants `anchor + k*period` for all integers `k`. Regular shifts start and end on the grid. |
@@ -141,8 +141,8 @@ are kept sorted by `start`; the script re-sorts on every write.
 | type | what | end/duration | owner |
 |---|---|---|---|
 | shift | one member, or nobody | optional | users or script |
-| team | `name`, `name=baseline`, `name=number`, `name+=n`, `name-=n` | | users |
-| join | `name`, `name=baseline`, `name=number`, one or more | | users |
+| team | `name`, `name=number`, `name+=n`, `name-=n` | | users |
+| join | `name`, `name=number`, one or more | | users |
 | leave | `name`, one or more | | users |
 | exclude | `name`, one or more | optional, open-ended if absent | users |
 | include | `name`, one or more | | users |
@@ -233,33 +233,35 @@ up to `now + autopin` itself (5.8), so with the default `autopin=a:2sl` every
 shift that has started and the next two regular shifts are pinned and only
 the future floats.
 
-**team.** Sets the full roster. `alice, bob, carol=median, dave=12, erin+=2`.
-The list is diffed against the current roster: absent members leave, new
-members join with the given baseline or the `baseline` setting, `+=`/`-=`
-adjust scores (a joiner's after its baseline), `=number` sets a score and
-`=median|mean|min|max` sets an existing member to that aggregate of the
-current scores. The list order becomes the roster order used by the `order`
-tiebreak.
+**team.** Sets the full roster. `alice, bob, carol, dave=12, erin+=2`. The
+list is diffed against the current roster: absent members leave, newcomers
+join (a bare name at the roster minimum, `=number` at that score), an
+existing member listed bare keeps their score, so a `team` row that re-lists
+the roster to reorder it flattens nothing, `=number` sets an existing
+member's score and `+=`/`-=` adjust one (a newcomer's after joining). The
+list order becomes the roster order used by the `order` tiebreak.
 
-**join.** One or more members join: `erin, frank=min, gina=12`. The value is
-`median`, `mean`, `min`, `max` or a number; default is the `baseline`
-setting. Baselines are computed from the projected scores of the roster at
-that instant, including excluded members; joiners are added one by one, so a
-later item's aggregate includes the earlier joiners. Joining an existing member
-is an error.
+One rule for a name without a number, across `team`, `join` and `score`: it
+scores the roster minimum at that instant, the lowest projected score on the
+current roster, excluded members included, zero on an empty roster. Items
+apply one by one, so a later bare joiner sees the earlier one.
+
+**join.** One or more members join: `erin, frank=12`. A bare name joins at
+the roster minimum, `=number` at that score. Joining an existing member is an
+error.
 
 **leave.** One or more members removed, scores discarded. A later join starts
-fresh with a baseline.
+fresh.
 
 **exclude / include.** The listed members are ineligible from `start` until
 `end`, `duration`, or a later `include` row naming them. `end` or `duration`
 apply to every member listed. Score is kept and the members still count for
-baselines.
+the roster minimum.
 
-**score.** `alice=10, bob+=2, carol-=1, dave=mean`. Manual corrections, e.g.
-for history that is not in the ledger. Same item forms as `team`, but only the
-members mentioned change and they must be on the roster; a bare `name` is
-accepted and does nothing.
+**score.** `alice=10, bob+=2, carol-=1, dave`. Manual corrections, e.g. for
+history that is not in the ledger. Same item forms as `team`, but only the
+members mentioned change and they must be on the roster; a bare `name` sets
+the member to the roster minimum, re-levelling someone after a long absence.
 
 **set.** Changes settings from `start` onward. Keys in 3.5, as `key=value` or a
 bare `key`. A bare key applies the key's default behaviour: the fixed default
@@ -318,7 +320,6 @@ removed on read, so they are purely diagnostic and never accumulate. See 6.
 | min_distance | 0.5ts | Interval of rest required on both sides of a slot, `[a - D, b + D)`. `2sl` is two regular shifts; a plain number other than `0` is an error. |
 | tiebreak | order | `order` or `shuffle`. |
 | seed | 0 | Integer mixed into the shuffle hash. |
-| baseline | median | Default for joiners: `median`, `mean`, `min`, `max`. |
 | precredit | 1ts | Interval after the snapshot within which pinned shifts are pre-credited: one full cycle by default. `0` disables. |
 | autopin | a:2sl | `false`, or a signed interval relative to `now` (`0`, `2w`, `-2w`, `1sl`, `0.5ts`), optionally `marker:interval` (`a:2w`; the marker is everything before the last colon, default `a`, so the default is spelled `a:2sl`). After the schedule step, every `shift` row starting at or before `now + autopin` whose pin cell is empty gets the marker (5.8). |
 | cal | (empty) | Space-separated names of calendar presets from `#GCal` (`cal=team backup`); a name is letters, digits, `-` and `_`, anything else is an error; single spaces on read, case kept. The core only validates and reports it: the GCal extension exports the shifts, and without it a rotation with a non-empty `cal` in force at `now` gets the `#Status` warning `calendar extension not installed`. The templates do not spell it. |
@@ -406,7 +407,7 @@ Units of an interval `[a, b)` are the sum over calendar days of the fraction of
 each day covered by the interval, counting only days that are not skipped. A
 full week is 7 units, or 5 with `skip_weekends`. Partial substitutions credit
 fractions. The score of a member is the sum of units of their shift intervals
-plus baseline and manual adjustments.
+plus manual adjustments.
 
 All datetimes are naive wall-clock values in the spreadsheet time zone.
 Internally they are minutes since 1970 with the wall clock treated as UTC, so
@@ -552,7 +553,8 @@ shift credited from its own `start`, whatever the stored snapshot says; the
 snapshot item at `S` records the roster and scores reached there (5.8).
 
 - `set`, `team`, `score`, `join`, `leave`, `exclude`, `include`: update state.
-  Baselines use projected scores at that instant.
+  A bare name scores the roster minimum of the projected scores at that
+  instant (3.4).
 - Kept `shift`: credit units of its scored interval to its assignee, unless
   pre-credited.
 - Slot: choose an assignee, credit the units, emit an unpinned `shift`.
@@ -1141,9 +1143,10 @@ core and writes cells; the row logic of the tools lives in `70_tools.js`.
   `expected/<rotation>.csv`. The test runs the core and compares. A second run
   on the output must reproduce it exactly.
 - Scenarios: fresh spreadsheet bootstrap; steady state; pin a future shift;
-  swap two assignees; vacation exclusion; join with each baseline; leave and
-  rejoin; team row diff; partial substitution with fill shift; stale run
-  resumes at the current grid boundary; tolerance and min_distance interplay;
+  swap two assignees; vacation exclusion; join at the roster minimum and
+  with a number; leave and rejoin; team row diff; partial substitution with
+  fill shift; stale run resumes at the current grid boundary; tolerance and
+  min_distance interplay;
   shuffle determinism across runs; period change via `set`; validation errors
   produce error rows and no other change; unassignable slot; snapshot deletion
   triggers full replay; mutual `repel` and `attract` between two rotations, a
@@ -1280,8 +1283,8 @@ help rows
 ```
 ROWS:
 shift: one member, or nobody
-team / score: name, name=baseline, name=number, name+=n, name-=n [, ...]
-join: name, name=baseline, name=number [, ...]
+team / score: name, name=number, name+=n, name-=n [, ...]; a bare name scores the roster minimum (a newcomer in team, anyone in score)
+join: name, name=number [, ...]; a bare name joins at the roster minimum
 leave: name [, name ...]
 exclude / include: name [, name ...]
 set: key, key=value

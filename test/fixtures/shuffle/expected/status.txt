@@ -30,7 +30,6 @@ next      bob               from 2026-09-14T09:00
   min_distance   0                       rotation
   tiebreak       shuffle                 rotation
   seed           3                       rotation
-  baseline       median                  default
   precredit      1ts                     default
   autopin        a:0                     rotation
   cal                                    default

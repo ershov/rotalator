@@ -388,32 +388,35 @@ test('tolerance widens the candidate band and order tiebreak walks the roster', 
   assert.deepEqual(shifts(out).map((s) => s[1]), ['alice', 'bob', 'carol', 'alice']);
 });
 
-test('team diff with baselines: leavers, joiners, adjustments and order', () => {
+test('team diff: leavers, bare newcomers at min, adjustments and order', () => {
   const first = run([R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=6w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), TEAM], '2026-10-05T10:00');
   const cells = cellsOf(first);
-  cells.push(R('', '2026-10-19T09:00', 'team', 'carol, dave=max, alice, erin, bob+=10'));
+  // At 10-19 the roster stands at alice 7, bob 7, carol 0: dave joins with 7, erin bare at the minimum 0, carol
+  // and alice keep their scores, bob gets +10.
+  cells.push(R('', '2026-10-19T09:00', 'team', 'carol, dave=7, alice, erin, bob+=10'));
   const out = run(cells, '2026-10-12T10:00');
+  assert.deepEqual(plain(out.errors), []);
   assert.deepEqual(shifts(out), [
     ['2026-10-05T09:00', 'alice', ''],
     ['2026-10-12T09:00', 'bob', ''],
     ['2026-10-19T09:00', 'carol', ''],
-    ['2026-10-26T09:00', 'dave', ''],
-    ['2026-11-02T09:00', 'alice', ''],
-    ['2026-11-09T09:00', 'erin', ''],
-    ['2026-11-16T09:00', 'carol', ''],
+    ['2026-10-26T09:00', 'erin', ''],
+    ['2026-11-02T09:00', 'carol', ''],
+    ['2026-11-09T09:00', 'dave', ''],
+    ['2026-11-16T09:00', 'alice', ''],
   ]);
   assert.deepEqual(scores(out.status.rotations[0].roster), [
     { name: 'carol', score: 0, projected: 14 },
     { name: 'dave', score: null, projected: 14 },
     { name: 'alice', score: 7, projected: 14 },
-    { name: 'erin', score: null, projected: 14 },
+    { name: 'erin', score: null, projected: 7 },
     { name: 'bob', score: 0, projected: 17 },
   ]);
   const shrunk = run(cellsOf(first).concat([R('', '2026-10-19T09:00', 'team', 'bob, alice')]), '2026-10-12T10:00');
   assert.deepEqual(shifts(shrunk).map((s) => s[1]), ['alice', 'bob', 'alice', 'bob', 'alice', 'bob', 'alice']);
 });
 
-test('join with each baseline and leave', () => {
+test('join bare at min or with a number, and leave', () => {
   const first = run([R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=6w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), TEAM], '2026-10-05T10:00');
   const scoresAfter = (extra, now) => {
     const out = run(cellsOf(first).concat(extra), now);
@@ -430,12 +433,10 @@ test('join with each baseline and leave', () => {
     assert.equal(ofType(out, 'snapshot')[0].what.split(', ')[2], 'carol=7');
     return out.status.rotations[0].roster.find((m) => m.name === 'dave').score;
   };
-  assert.equal(joined(''), 7);
-  assert.equal(joined('median'), 7);
-  assert.equal(joined('mean'), 14 / 3);
-  assert.equal(joined('min'), 0);
-  assert.equal(joined('max'), 7);
+  // At 10-19 the roster stands at alice 7, bob 7, carol 0: a bare dave joins at the minimum 0.
+  assert.equal(joined(''), 0);
   assert.equal(joined('2.5'), 2.5);
+  assert.equal(joined('7'), 7);
   const left = scoresAfter([R('', '2026-10-19T09:00', 'leave', 'carol')], '2026-10-12T10:00');
   assert.deepEqual(left.map((m) => m.name), ['alice', 'bob']);
 });
@@ -509,23 +510,24 @@ test('stateful errors: join of a member, leave of a stranger, no regeneration in
   assert.equal(ofType(stranger, 'shift').length, 0);
 });
 
-test('list rows: join, leave, exclude and include with several names; score with aggregates and bare names', () => {
+test('list rows: join, leave, exclude and include with several names; score with numbers and bare names', () => {
   const out = run([R('', '2026-10-05T09:00', 'set', 'period=1w, horizon=8w, tolerance=0, min_distance=0, skip_weekends=false, skip_holidays=false, autopin=a:0'), TEAM,
-    R('', '2026-10-12T09:00', 'join', 'dave=max, erin'),
+    R('', '2026-10-12T09:00', 'join', 'dave=7, erin'),
     R('', '2026-10-12T09:00', 'exclude', 'alice, bob', '', '3w', 'offsite'),
     R('', '2026-10-19T09:00', 'include', 'alice; bob'),
     R('', '2026-10-26T09:00', 'leave', 'alice, carol'),
-    R('', '2026-10-26T09:00', 'score', 'bob, dave=min, erin+=100'),
+    R('', '2026-10-26T09:00', 'score', 'bob, dave, erin+=100'),
   ], '2026-10-05T10:00');
   assert.deepEqual(plain(out.errors), []);
-  // 10-12: dave joins at max (7), erin at the median (3.5); alice and bob are excluded, carol takes the slot.
-  // 10-19: the include reopens alice and bob; bob (0) is lowest. 10-26: alice and carol leave, dave drops to
-  // min (3.5), erin gets +100; bob and dave then alternate.
-  assert.deepEqual(shifts(out).map((s) => s[1]), ['alice', 'carol', 'bob', 'dave', 'bob', 'dave', 'bob', 'dave']);
+  // 10-12: dave joins with 7, erin bare at the minimum 0; alice and bob are excluded, carol (0, next in order)
+  // takes the slot. 10-19: the include reopens alice and bob; bob and erin stand at 0, the order after carol
+  // reaches erin first. 10-26: alice and carol leave, the bare bob and dave are re-levelled to the minimum 0,
+  // erin gets +100; bob and dave then alternate.
+  assert.deepEqual(shifts(out).map((s) => s[1]), ['alice', 'carol', 'erin', 'bob', 'dave', 'bob', 'dave', 'bob']);
   assert.deepEqual(scores(out.status.rotations[0].roster), [
     { name: 'bob', score: 0, projected: 21 },
-    { name: 'dave', score: null, projected: 24.5 },
-    { name: 'erin', score: null, projected: 103.5 },
+    { name: 'dave', score: null, projected: 14 },
+    { name: 'erin', score: null, projected: 107 },
   ]);
   assert.deepEqual(cellsOf(run(cellsOf(out), '2026-10-05T10:00')), cellsOf(out));
   const partial = run([SET, TEAM, R('', '2026-10-12T09:00', 'exclude', 'alice, zed')], '2026-10-05T10:00');
