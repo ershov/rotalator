@@ -432,7 +432,7 @@ append its own block at the end.
 at which any rotation changes hands: the cell holds who starts then, `-` for
 a shift with nobody, and stays empty for rotations that do not change at that
 instant. A `--now--` row separates past from future, and the cell of each
-rotation's current shift is highlighted. A red cell is a shift that breaks a
+rotation's current shift is in bold. A red cell is a shift that breaks a
 relation in force at its start or starting during it: the same person on
 both sides of a `repel`
 or `repel!` (the rest window of `repel!` is not checked), or different

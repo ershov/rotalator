@@ -31,7 +31,6 @@ var COLOR_SETTINGS = '#c9daf8';
 var COLOR_ROSTER = '#d0e0e3';
 var COLOR_SNAPSHOT = '#d9ead3';
 var COLOR_COMMENT = '#fff2cc';
-var COLOR_CURRENT_CELL = COLOR_COMMENT;
 var COLOR_RELATION = '#d9ead3';
 var COLOR_DETACH = '#efefef';
 
@@ -172,9 +171,9 @@ class SheetsStorage {
     writeTextCells(sheet, row, rows);
   }
 
-  // Bold grey header rows, a green divider, red error rows, orange warning rows, yellow current cells and
-  // red error cells with a note, from the 0-based indexes the status module reports in table { headerRows,
-  // dividerRows, errorRows, warningRows, currentCells, errorCells }. Red wins over yellow on a cell.
+  // Bold grey header rows, a green divider, red error rows, orange warning rows, bold current cells and red
+  // error cells with a note, from the 0-based indexes the status module reports in table { headerRows,
+  // dividerRows, errorRows, warningRows, currentCells, errorCells }. A current cell in error is bold and red.
   formatTableRows(sheet, width, table) {
     var paint = function (indexes, color) {
       (indexes || []).forEach(function (i) { sheet.getRange(i + 1, 1, 1, width).setBackground(color); });
@@ -184,7 +183,7 @@ class SheetsStorage {
     paint(table.dividerRows, COLOR_DIVIDER);
     paint(table.errorRows, COLOR_ERROR);
     paint(table.warningRows, COLOR_WARNING);
-    (table.currentCells || []).forEach(function (c) { sheet.getRange(c.row + 1, c.col + 1).setBackground(COLOR_CURRENT_CELL); });
+    (table.currentCells || []).forEach(function (c) { sheet.getRange(c.row + 1, c.col + 1).setFontWeight('bold'); });
     (table.errorCells || []).forEach(function (c) { sheet.getRange(c.row + 1, c.col + 1).setBackground(COLOR_ERROR).setNote(c.note); });
   }
 

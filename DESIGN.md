@@ -684,10 +684,10 @@ the `{ row, col }` (0-based) of each rotation's shift covering `now` (the
 same rule as `current`), empty when `now` is unknown, and `errorCells`, the
 `{ row, col, note }` of the shifts that do not meet a relation in force (7,
 Unmet relations), the note naming each relation and partner (`repel with
-P`; several joined with `; `); the adapter paints them like error rows, red
-winning over the current cell's yellow, and sets the note. Adapters format them
-without knowing the layout while the CLI prints rows only. Both tabs are
-rewritten in full on every run, previews included.
+P`; several joined with `; `); the adapter paints them like error rows and
+sets the note; a current cell is set in bold, whether or not it is also
+red. Adapters format them without knowing the layout while the CLI prints
+rows only. Both tabs are rewritten in full on every run, previews included.
 
 ### 5.9 Properties
 
@@ -1231,9 +1231,9 @@ the same palette from its extension (13.5). Generated tabs
 and rewritten on every run; the adapter then
 applies bold and the light grey background to the `headerRows`, light green
 to the `dividerRows`, light red to the `errorRows`, light orange to the
-`warningRows` and light yellow to the `currentCells` reported with the rows
-(5.8). `#All shifts` columns are auto-sized to their content on
-every run (`autoResizeColumns`) and then widened to at least 120px, so names
+`warningRows` and bold to the `currentCells` reported with the rows (5.8).
+`#All shifts` columns are auto-sized to their content on every run
+(`autoResizeColumns`) and then widened to at least 120px, so names
 always fit and short names never leave needle-thin columns; columns beyond
 the last rotation are deleted when they hold nothing, like the ledger trim.
 In `#Help` the first line and every heading (a line ending with `:`) are
