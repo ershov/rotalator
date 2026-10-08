@@ -36,8 +36,8 @@ class Sheet {
   }
   clear() { this.values = []; return this; }
   clearNotes() { return this; }
-  setFrozenRows() { return this; } setColumnWidth() { return this; } setTabColor(c) { this.color = c; return this; }
-  setConditionalFormatRules(r) { this.rules = r; } deleteColumns() {} insertColumnsAfter() {} insertRowsAfter() {}
+  setFrozenRows(n) { this.frozenRows = n; return this; } setFrozenColumns(n) { this.frozenColumns = n; return this; } setColumnWidth() { return this; } getColumnWidth() { return 120; } autoResizeColumns() { return this; } setTabColor(c) { this.color = c; return this; }
+  setConditionalFormatRules(r) { this.rules = r; } deleteColumns(at, count) { this.deletedColumns = [at, count]; } insertColumnsAfter() {} insertRowsAfter() {}
   getIndex() { return this.ss.sheets.indexOf(this) + 1; }
 }
 
@@ -140,4 +140,16 @@ test('Set Up Spreadsheet formats whole columns and sets the theme font, so rows 
   bare.run('setupSpreadsheet()');
   assert.equal(bare.ss.appliedTheme, null);
   assert.equal(bare.ss.toasts.at(-1), 'Rotalator: Tabs, formatting and #Help are in place');
+});
+
+test('#All shifts freezes its start column', () => {
+  const { ss, run } = spreadsheet([new Sheet('#Status'), new Sheet('#All shifts')]);
+  run(`new SheetsStorage(SpreadsheetApp.getActiveSpreadsheet()).writeStatus({
+    mode: '', now: '', tabs: { rotations: [], regenerated: [], holidays: 0, global: 0, ignored: [] },
+    rotations: [], relations: [], warnings: [], errors: [], at: null, shifts: []
+  })`);
+  const shifts = ss.getSheetByName('#All shifts');
+  assert.equal(shifts.frozenRows, 1);
+  assert.equal(shifts.frozenColumns, 1);
+  assert.deepEqual(shifts.deletedColumns, [3, 24]);
 });

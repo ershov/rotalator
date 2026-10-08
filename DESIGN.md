@@ -1280,7 +1280,9 @@ to the `dividerRows`, light red to the `errorRows`, light orange to the
 `#All shifts` columns are auto-sized to their content on every run
 (`autoResizeColumns`) and then widened to at least 120px, so names
 always fit and short names never leave needle-thin columns; columns beyond
-the last rotation are deleted when they hold nothing, like the ledger trim.
+the last rotation are deleted when they hold nothing, like the ledger trim,
+except that an empty grid keeps one blank scrollable column. Its header row
+and left `start` column are frozen.
 In `#Help` the first line and every heading (a line ending with `:`) are
 bold; `helpHeadingRows()` in `70_tools.js` lists them.
 

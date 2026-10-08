@@ -231,7 +231,9 @@ class SheetsStorage {
     var sheet = this.ss.getSheetByName(ALL_SHIFTS_TAB);
     var width = shifts.rows[0].length;
     sheet.setFrozenRows(1);
-    trimColumns(sheet, width);
+    sheet.setFrozenColumns(1);
+    // Sheets requires one non-frozen column, even when no rotations are present.
+    trimColumns(sheet, Math.max(width, 2));
     // Columns fit their content, never narrower than the minimum.
     sheet.autoResizeColumns(1, width);
     for (var c = 1; c <= width; c++) {
